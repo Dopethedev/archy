@@ -59,6 +59,7 @@ class Assistant:
         self._stopping = False
         self._cancel = threading.Event()      # set when the user interrupts
         self._speaking_since = 0.0
+        self._levels_at = 0.0
         self.last_heard = ""
         self.turn_latency = 0.0               # spoken delay of the last turn
 
@@ -73,10 +74,28 @@ class Assistant:
         if self.hud:
             self.hud.publish({"type": "log", "who": who, "text": text})
 
-    def _publish_levels(self):
-        if self.hud:
-            self.hud.publish({"type": "level", "mic": round(min(self.mic.level, 1.0), 3),
-                              "out": round(min(self.player.level, 1.0), 3)})
+    LEVEL_MIN_GAP = 0.05                  # 20 a second; the orb smooths anyway
+
+    def _publish_levels(self, force: bool = False):
+        """Send the microphone and output level to the dashboard.
+
+        The pump runs every 10 ms and used to publish every time, which was a
+        hundred events a second of JSON over SSE: five times more traffic than
+        the eye can use, and enough to wake the browser constantly.
+        """
+        if not self.hud:
+            return
+        now = time.monotonic()
+        if not force and now - self._levels_at < self.LEVEL_MIN_GAP:
+            return
+        self._levels_at = now
+        self.hud.publish({"type": "level", "mic": round(min(self.mic.level, 1.0), 3),
+                          "out": round(min(self.player.level, 1.0), 3)})
+
+    def _publish_heard(self, text: str, partial: bool = False):
+        """Show what was understood, while it is still fresh."""
+        if self.hud and text:
+            self.hud.publish({"type": "heard", "text": text, "partial": partial})
 
     # ------------------------------------------------------------------ vad
     def speech_score(self, frame: np.ndarray) -> float:
@@ -103,6 +122,7 @@ class Assistant:
                 self._back_to_idle()
                 return
 
+            self._publish_heard(transcript)
             self.player.write(blip())
             self.log("sys", f"wake phrase: {transcript[:50]!r}")
             rest = self.speech_wake.strip_greeting(rest)
@@ -139,9 +159,14 @@ class Assistant:
     async def _speculate(self, audio: np.ndarray) -> str | None:
         """Transcribe while the user is still pausing, off the critical path."""
         try:
-            return await asyncio.to_thread(self.transcriber.transcribe, audio)
+            text = await asyncio.to_thread(self.transcriber.transcribe, audio)
         except Exception:
             return None
+        # the dashboard shows it straight away: the words are already final, so
+        # waiting for the turn to finish only makes the screen look dead
+        if text:
+            self._publish_heard(text, partial=True)
+        return text
 
     async def _process(self, audio: np.ndarray | None = None, text: str | None = None):
         deltas: queue.Queue[str | None] = queue.Queue()
@@ -158,6 +183,8 @@ class Assistant:
                 self._speaking_since = loop.time()
                 self.turn_latency = loop.time() - turn_started
                 self.log("sys", f"answered in {self.turn_latency:.1f}s")
+                if self.hud:
+                    self.hud.publish({"type": "turn", "latency": round(self.turn_latency, 2)})
                 loop.call_soon_threadsafe(self.set_state, "speaking")
 
         def delta_iter():
@@ -178,6 +205,7 @@ class Assistant:
                 return
             self.last_heard = text
             self.log("you", text)
+            self._publish_heard(text)
 
             tts = threading.Thread(target=self.speaker.say_stream,
                                    args=(delta_iter(), on_first_audio, cancel), daemon=True)
@@ -288,6 +316,15 @@ class Assistant:
             try:
                 frame = self.mic.frames.get_nowait()
             except queue.Empty:
+                # A deadline must not depend on audio arriving. Checking the
+                # listening timeout only when a frame turns up means a stalled
+                # microphone waits forever, and it made the test that covers
+                # this depend on frame timing rather than on the deadline.
+                if (self.state == "listening" and not started
+                        and loop.time() - listening_since > config.LISTEN_TIMEOUT_S):
+                    self.log("sys", "nothing said, going quiet")
+                    reset_buffers()
+                    self._back_to_idle()
                 self._publish_levels()
                 await asyncio.sleep(0.01)
                 continue

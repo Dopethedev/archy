@@ -198,8 +198,12 @@ class Hud:
             if kind in ("state", "stats"):
                 # the latest of these is the only one worth replaying
                 self.replay = [e for e in self.replay if e.get("type") != kind]
-            self.replay.append(event)
-            del self.replay[:-40]
+            # A level is a moment, not history. Keeping them would fill the whole
+            # replay buffer with the last half second of microphone level and
+            # evict the transcript, which is the part a fresh tab needs.
+            if kind != "level":
+                self.replay.append(event)
+                del self.replay[:-40]
             subscribers = list(self.subscribers)
         for chan in subscribers:
             try:

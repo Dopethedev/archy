@@ -57,6 +57,7 @@ for text, want in [("hey maki, so please open sober", "open sober"),
 class Harness(Assistant):
     """_check_wake with the microphone and voice replaced."""
     def __init__(self, transcript):
+        self.hud = None                     # the real assistant always has one
         self.speech_wake = SpeechWake()
         self.transcriber = type("T", (), {"transcribe": staticmethod(lambda a: transcript)})()
         self.state = "booting"

@@ -32,6 +32,12 @@ MARKDOWN = [
 ]
 SENTENCE_END = re.compile(r"[.!?](?:\s|$)")
 MIN_SENTENCE = 12
+# The first chunk is cut far earlier than the rest. Kokoro synthesises at
+# roughly real time, so waiting for a whole sentence before speaking costs
+# exactly that sentence in silence. A clause is enough to start on.
+FIRST_CHUNK_MIN = 12         # at least a couple of words, or it sounds clipped
+FIRST_CHUNK_MAX = 48         # no punctuation in sight: take this much and go
+CLAUSE_END = re.compile(r"[,;:]\s")
 
 
 def clean(text: str) -> str:
@@ -41,8 +47,19 @@ def clean(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def split_ready(buffer: str) -> tuple[str, str]:
-    """Peel off the part of the buffer that is safe to speak now."""
+def split_ready(buffer: str, first: bool = False) -> tuple[str, str]:
+    """Peel off the part of the buffer that is safe to speak now.
+
+    With first=True the bar is a clause rather than a sentence, because nothing
+    is audible yet and every millisecond of synthesis is a millisecond of the
+    user waiting. Once the voice has started, whole sentences are better: they
+    are smoother, and the delay no longer matters.
+    """
+    if first:
+        cut = _first_cut(buffer)
+        if cut > 0:
+            return buffer[:cut], buffer[cut:]
+
     match = None
     for m in SENTENCE_END.finditer(buffer):
         if m.end() >= MIN_SENTENCE:
@@ -54,6 +71,22 @@ def split_ready(buffer: str) -> tuple[str, str]:
         if cut > 0:
             return buffer[:cut], buffer[cut:]
     return "", buffer
+
+
+def _first_cut(buffer: str) -> int:
+    """Where the opening clause ends, or 0 to wait for more text.
+
+    The boundary lands after the punctuation and before the space, so the
+    clause keeps its comma (which is what makes the prosody right) and the
+    next chunk starts on a clean word.
+    """
+    for match in CLAUSE_END.finditer(buffer):
+        if match.end() >= FIRST_CHUNK_MIN:
+            return match.end() - 1
+    if len(buffer) >= FIRST_CHUNK_MAX:
+        cut = buffer.rfind(" ", 0, FIRST_CHUNK_MAX)
+        return cut if cut > 0 else 0
+    return 0
 
 
 class Speaker:
@@ -128,9 +161,10 @@ class Speaker:
         an interruption takes effect immediately rather than finishing the reply.
         """
         buffer = ""
+        first = True
 
         def emit_text(text: str) -> bool:
-            nonlocal on_spoken
+            nonlocal on_spoken, first
             if stop is not None and stop.is_set():
                 return False
             try:
@@ -141,6 +175,7 @@ class Speaker:
             if audio.size == 0:
                 return False
             self.player.write(audio)
+            first = False
             if on_spoken is not None:
                 on_spoken()
                 on_spoken = None
@@ -150,7 +185,7 @@ class Speaker:
             if stop is not None and stop.is_set():
                 return
             buffer += delta
-            ready, buffer = split_ready(buffer)
+            ready, buffer = split_ready(buffer, first=first)
             if ready and (text := clean(ready)):
                 emit_text(text)
         if tail := clean(buffer):

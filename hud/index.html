@@ -17,8 +17,12 @@
 
   <main>
     <section class="core">
-      <canvas id="orb" width="620" height="420"></canvas>
-      <div class="hint" id="hint">say &ldquo;hey maki&rdquo;</div>
+      <div class="orb-wrap"><canvas id="orb"></canvas></div>
+      <div class="caption">
+        <div class="line heard" id="heard"></div>
+        <div class="line said" id="said"></div>
+        <div class="line hint" id="hint">say &ldquo;hey maki&rdquo;</div>
+      </div>
     </section>
 
     <aside class="side">
@@ -29,6 +33,7 @@
         <div class="stat"><span>memory</span><b id="mem">--</b></div>
         <div class="bar"><i id="mem-bar"></i></div>
         <div class="stat"><span>temp</span><b id="temp">--</b></div>
+        <div class="stat"><span>reply delay</span><b id="delay">--</b></div>
       </div>
       <div class="panel log-panel">
         <h2>activity</h2>

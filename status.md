@@ -1,11 +1,24 @@
 # status
 
 ## State
-Working and in use. A turn takes **1.7 s** from the end of speech to the first
-spoken word. Verified live: wake phrase, transcription, a real shell command,
-and a spoken answer.
+Working and in use. A turn takes about **1.4 s** from the end of speech to the
+first spoken word, and start-up is a second or two. Verified live: wake phrase,
+transcription, a real shell command, a spoken answer, and the dashboard.
 
 Run it with `./run.sh`. Wake phrase is **"hey maki"** (just "maki" also works).
+
+Where a turn's time goes, measured on this machine:
+
+    1. transcribe what was said            0.40 s
+    2. the model's first words             0.47 s
+    3. speaking the opening clause         0.52 s
+                                           ------
+                                           1.39 s
+
+The third used to be 2.77 s, because the voice waited for a whole sentence
+before saying anything. Kokoro synthesises at roughly real time, so that was
+2.77 s of silence. It starts on the first clause now (`split_ready(first=True)`),
+which was worth more than everything else in this file put together.
 
 ## How it works end to end
     microphone -> silero VAD -> faster-whisper -> wake phrase check
@@ -44,10 +57,33 @@ microphone queue keeps draining in every state.
   is audible while it thinks and a stray word would silently eat the answer.
   `BARGE_GRACE_MS = 500`, and the audio that triggered it is kept so the first
   word is not swallowed.
+- The voice cuts its first chunk on a clause (`FIRST_CHUNK_MIN = 12`,
+  `FIRST_CHUNK_MAX = 48`) and every later chunk on a sentence. Nothing is lost or
+  duplicated doing it: a test joins the chunks and compares against the original.
 - The dashboard mints a token per run (`hud.token`) and refuses a request
   without it, from another origin, or under a foreign Host header. This is a
   control surface for something that runs commands, so loopback alone is not
   enough: any page in the browser can POST to a local port without a preflight.
+
+## The dashboard
+A page at `127.0.0.1:8731`, standard library only, fed by server-sent events. An
+orb whose colour follows the state, a live caption of what it heard and what it
+replied, machine stats, a reply-delay readout, and an activity log. Typing in the
+box is handled exactly like speech.
+
+Two things there are easy to get wrong, and were:
+- Levels were published every 10 ms, which is a hundred events a second of JSON:
+  five times more than the eye can use, and enough to wake the browser
+  constantly. Now 20 a second (`LEVEL_MIN_GAP`). Levels are also never put in the
+  replay buffer, so a tab opened later is told the current state and the recent
+  transcript instead of the last half second of microphone level.
+- The caption is fed by `_publish_heard`. The speculative transcript goes up as
+  soon as it exists, so words appear while you are still finishing the sentence;
+  waiting for the turn to complete made the screen look dead.
+
+On drawing: `hud/app.js` renders the orb as a dark sphere with a bright rim and
+one highlight, not a soft radial glow, because a glow reads as a blur. A
+screenshot of the running dashboard is the only honest way to judge it.
 
 ## The microphone (this cost the most time)
 - The headset's own Auto Gain Control makes the microphone audible at all, and is
@@ -79,6 +115,10 @@ microphone queue keeps draining in every state.
   prefix check allowed; it is `is_relative_to` now.
 - **A hung model process hung the assistant.** Nothing had a deadline, so a
   silent `pi` left it stuck in "thinking" with no way back but a restart.
+- **The same deadline trap, one state over.** The listening give-up timeout was
+  only checked when a frame arrived, so a stalled microphone would wait forever.
+  It also made the test covering it flaky rather than wrong, which is how it was
+  found: it passed twice and failed on the third run.
 - **Typing while it was talking ran two turns at once:** two voices, two
   answers, one state neither of them owned.
 - **Two writers to the durable store lost each other's change.** The assistant
@@ -106,11 +146,11 @@ microphone queue keeps draining in every state.
   deltas instead, or multi-core spinning is easy to both invent and miss.
 
 ## Testing
-`./tests/run_all.sh` runs 14 groups, all green, none needing a microphone:
-stt, tts, wake model, wake phrase, the pi bridge, the brain deadline, the pump
-state machine, the software AGC, frame ownership, weak-mic accuracy, session
-memory, the durable store, transcription serialisation, and the dashboard's
-security.
+`./tests/run_all.sh` runs 15 groups, all green, none needing a microphone:
+stt, tts, tts streaming latency, wake model, wake phrase, the pi bridge, the
+brain deadline, the pump state machine, the software AGC, frame ownership,
+weak-mic accuracy, session memory, the durable store, transcription
+serialisation, and the dashboard's security.
 
 Style worth keeping: tests measure the real object where possible, deliberately
 degrade audio to this microphone's actual level rather than testing on clean
