@@ -1,68 +1,68 @@
 # status
 
 ## Version
-0.1.0 — first working build.
+0.1.0 — working. Verified live: wake word, transcription, a real tool call, and
+a spoken answer.
 
 ## What works now
-- Wake word: "hey jarvis", openWakeWord, verified 0.998 on the phrase and
-  0.000-0.020 on other speech, silence and noise.
-- Speech to text: faster-whisper base.en, local, ~11x realtime (0.33 s to
-  transcribe 3.7 s of audio). Silence and known hallucinations are dropped.
-- Brain: `pi --mode rpc`, one long-lived process. 1.5 s to first token on a cold
-  start, 0.8 s for a normal turn, ~3 s when it runs a tool.
+- Wake word: "hey jarvis". Fires on the phrase at 0.998, quiet at 0.000-0.020
+  on other speech, silence and noise.
+- Speech to text: faster-whisper base.en, local, ~13x realtime. Silence and
+  known hallucinations are dropped before they can be spoken aloud.
+- Brain: `pi --mode rpc`, one long-lived process. 1.2 s to first token cold,
+  0.6 s for a normal turn, ~2.3 s when it runs a tool.
 - Voice: kokoro `bm_george` (British male), ~3x realtime, starts speaking at the
-  first sentence. piper `en_GB-alan` is the fallback if kokoro models are absent.
-- Audio: mic and speaker both through pipewire. Verified capture and playback;
-  the headset is closed-back so it cannot be loopback-tested.
+  first sentence while the model is still thinking.
 - Dashboard: stdlib http server, loopback only, SSE. Orb reacts to real input
-  and output levels, rotating rings, ripples on wake, activity log, CPU/RAM/temp.
-  Type into the box and it is handled exactly like speech.
-- Typed path end to end: `uv run python -m jarvis --say "hello"` produced a real
-  spoken reply through the speakers.
+  and output levels, activity log, CPU/RAM/temp. Typing in the box is handled
+  exactly like speech.
 
-## Not yet verified
-- The full spoken loop with a human voice. Every piece is tested in isolation and
-  the pipeline runs headless, but nobody has said "hey jarvis" into the mic and
-  been answered by this build yet.
-- Endpointing timings (850 ms of silence to end a turn) are untuned against real
-  speech habits.
-- Barge-in: it cannot currently be interrupted while speaking.
+## The microphone, since it cost the most time
+- The headset's own Auto Gain Control is what makes the microphone audible at
+  all, and it is also what feeds the mic back into the headphones. It stays off
+  and the gain is applied in software instead.
+- The raw headset mic is very weak (about 0.001 RMS), so software gain has to be
+  large. A naive AGC therefore amplified the room itself to speech level, and
+  the VAD then either fired on nothing or never ended a turn. Hence the noise
+  gate: audio below three times the measured floor passes through untouched.
+- Two silent faults found by testing rather than observation: MicCapture handed
+  out views into PortAudio's reused buffer (which turned a 20 second recording
+  into a constant tone), and the AGC had no gate.
+
+## Not verified
+- Endpointing against real speech habits. 850 ms of silence ends a turn, which
+  may prove short for a slow speaker.
+- Barge-in: it cannot be interrupted while speaking.
+- Long-run stability. Every session so far has been minutes, not hours.
 
 ## Known limits
-- **The Fantech headset mic currently emits digital silence.** Diagnosed as a
-  hardware mute, not software: the device is enumerated, ALSA capture is on at
-  100% / 31 dB with AGC enabled, pipewire reports the source RUNNING and
-  unmuted, the stream is confirmed `s16le 1ch 16000Hz`, and every client
-  including the assistant receives exact zeros. Check the headset's mute button
-  or boom position. `./run.sh --mic-test` shows it live.
-- Auto Gain Control on the headset was off and the raw gain was far too low;
-  it is now on. Without it speech arrived at 0.001 RMS, which no wake model or
-  VAD can work with.
-- Answers depend on the free Gemini quota through `pi`. When that runs dry,
-  replies degrade but the local speech parts keep working.
-- Whisper base.en occasionally mishears names; small.en is the upgrade if that
-  annoys (about 2x slower, still realtime).
-- Session memory resets on restart; `--session-dir` is used but `--continue` is
-  not wired up yet.
+- Answers depend on the free Gemini quota through `pi`. When that runs dry the
+  local speech parts keep working and only the thinking suffers.
+- Whisper base.en occasionally mishears names. small.en is the upgrade (about
+  2x slower, still realtime).
+- Conversation memory resets on restart: `--session-dir` is used but
+  `--continue` is not wired up yet.
+- The dashboard is not authenticated. It binds to 127.0.0.1 only.
 
 ## Environment
-- EndeavourOS, Hyprland/Wayland. Python 3.12.16 via uv (3.14 cannot build
+- EndeavourOS, Hyprland/Wayland. Python 3.12 via uv (3.14 cannot build
   ctranslate2). i5-12400, 12 threads, CPU only.
-- Mic: Fantech Leviosa (pipewire default source). Output: Fantech Leviosa,
-  unmuted, 80%.
+- Mic and output: Fantech Leviosa through pipewire. The headset hardware only
+  runs at 48 kHz, so every capture goes through pipewire's resampler; asking for
+  the raw device at 16 kHz fails outright.
 - Models: `models/kokoro-v1.0.onnx` (311 MB) + `voices-v1.0.bin` (27 MB),
-  `models/en_GB-alan-medium.onnx` (61 MB).
+  `models/en_GB-alan-medium.onnx` (61 MB) as the piper fallback.
 
 ## How to run
     ./run.sh                 voice loop + dashboard window
     ./run.sh --no-hud        console only
     ./run.sh --say "hi"      one typed message, no mic
-    ./run.sh --mic-test      live mic check, run this first if it ignores you
+    ./run.sh --mic-test      live mic check: level, speech score, what it heard
     ./run.sh --mic-test --input Fifine    check the other microphone
     ./tests/run_all.sh       every check that needs no microphone
 
 ## Next
-- Live mic test with a human voice.
-- Tune the endpointing.
+- Tune endpointing against real use.
 - Barge-in while it is speaking.
 - Persist conversation across restarts.
+- The email and security-sweep tools that were wanted at the start.
