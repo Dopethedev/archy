@@ -1,8 +1,9 @@
 """Entry point.
 
-  python -m jarvis                 talk to it (wake word: "hey jarvis")
+  python -m jarvis                 talk to it (wake phrase: "hey maki")
   python -m jarvis --open          the same, and open the dashboard
   python -m jarvis --say "hello"   no mic: send one message straight to the brain
+  python -m jarvis --mic-test      live microphone check
 """
 
 from __future__ import annotations
@@ -65,6 +66,8 @@ def main():
         config.TTS_VOICE = args.voice
     if args.port:
         config.HUD_PORT = args.port
+    if args.input:
+        config.INPUT_DEVICE = args.input      # applies to the real run, not just the check
 
     if args.say:
         asyncio.run(one_shot(args.say))

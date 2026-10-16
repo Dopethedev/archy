@@ -1,7 +1,7 @@
 [project]
 name = "jarvis"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "A local voice assistant: wake phrase, speech in, speech out, and a dashboard"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -10,6 +10,7 @@ dependencies = [
     "numpy>=2.5.4",
     "openwakeword>=0.4.0",
     "piper-tts>=1.8.0",
+    "scipy>=1.18.1",
     "sounddevice>=0.5.6",
 ]
 

@@ -7,12 +7,15 @@ whatever the mic hands over and only scores when it has a full window.
 from __future__ import annotations
 
 import os
+import re
 
 import numpy as np
 import openwakeword
 from openwakeword.model import Model
 
 from . import config
+
+EDGES = re.compile(r"^[^\w]+|[^\w]+$")        # punctuation stuck to a word
 
 
 class WakeWord:
@@ -77,26 +80,29 @@ class SpeechWake:
         self.aliases = tuple(a.strip().lower().rstrip("?,.!") for a in aliases)
 
     def match(self, text: str) -> tuple[bool, str]:
-        """Return (heard the phrase, whatever came after it)."""
+        """Return (heard the phrase, whatever came after it).
+
+        The part that follows is taken from the original text, so a request
+        keeps its capitalisation and its punctuation: "open github.com/Foo"
+        stays itself rather than coming back lowercased.
+        """
         if not text:
             return False, ""
         cleaned = text.strip()
-        lowered = cleaned.lower()
 
-        # the whole phrase, said plainly
-        at = lowered.find(self.phrase)
-        if at >= 0:
-            return True, cleaned[at + len(self.phrase):].strip(" ,.!?-")
+        # the whole phrase, said plainly. matched on the original string so the
+        # rest can be sliced out of it directly.
+        found = re.search(re.escape(self.phrase), cleaned, re.IGNORECASE)
+        if found:
+            # lstrip, not strip: only the separator after the name is ours to
+            # remove, the request keeps its own punctuation
+            return True, cleaned[found.end():].lstrip(" ,.!?-")
 
         # any spelling the recogniser produced for the distinctive word
-        words = lowered.replace(",", " ").replace("?", " ").replace(".", " ").split()
+        words = cleaned.split()
         for i, word in enumerate(words):
-            if word in self.aliases or word == self.key:
-                rest = " ".join(words[i + 1:]).strip()
-                # drop a greeting that ended up after the name
-                if rest.startswith(("hey", "hi", "ok", "okay")) and len(words) > i + 1:
-                    pass
-                return True, rest
+            if EDGES.sub("", word).lower() in self.aliases or EDGES.sub("", word).lower() == self.key:
+                return True, " ".join(words[i + 1:]).lstrip(" ,.!?-")
         return False, ""
 
     def strip_greeting(self, text: str) -> str:
@@ -104,4 +110,4 @@ class SpeechWake:
         for word in ("hey", "hi", "hello", "ok", "okay", "so", "please"):
             if text.lower().startswith(word + " "):
                 text = text[len(word) + 1:]
-        return text.strip(" ,.!?-")
+        return text.lstrip(" ,.!?-").rstrip()

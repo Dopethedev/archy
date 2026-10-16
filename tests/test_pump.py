@@ -100,6 +100,112 @@ class Harness(Assistant):
         self.set_state("idle")
 
 
+class TurnHarness(Harness):
+    """Counts how many turns are running at once.
+
+    The override behaves like the real _process: it installs its own cancel
+    token for the turn and stops as soon as that token is set, which is what an
+    interruption does.
+    """
+    def __init__(self):
+        super().__init__()
+        self.active = 0
+        self.peak = 0
+        self.turns = []
+        self.durations = []
+    async def _process(self, audio=None, text=None):
+        # like the real one: claim a fresh token for this turn, which is what
+        # makes an interruption unable to touch the turn that replaces it
+        token = threading.Event()
+        self._cancel = token
+        started = time.monotonic()
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        self.turns.append(text)
+        try:
+            for _ in range(80):
+                await asyncio.sleep(0.01)
+                if token.is_set():
+                    return
+        finally:
+            self.durations.append(time.monotonic() - started)
+            self.active -= 1
+
+
+async def scenario_typed_while_replying(name):
+    """Typing into the dashboard while a reply is playing.
+
+    This used to start a second turn alongside the first: two voices, two
+    answers, and a state neither of them owned.
+    """
+    h = TurnHarness()
+    h.state = "speaking"
+    h._speaking_since = 0.0
+    first = asyncio.create_task(h._process(text="a spoken request"))
+    await asyncio.sleep(0.05)
+
+    task = asyncio.create_task(h._pump())
+    await asyncio.sleep(0.05)
+    h._typed.put("a typed request")
+    await asyncio.sleep(0.4)
+
+    peak, turns, aborted = h.peak, h.turns, h.brain.aborted
+    still_running = h.active
+    durations = list(h.durations)
+    h._stopping = True
+    await asyncio.sleep(0.05)
+    for t in (first, task):
+        t.cancel()
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
+
+    # what matters is not that the overlap is zero for a few milliseconds while
+    # the first turn notices, but that it is cut short and one turn remains
+    ok = (aborted == 1 and still_running == 1 and turns == ["a spoken request", "a typed request"]
+          and durations and durations[0] < 0.3)
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: interrupted={aborted} "
+          f"turns_left={still_running} cut_short={durations[0] if durations else -1:.2f}s "
+          f"(a whole turn is 0.80s) turns={turns}")
+    return ok
+
+
+async def scenario_speech_while_thinking(name, enabled, frames=16, expect_interrupt=True):
+    """Talking while it is still thinking redirects it, instead of waiting.
+
+    Deliberately harder than interrupting a reply: nothing is audible while it
+    thinks, so a stray word would silently swallow the answer.
+    """
+    config.BARGE_ON_THINKING = enabled
+    h = Harness()
+    h.state = "thinking"
+
+    async def feed():
+        for _ in range(frames):
+            h.mic.frames.put(np.full(config.INPUT_BLOCK, 900, dtype=np.int16))
+            await asyncio.sleep(0)
+
+    task = asyncio.create_task(h._pump())
+    await feed()
+    await asyncio.sleep(0.2)
+    state, aborted = h.state, h.brain.aborted
+    h._stopping = True
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    heard = state == "listening" and aborted >= 1
+    ok = heard if (enabled and expect_interrupt) else (state == "thinking" and aborted == 0)
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: state={state} interrupted={aborted} "
+          f"after {frames * 30}ms of speech (BARGE_ON_THINKING={enabled})")
+    config.BARGE_ON_THINKING = True
+    return ok
+
+
 async def scenario(name, frames_plan, expect_end, timeout_s=None):
     if timeout_s is not None:
         config.LISTEN_TIMEOUT_S = timeout_s
@@ -351,6 +457,15 @@ async def main():
         ["speech"] * 4 + ["quiet"] * 40, False))
     results.append(await scenario_endless_noise(
         "unbroken noise for 60s -> recordings stay short", 60, config.WAKE_MAX_UTTERANCE_S + 0.5))
+    results.append(await scenario_typed_while_replying(
+        "typing while it talks -> still one turn at a time"))
+    results.append(await scenario_speech_while_thinking(
+        "talking over it while it thinks -> redirects it", True, frames=16))
+    results.append(await scenario_speech_while_thinking(
+        "a brief word while it thinks -> the answer survives", True,
+        frames=6, expect_interrupt=False))
+    results.append(await scenario_speech_while_thinking(
+        "that can be turned off", False, frames=16))
 
     print(f"\n{'ALL PASS' if all(results) else 'FAILURES'}")
     return 0 if all(results) else 1

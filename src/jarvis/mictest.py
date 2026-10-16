@@ -104,6 +104,10 @@ async def run(seconds: float | None = None, device: str | None = None, transcrib
                 speaking = True
                 silence_frames = 0
                 utterance.append(frame)
+                # a runaway here would grow without bound on a stuck mic, the
+                # same shape of bug that once cost three cores in the main loop
+                if len(utterance) * frame_ms > 1000 * config.MAX_UTTERANCE_S:
+                    utterance.pop(0)
             elif speaking:
                 utterance.append(frame)
                 silence_frames += 1

@@ -16,9 +16,13 @@ Usage from the shell:
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 import sys
+import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from . import config
@@ -46,9 +50,34 @@ class Memory:
 
     def _save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.facts, indent=2, sort_keys=True))
-        tmp.replace(self.path)              # atomic, so a crash cannot truncate it
+        # a unique temporary name: two writers, which happens whenever the
+        # assistant stores something while the shell does, must not share one
+        # staging file and hand each other half a document
+        tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            tmp.write_text(json.dumps(self.facts, indent=2, sort_keys=True))
+            tmp.replace(self.path)          # atomic, so a crash cannot truncate it
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    @contextmanager
+    def _exclusive(self):
+        """Serialise writers across processes, and re-read under the lock.
+
+        The assistant stores facts by running this module as a command, so a
+        second process is normal. Without this, a writer that read the file
+        before another one changed it would save its stale copy over the newer
+        one and the change would simply vanish.
+        """
+        lock_path = self.path.with_name(f".{self.path.name}.lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                self._load()
+                yield
+            finally:
+                fcntl.flock(fh, fcntl.LOCK_UN)
 
     # ------------------------------------------------------------------- api
     def set(self, key: str, value: str) -> None:
@@ -56,19 +85,21 @@ class Memory:
         value = str(value).strip()[:MAX_VALUE]
         if not key:
             raise ValueError("a fact needs a name")
-        self.facts[key] = {"value": value, "updated": int(time.time())}
-        self._save()
+        with self._exclusive():
+            self.facts[key] = {"value": value, "updated": int(time.time())}
+            self._save()
 
     def get(self, key: str) -> str | None:
         entry = self.facts.get(str(key).strip())
         return entry.get("value") if entry else None
 
     def forget(self, key: str) -> bool:
-        if str(key).strip() in self.facts:
+        with self._exclusive():
+            if str(key).strip() not in self.facts:
+                return False
             del self.facts[str(key).strip()]
             self._save()
             return True
-        return False
 
     def summary(self, limit: int = 40) -> str:
         """One readable line per fact, for putting in a prompt."""

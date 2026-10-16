@@ -360,7 +360,7 @@ wheels = [
 
 [[package]]
 name = "jarvis"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "faster-whisper" },
@@ -368,6 +368,7 @@ dependencies = [
     { name = "numpy" },
     { name = "openwakeword" },
     { name = "piper-tts" },
+    { name = "scipy" },
     { name = "sounddevice" },
 ]
 
@@ -378,6 +379,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.5.4" },
     { name = "openwakeword", specifier = ">=0.4.0" },
     { name = "piper-tts", specifier = ">=1.8.0" },
+    { name = "scipy", specifier = ">=1.18.1" },
     { name = "sounddevice", specifier = ">=0.5.6" },
 ]
 

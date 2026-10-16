@@ -19,6 +19,7 @@ _HALLUCINATIONS = {
     "thank you.", "thanks for watching!", "thank you for watching.",
     "you", ".", "please subscribe.", "subscribe.", "[blank_audio]",
     "[silence]", "(silence)", "bye.", "okay.", "yeah.",
+    "all right.", "alright.", "so.", "now.", "okay. all right.",
 }
 
 MIN_SAMPLES = int(0.2 * config.SAMPLE_RATE)
@@ -57,7 +58,14 @@ class Transcriber:
                 initial_prompt=config.WHISPER_HINT,   # bias towards his real vocabulary
                 no_speech_threshold=0.6,
                 log_prob_threshold=-1.0,
-                temperature=[0.0, 0.2, 0.4],          # fall back if a pass looks bad
+                # No temperature fallback. Whisper retries a decode at a higher
+                # temperature when the result looks bad, and on room noise every
+                # attempt looks bad, so it walks the whole chain and pays a full
+                # decode each time. Measured on this machine: 2.89s against 0.31s
+                # for noise, and 4.12s against 0.90s for real speech, for the
+                # same output. With beam search and no previous-text
+                # conditioning there is little for the retries to rescue.
+                temperature=config.WHISPER_TEMPERATURE,
             )
             text = " ".join(s.text.strip() for s in segments).strip()
 

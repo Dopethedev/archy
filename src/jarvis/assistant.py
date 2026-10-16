@@ -278,6 +278,10 @@ class Assistant:
             except queue.Empty:
                 typed = None
             if typed:
+                # typing while a reply is in progress must not run a second turn
+                # alongside it: two turns means two voices and a state nobody owns
+                if self.state in ("thinking", "speaking") and config.BARGE_IN:
+                    self._interrupt()
                 self.set_state("thinking")
                 asyncio.create_task(self._process(text=typed))
 
@@ -302,9 +306,13 @@ class Assistant:
             # While it is talking, stillness is the default and the user is the
             # exception. Both the wake word and plain speech cut it off. Its own
             # voice does not reach the microphone as speech (measured), so this
-            # cannot make it interrupt itself.
-            if state == "speaking":
-                in_grace = loop.time() - self._speaking_since <= config.BARGE_GRACE_MS / 1000.0
+            # cannot make it interrupt itself. The same applies while it is
+            # thinking, where nothing of ours is playing at all, so a long tool
+            # call can be redirected instead of waited out.
+            bargeable = state == "speaking" or (state == "thinking" and config.BARGE_ON_THINKING)
+            if bargeable:
+                in_grace = (state == "speaking"
+                            and loop.time() - self._speaking_since <= config.BARGE_GRACE_MS / 1000.0)
                 if not config.BARGE_IN or in_grace:
                     barge_history.clear()
                     barge_run = 0
@@ -319,8 +327,13 @@ class Assistant:
                     barge_run += 1
                 else:
                     barge_run = 0
+                # Cutting off a reply should be easy. Cutting off the thinking
+                # produces no sound at all, so a stray word would silently eat
+                # the answer and there would be nothing to explain the silence.
+                needed = (config.BARGE_FRAMES if state == "speaking"
+                          else config.BARGE_FRAMES_THINKING)
 
-                if woke or barge_run >= config.BARGE_FRAMES:
+                if woke or barge_run >= needed:
                     self._interrupt()
                     reset_buffers()
                     listening_since = loop.time()
@@ -458,6 +471,10 @@ class Assistant:
             self.speaker.say(self.greet)
             self.player.wait_drained(timeout=30)
             self.log("jarvis", self.greet)
+        # warming up and opening the microphone is not speech: leaving the state
+        # on "speaking" made the dashboard claim it was talking for the whole
+        # of start-up
+        self.set_state("booting")
         await self._warm_up()
         self.mic.start()
         self.mic.drain()
@@ -473,4 +490,6 @@ class Assistant:
         self.mic.stop()
         self.player.stop()
         self.brain.stop()
+        if self.hud:
+            self.hud.stop()
         print("\noffline.")

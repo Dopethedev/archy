@@ -1,6 +1,7 @@
 """Every tunable lives here, so behaviour can be changed without touching logic."""
 
 from pathlib import Path
+import os
 
 ROOT = Path(__file__).resolve().parents[2]          # ~/jarvis
 MODELS = ROOT / "models"
@@ -59,6 +60,9 @@ WHISPER_MODEL = "base.en"   # 0.48s against small.en's 1.36s, same accuracy
                             # once the vocabulary hint below is in place
 WHISPER_THREADS = 6
 WHISPER_BEAM = 5             # beam search instead of greedy: slower, clearly better
+# 0.0 disables the temperature fallback entirely. The retry chain is what makes
+# transcribing noise cost several times a successful transcription.
+WHISPER_TEMPERATURE = 0.0
 # Biases the recogniser towards words it would otherwise guess at. Whisper uses
 # this as context, so proper nouns and jargon stop coming out as lookalikes.
 WHISPER_HINT = (
@@ -83,7 +87,12 @@ PI_CONTINUE = True           # resume the previous conversation after a restart
 # and slightly more on every turn after it.
 PI_EXTENSIONS = False
 SESSION_DIR = ROOT / ".sessions"
-MEMORY_FILE = ROOT / "memory.json"      # durable facts, survives everything
+# overridable so the store can live elsewhere, and so tests can use their own
+MEMORY_FILE = Path(os.environ.get("JARVIS_MEMORY_FILE") or (ROOT / "memory.json"))
+# If pi says nothing at all for this long the turn is abandoned and the model
+# process is restarted. Without a deadline a hung brain leaves the assistant
+# stuck in "thinking" forever, with no way back except a restart.
+BRAIN_SILENCE_TIMEOUT_S = 45.0
 
 VOICE_RULES = (
     "Your words are spoken aloud through a speaker. You are talking to Bishesh. "
@@ -105,9 +114,14 @@ HUD_HOST = "127.0.0.1"
 HUD_PORT = 8731
 
 # ------------------------------------------------------------ interaction
-BARGE_IN = True              # saying "hey jarvis" while it talks cuts it off
+BARGE_IN = True              # saying "hey maki" while it talks cuts it off
 BARGE_ON_SPEECH = True       # so does simply starting to talk over it
+BARGE_ON_THINKING = True     # and the same while it is still thinking, so a long
+                             # tool call can be redirected instead of waited out
 BARGE_FRAMES = 5             # 150 ms of sustained speech counts as talking
+BARGE_FRAMES_THINKING = 13   # while thinking, nothing is playing, so a stray
+                             # 150 ms would silently swallow the answer. About
+                             # 400 ms of deliberate speech instead.
 BARGE_GRACE_MS = 500         # ignore the wake word this long after speech starts,
                              # so its own voice cannot trigger it
 BARGE_HISTORY_MS = 600       # audio kept so the first word survives an interruption

@@ -107,6 +107,25 @@ async def behaviour():
     await h._check_wake(audio, None)
     check("it acknowledges before handling", len(h.wrote) == 1 and h.wrote[0] > 0, f"blips={h.wrote}")
 
+    # the request must survive intact: the phrase is a prefix, not a rewrite
+    for spoken, want in [
+        ("Hey Maki, open Sober", "open Sober"),
+        ("hey maki open github.com/Foo", "open github.com/Foo"),
+        ("Hey Maki, what's the time?", "what's the time?"),
+        ("Macki, open Sober", "open Sober"),        # alias spelling, not the phrase
+        ("maki whats the weather in Kathmandu", "whats the weather in Kathmandu"),
+    ]:
+        h = Harness(spoken)
+        await h._check_wake(audio, None)
+        check(f"{spoken!r} -> {want!r}", h.processed == [want], f"processed={h.processed}")
+
+    # and it must not wake on ordinary words that merely resemble the name
+    for innocent in ["I am making dinner", "the market is closed", "make it stop"]:
+        h = Harness(innocent)
+        await h._check_wake(audio, None)
+        check(f"{innocent!r} does not wake it",
+              h.state == "idle" and not h.processed, f"state={h.state} processed={h.processed}")
+
 asyncio.run(behaviour())
 print(f"\n{'ALL PASS' if failures == 0 else str(failures) + ' FAILED'}")
 sys.exit(1 if failures else 0)

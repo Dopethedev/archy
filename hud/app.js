@@ -30,7 +30,8 @@ let ripples = [];
 let pulseAt = 0;
 
 /* ------------------------------------------------------------------ events */
-const source = new EventSource("/events");
+// the token rides in the URL because EventSource cannot send headers
+const source = new EventSource("/events?t=" + encodeURIComponent(window.JARVIS_TOKEN));
 
 source.onmessage = (event) => {
   let msg;
@@ -84,9 +85,11 @@ input.addEventListener("keydown", (e) => {
   const text = input.value.trim();
   input.value = "";
   addLog("you", text);
+  // the token is minted per run and only ever handed to the page that the
+  // server itself served, so a request from any other page cannot get in
   fetch("/say", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Jarvis-Token": window.JARVIS_TOKEN },
     body: JSON.stringify({ text }),
   }).catch(() => {});
 });

@@ -29,6 +29,9 @@ class PiBrain:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._queue: asyncio.Queue | None = None
         self._stderr: list[str] = []
+        # bumped on every start, so a reader thread belonging to a previous
+        # process cannot inject its "process ended" marker into the new queue
+        self._generation = 0
 
     @staticmethod
     def _system_prompt() -> str:
@@ -61,6 +64,8 @@ class PiBrain:
     # ------------------------------------------------------------------ setup
     async def start(self):
         config.SESSION_DIR.mkdir(exist_ok=True)
+        self._generation += 1
+        generation = self._generation
         self._loop = asyncio.get_running_loop()
         self._queue = asyncio.Queue()
 
@@ -83,18 +88,19 @@ class PiBrain:
             text=True,
             bufsize=1,
         )
-        threading.Thread(target=self._read_stdout, daemon=True).start()
-        threading.Thread(target=self._read_stderr, daemon=True).start()
+        threading.Thread(target=self._read_stdout, args=(generation,), daemon=True).start()
+        threading.Thread(target=self._read_stderr, args=(generation,), daemon=True).start()
 
-    def _read_stdout(self):
+    def _read_stdout(self, generation: int):
         assert self._proc and self._proc.stdout
         for line in self._proc.stdout:
             line = line.rstrip("\r\n")
-            if line:
+            if line and generation == self._generation:
                 self._loop.call_soon_threadsafe(self._queue.put_nowait, line)
-        self._loop.call_soon_threadsafe(self._queue.put_nowait, None)   # process ended
+        if generation == self._generation:
+            self._loop.call_soon_threadsafe(self._queue.put_nowait, None)   # process ended
 
-    def _read_stderr(self):
+    def _read_stderr(self, generation: int):
         assert self._proc and self._proc.stderr
         for line in self._proc.stderr:
             self._stderr.append(line.rstrip())
@@ -127,7 +133,16 @@ class PiBrain:
         self._send({"type": "prompt", "message": message})
         text = ""
         while True:
-            line = await self._queue.get()
+            # A deadline on silence, not on the whole turn: a long tool run that
+            # keeps talking is fine, a process that has stopped answering is not.
+            try:
+                line = await asyncio.wait_for(self._queue.get(),
+                                              timeout=config.BRAIN_SILENCE_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                self.abort()
+                raise BrainError(
+                    f"pi said nothing for {config.BRAIN_SILENCE_TIMEOUT_S:.0f}s"
+                ) from None
             if line is None:
                 raise BrainError("pi process ended unexpectedly")
             try:

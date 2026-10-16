@@ -12,3 +12,10 @@ wheels/
 # large voice models and local state
 models/
 .sessions/
+
+# voice samples, and local state that should never be committed
+voice-samples/
+memory.json
+.*.lock
+.*.tmp
+__pycache__/

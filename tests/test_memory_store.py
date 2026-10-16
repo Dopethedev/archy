@@ -3,7 +3,7 @@
 A memory layer that loses facts on restart, or that cannot be read by hand, or
 that never makes it into what the model sees, fails the point of existing.
 """
-import json, subprocess, sys, tempfile
+import json, os, subprocess, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, "/home/dope/jarvis/src")
 from jarvis import config
@@ -48,7 +48,36 @@ with tempfile.TemporaryDirectory() as tmp:
     check("and can be written again", Memory(path).get("recovered") == "yes")
 
     # atomic write leaves no partial file behind
-    check("no temporary file left over", not path.with_suffix(".tmp").exists())
+    check("no temporary file left over", not list(Path(tmp).glob("*.tmp")))
+
+    # Two writers that both loaded before either wrote. This models the real
+    # case: the assistant stores a fact by running this command, and that
+    # process reads the file at startup. Whichever writes second must not
+    # discard what it did not know about.
+    conc = Path(tmp) / "conc.json"
+    a = Memory(conc)
+    b = Memory(conc)                      # loaded before a writes anything
+    a.set("from_a", "1")
+    b.set("from_b", "2")
+    stored = Memory(conc).facts
+    check("a fact written by another writer is not lost",
+          {"from_a", "from_b"} <= set(stored), f"kept {sorted(stored)}")
+
+    # and the same thing under real concurrency, six processes at once
+    rush = Path(tmp) / "rush.json"
+    env = {**os.environ, "JARVIS_MEMORY_FILE": str(rush)}
+    procs = [subprocess.Popen(
+        [sys.executable, "-m", "jarvis.memory_store", "set", f"k{i}", f"v{i}"],
+        cwd="/home/dope/jarvis", env=env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for i in range(6)]
+    for p in procs:
+        p.wait(timeout=90)
+    stored = Memory(rush).facts
+    missing = [f"k{i}" for i in range(6) if f"k{i}" not in stored]
+    check("six writers at once all land", not missing,
+          f"missing {missing}" if missing else f"kept all six")
+    check("concurrent writes never corrupt the file",
+          set(json.loads(rush.read_text())) == set(stored))
 
 # the command the model is told to run must actually work
 out = subprocess.run([sys.executable, "-m", "jarvis.memory_store", "list"],
