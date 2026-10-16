@@ -1,93 +1,110 @@
 # status
 
-## Version
-0.1.0 — working. Verified live: wake word, transcription, a real tool call, and
-a spoken answer.
+## State
+Working and in use. A turn takes **1.7 s** from the end of speech to the first
+spoken word. Verified live: wake phrase, transcription, a real shell command,
+and a spoken answer.
 
-## What works now
-- Wake word: "hey jarvis". Fires on the phrase at 0.998, quiet at 0.000-0.020
-  on other speech, silence and noise.
-- Speech to text: faster-whisper **small.en** with beam search and a vocabulary
-  hint covering his actual words. Correct even when the audio is degraded to
-  this microphone's real level (about nine bits of resolution), in ~1 s.
-- Brain: `pi --mode rpc`, one long-lived process. 1.2 s to first token cold,
-  0.6 s for a normal turn, ~2.3 s when it runs a tool.
-- **Memory survives restarts.** `--continue` resumes the previous session, so
-  it still knows what you told it before it was restarted.
-- Voice: kokoro `bm_george` (British male), ~3x realtime, starts speaking at the
-  first sentence while the model is still thinking.
-- **Interruption.** Say "hey jarvis" while it is talking and it stops, or simply
-  start speaking over it. Three guards on the wake-word path: a 500 ms grace
-  period at the start so its own opening word cannot trigger it, a stricter
-  threshold (0.70) while speaking, and a fresh cancellation token per turn so an
-  interrupted turn cannot clear the state its replacement has moved into. The
-  speech path needs 150 ms of sustained speech, and the audio that triggered the
-  interruption is kept so the first word is not swallowed.
-- **Durable memory.** `memory.json`, read at startup and put into the prompt, so
-  it knows stored facts without spending a tool call. Written with
-  `python -m jarvis.memory_store set NAME "VALUE"`, read with `list`. Atomic
-  writes, and a corrupt file degrades to empty instead of taking it down.
-- **Transcription runs during your pause, not after it.** Once you have been
-  silent 400 ms the rest of the utterance is silence, so a transcript taken then
-  is already final. Measured: one transcription instead of two, about a second
-  off every turn. Discarded and redone if you start talking again.
-- Turns end after 700 ms of silence.
-- Dashboard: stdlib http server, loopback only, SSE. Orb reacts to real input
-  and output levels, activity log, CPU/RAM/temp. Typing in the box is handled
-  exactly like speech.
+Run it with `./run.sh`. Wake phrase is **"hey maki"** (just "maki" also works).
 
-## The microphone, since it cost the most time
-- The headset's own Auto Gain Control is what makes the microphone audible at
-  all, and it is also what feeds the mic back into the headphones. It stays off
-  and the gain is applied in software instead.
-- The raw headset mic is very weak (about 0.001 RMS), so software gain has to be
-  large. A naive AGC therefore amplified the room itself to speech level, and
-  the VAD then either fired on nothing or never ended a turn. Hence the noise
-  gate: audio below three times the measured floor passes through untouched.
-- Two silent faults found by testing rather than observation: MicCapture handed
-  out views into PortAudio's reused buffer (which turned a 20 second recording
-  into a constant tone), and the AGC had no gate.
+## How it works end to end
+    microphone -> silero VAD -> faster-whisper -> wake phrase check
+               -> pi --mode rpc (the brain, one long-lived process)
+               -> kokoro voice -> headphones
+               -> dashboard on 127.0.0.1:8731
 
-## Not measured / not verified
-- Endpointing against real speech habits. 700 ms of silence ends a turn.
-- Long-run stability. Every session so far has been minutes, not hours.
-- Whether its own voice through the room trips the wake word on a real
-  interruption. Its voice was measured as not reaching the microphone as speech
-  (VAD peak 0.129 during playback, zero frames over threshold), so it should not,
-  but that was one room at one volume.
+Four states: `idle` (waiting for the phrase), `listening` (armed, after the
+phrase), `thinking`, `speaking`. One audio pump drives all of it and never
+blocks: transcription, the model and the voice all run off the loop, so the
+microphone queue keeps draining in every state.
 
-## Model choice
-Benchmarked the alternatives that authenticated. `wandb/deepseek-ai/DeepSeek-V4.1-Flash`
-was already the fastest (1.23 s first token plain, 0.46 s when it goes straight
-to a tool). GLM-5.3-Flash was about twice as slow, and three other fast routes
-failed to authenticate. Beam search costs nothing measurable over greedy here
-(identical time, identical accuracy on degraded audio), so it stays on.
+## Current settings that matter (src/jarvis/config.py holds all of them)
+- `WAKE_MODE = "speech"`, `WAKE_PHRASE = "hey maki"`. The phrase is understood by
+  the recogniser, not matched by a trained model, because none exists for an
+  arbitrary name. This also lets "hey maki, open sober" work in one breath.
+- `WHISPER_MODEL = "base.en"`, beam 5, plus `WHISPER_HINT` listing his words.
+  Measured 0.48 s against small.en's 1.36 s with identical accuracy: the hint is
+  what fixed names like Sober and Kathmandu, not the larger model.
+- `END_SILENCE_MS = 700`, `WAKE_IDLE_SILENCE_MS = 500`, `SPECULATE_AT_MS = 300`.
+- Transcription is serialised by a lock. `WAKE_MAX_UTTERANCE_S = 10`,
+  `MAX_UTTERANCE_S = 20`.
+- `HARDWARE_AGC = False`, `SOFT_AGC = True` with a noise gate.
+- `PI_CONTINUE = True` (memory survives restarts), `PI_EXTENSIONS = False`,
+  `PI_THINKING = "off"`.
+- Barge-in: `BARGE_ON_SPEECH`, 150 ms of speech cuts it off, `BARGE_GRACE_MS = 500`,
+  and the audio that triggered it is kept so the first word is not swallowed.
 
-## Known limits
-- Answers depend on the free Gemini quota through `pi`. When that runs dry the
-  local speech parts keep working and only the thinking suffers.
-- The headset microphone is the weakest link: its raw output is very quiet, so
-  software gain has to be large. A better microphone would improve recognition
-  more than any further tuning.
-- The dashboard is not authenticated. It binds to 127.0.0.1 only.
+## The microphone (this cost the most time)
+- The headset's own Auto Gain Control makes the microphone audible at all, and is
+  also what feeds the mic back into the headphones. It stays **off**, and the
+  gain is applied in software instead.
+- The raw headset mic is very weak (~0.001 RMS, roughly nine bits of resolution),
+  so software gain must be large. A naive AGC amplified the room itself to speech
+  level and the VAD then fired on nothing. Hence the noise gate: audio below
+  three times the measured floor passes through untouched.
+- Capture always goes through pipewire. The headset hardware only runs at 48 kHz,
+  so asking PortAudio for the raw device at 16 kHz fails outright.
 
-## Environment
-- EndeavourOS, Hyprland/Wayland. Python 3.12 via uv (3.14 cannot build
-  ctranslate2). i5-12400, 12 threads, CPU only.
-- Mic and output: Fantech Leviosa through pipewire. The headset hardware only
-  runs at 48 kHz, so every capture goes through pipewire's resampler; asking for
-  the raw device at 16 kHz fails outright.
-- Models: `models/kokoro-v1.0.onnx` (311 MB) + `voices-v1.0.bin` (27 MB),
-  `models/en_GB-alan-medium.onnx` (61 MB) as the piper fallback.
+## Bugs found and fixed (worth remembering, they were all subtle)
+- **PortAudio frame aliasing.** `MicCapture` handed out views into the buffer the
+  audio thread reuses, so every queued frame silently became the newest block. A
+  20 s recording came back as a constant tone. Frames are copies now.
+- **Whisper hallucinating into silence.** Filtered before it can be spoken aloud.
+- **Runaway on room noise.** Continuous sound made the wake path record up to
+  25 s and transcribe it, and `asyncio.to_thread` ran several transcriptions at
+  once against a six-thread model: 271% CPU for minutes, silently. Transcription
+  is serialised and the wake path caps recordings at 10 s.
+- **Same mistake twice, both caught by tests:** a state-machine branch that reset
+  the state but not the recording buffers, so it re-fired once per queued frame
+  (1330 log lines in one second, then 1667 more). The pump now resets buffers on
+  any state change and explicitly in the drop path.
+- **pi's extensions** cost a few hundred ms per turn (donsetch spawns an MCP
+  binary and handshakes at session start). Off for the voice path.
 
-## How to run
+## Testing
+`./tests/run_all.sh` runs 12 groups, all green, none needing a microphone:
+stt, tts, wake model, wake phrase, the pi bridge, the pump state machine,
+the software AGC, frame ownership, weak-mic accuracy, session memory, the
+durable store, and transcription serialisation.
+
+Style worth keeping: tests measure the real object where possible, deliberately
+degrade audio to this microphone's actual level rather than testing on clean
+audio, and compare by behaviour (memory ownership, concurrency) rather than by
+value, because the AGC drives different inputs to the same level on purpose.
+
+## Operating it
     ./run.sh                 voice loop + dashboard window
     ./run.sh --no-hud        console only
     ./run.sh --say "hi"      one typed message, no mic
     ./run.sh --mic-test      live mic check: level, speech score, what it heard
-    ./run.sh --mic-test --input Fifine    check the other microphone
-    ./tests/run_all.sh       every check that needs no microphone
+    ./tests/run_all.sh       everything that needs no microphone
+
+Restarting (the kill pattern matters, a plain pattern also matches the shell
+running the command):
+
+    pkill -f '[j]arvis'
+    cd ~/jarvis && setsid nohup uv run python -u -m jarvis --open \
+        > /tmp/jarvis.log 2>&1 < /dev/null &
+
+Log lines carry timestamps, the tool command it ran, and how long each answer
+took to start speaking. `py-spy dump --pid <pid>` needs sudo and is the way to
+find a busy loop. Note `ps` %CPU is a lifetime average, so measure with
+`/proc/<pid>/stat` deltas before concluding anything is spinning.
+
+## Known limits
+- The headset microphone is the weakest link. Its raw output is very quiet, so a
+  lot of software gain rides on a thin signal. A better microphone would improve
+  recognition more than any further tuning.
+- No pretrained wake model for this name, so the phrase is understood rather than
+  matched: it will also accept just "maki", and it transcribes room speech
+  locally while looking for it (nothing leaves the machine).
+- Long-run stability is unproven. Sessions so far are minutes, not hours.
+- Answers depend on the free quota through pi. When it runs dry, the local speech
+  parts keep working and only the thinking suffers.
+- The dashboard is unauthenticated and binds to loopback only.
 
 ## Next
-- The email and security-sweep tools that were wanted at the start.
-- Improve microphone pickup at distance; the hardware is the remaining limit.
+- The email and security-sweep commands that were wanted at the start. Email needs
+  an app password; the sweep needs rkhunter/lynis/clamav installed.
+- If the wake phrase should require the full "hey maki" rather than "maki", that
+  is a one-line change in `SpeechWake.match`.
