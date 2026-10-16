@@ -120,16 +120,19 @@ class Speaker:
         except Exception as exc:
             print(f"[tts] synthesis failed: {exc}")
 
-    def say_stream(self, deltas, on_spoken=None):
+    def say_stream(self, deltas, on_spoken=None, stop=None):
         """Speak text as it arrives, one sentence at a time.
 
         on_spoken fires exactly once, when the first audio is queued, which is
-        the moment the assistant has actually started talking.
+        the moment the assistant has actually started talking. stop is polled so
+        an interruption takes effect immediately rather than finishing the reply.
         """
         buffer = ""
 
         def emit_text(text: str) -> bool:
             nonlocal on_spoken
+            if stop is not None and stop.is_set():
+                return False
             try:
                 audio = self.synth(text)
             except Exception as exc:
@@ -144,6 +147,8 @@ class Speaker:
             return True
 
         for delta in deltas:
+            if stop is not None and stop.is_set():
+                return
             buffer += delta
             ready, buffer = split_ready(buffer)
             if ready and (text := clean(ready)):

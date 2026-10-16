@@ -34,13 +34,17 @@ class PiBrain:
         self._loop = asyncio.get_running_loop()
         self._queue = asyncio.Queue()
 
+        args = [
+            config.PI_BIN, "--mode", "rpc",
+            "--session-dir", str(config.SESSION_DIR),
+            "--thinking", config.PI_THINKING,
+            "--append-system-prompt", config.VOICE_RULES,
+        ]
+        if config.PI_CONTINUE:
+            args.append("--continue")          # pick the conversation back up
+
         self._proc = subprocess.Popen(
-            [
-                config.PI_BIN, "--mode", "rpc",
-                "--session-dir", str(config.SESSION_DIR),
-                "--thinking", config.PI_THINKING,
-                "--append-system-prompt", config.VOICE_RULES,
-            ],
+            args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -120,6 +124,13 @@ class PiBrain:
 
     async def new_session(self):
         self._send({"type": "new_session"})
+
+    def abort(self):
+        """Stop whatever the agent is doing, used when the user interrupts."""
+        try:
+            self._send({"type": "abort"})
+        except Exception:
+            pass
 
     def stop(self):
         if self._proc:

@@ -30,7 +30,7 @@ WAKE_CONSECUTIVE = 2         # this many frames over threshold before waking
 
 # ------------------------------------------------------------ endpointing
 SPEECH_ON = 0.35             # silero probability that counts as speech
-END_SILENCE_MS = 850         # silence this long ends the utterance
+END_SILENCE_MS = 700         # silence this long ends the utterance
 MIN_SPEECH_MS = 250          # shorter than this is noise, not a request
 MAX_UTTERANCE_S = 25         # hard stop, so a stuck mic cannot grow forever
 PRE_ROLL_MS = 300            # audio kept from before speech was detected
@@ -57,6 +57,7 @@ PIPER_VOICE = "en_GB-alan-medium"
 # ----------------------------------------------------------------- brain
 PI_BIN = "pi"
 PI_THINKING = "off"          # voice wants speed, not deliberation
+PI_CONTINUE = True           # resume the previous conversation after a restart
 SESSION_DIR = ROOT / ".sessions"
 
 VOICE_RULES = (
@@ -72,3 +73,9 @@ VOICE_RULES = (
 # ------------------------------------------------------------------- hud
 HUD_HOST = "127.0.0.1"
 HUD_PORT = 8731
+
+# ------------------------------------------------------------ interaction
+BARGE_IN = True              # saying "hey jarvis" while it talks cuts it off
+BARGE_GRACE_MS = 500         # ignore the wake word this long after speech starts,
+                             # so its own voice cannot trigger it
+WAKE_DURING_SPEECH = 0.70    # stricter threshold while it is speaking

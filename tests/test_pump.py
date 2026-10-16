@@ -4,7 +4,7 @@ This is the one part that cannot be verified without a human at the mic, so
 it is exercised directly: does it wake, does it end the utterance when the
 speech stops, and does it give up when nothing is said.
 """
-import asyncio, queue, sys
+import asyncio, queue, sys, threading, time
 import numpy as np
 
 sys.path.insert(0, "/home/dope/jarvis/src")
@@ -21,12 +21,16 @@ class FakeWake:
     def __init__(self):
         self.fire_at = None
         self.pushes = 0
-    def push(self, frame):
+        self.score = 0.99
+    def push(self, frame, threshold=None):
         self.pushes += 1
         fire = self.fire_at is not None and self.pushes >= self.fire_at
-        if fire:
-            self.fire_at = None
-        return fire
+        if not fire:
+            return False
+        self.fire_at = None
+        # honour the threshold actually in force, as the real detector does
+        limit = config.WAKE_THRESHOLD if threshold is None else threshold
+        return self.score >= limit
     def reset(self):
         pass
 
@@ -37,11 +41,21 @@ class Harness(Assistant):
         self.hud = None
         self.state = "booting"
         self.mic = type("M", (), {"frames": queue.Queue(), "level": 0.0, "drain": lambda s: None})()
-        self.player = type("P", (), {"level": 0.0, "write": lambda s, a: None, "playing": lambda s: False})()
+        self.flushed = 0
+        self.aborted = 0
+        player = type("P", (), {"level": 0.0, "write": lambda s, a: None, "playing": lambda s: False,
+                                "flushed": 0,
+                                "flush": lambda s: setattr(s, "flushed", s.flushed + 1)})()
+        self.player = player
+        brain = type("B", (), {"aborted": 0,
+                               "abort": lambda s: setattr(s, "aborted", s.aborted + 1)})()
+        self.brain = brain
         self.wake = FakeWake()
         self._typed = queue.Queue()
         self._stopping = False
         self._vad = None
+        self._cancel = threading.Event()
+        self._speaking_since = 0.0
         self.trace = []
         self.ended = None
         self.score = 0.1
@@ -113,6 +127,34 @@ async def scenario(name, frames_plan, expect_end, timeout_s=None):
     return ok
 
 
+async def scenario_barge(name, speaking_ago, expect_interrupt, score=0.99):
+    """While it is speaking, does the wake word cut it off, and only sometimes?"""
+    h = Harness()
+    h.state = "speaking"
+    h._speaking_since = asyncio.get_running_loop().time() - speaking_ago
+    h.wake.fire_at = h.wake.pushes + 1
+    h.wake.score = score
+
+    task = asyncio.create_task(h._pump())
+    for _ in range(20):
+        h.mic.frames.put(np.full(config.INPUT_BLOCK, 900, dtype=np.int16))
+        await asyncio.sleep(0)
+    await asyncio.sleep(0.1)
+    h._stopping = True
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    interrupted = h.state == "listening" and h.player.flushed > 0 and h.brain.aborted > 0
+    ok = interrupted == expect_interrupt
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: state={h.state} flushed={h.player.flushed} "
+          f"aborted={h.brain.aborted} (interrupted={interrupted}, expected={expect_interrupt})")
+    return ok
+
+
 async def main():
     results = []
     results.append(await scenario(
@@ -129,6 +171,13 @@ async def main():
     results.append(await scenario(
         "wake, 5 frames of speech -> too short, ignored",
         ["wake"] + ["speech"] * 5 + ["quiet"] * 40, "none"))
+    print("  -- interruption --")
+    results.append(await scenario_barge(
+        "speaking, wake word well after the grace period -> interrupts", 1.5, True))
+    results.append(await scenario_barge(
+        "speaking, wake word during the grace period -> allowed through", 0.1, False))
+    results.append(await scenario_barge(
+        "speaking, a weak match below the strict threshold -> ignored", 1.5, False, score=0.4))
     print(f"\n{'ALL PASS' if all(results) else 'FAILURES'}")
     return 0 if all(results) else 1
 

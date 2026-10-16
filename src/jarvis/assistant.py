@@ -53,6 +53,8 @@ class Assistant:
         self._vad = None
         self._typed: queue.Queue[str] = queue.Queue()
         self._stopping = False
+        self._cancel = threading.Event()      # set when the user interrupts
+        self._speaking_since = 0.0
         self.last_heard = ""
 
     # ------------------------------------------------------------------- hud
@@ -79,6 +81,18 @@ class Assistant:
         return float(self._vad.predict(frame.astype(np.int16), frame_size=config.INPUT_BLOCK))
 
     # ------------------------------------------------------------- utterances
+    def _begin_listening(self):
+        """Enter listening state. Shared by the wake word and by an interruption."""
+        self.mic.drain()
+        self.set_state("listening")
+
+    def _interrupt(self):
+        """Cut off a reply in progress, because the user has spoken."""
+        self._cancel.set()
+        self.player.flush()
+        self.brain.abort()
+        self.log("sys", "interrupted")
+
     def _start_utterance(self, audio: np.ndarray, speech_ms: float):
         """Called when the user stops talking, or the recording hits its limit."""
         if speech_ms < config.MIN_SPEECH_MS:
@@ -91,11 +105,16 @@ class Assistant:
     async def _process(self, audio: np.ndarray | None = None, text: str | None = None):
         deltas: queue.Queue[str | None] = queue.Queue()
         spoken = threading.Event()
+        # a fresh token per turn: an interrupted turn must not be able to clear
+        # the state that its replacement has already moved into
+        cancel = threading.Event()
+        self._cancel = cancel
         loop = asyncio.get_running_loop()
 
         def on_first_audio():
             if not spoken.is_set():
                 spoken.set()
+                self._speaking_since = loop.time()
                 loop.call_soon_threadsafe(self.set_state, "speaking")
 
         def delta_iter():
@@ -108,6 +127,8 @@ class Assistant:
         try:
             if text is None:
                 text = await asyncio.to_thread(self.transcriber.transcribe, audio)
+            if cancel.is_set():
+                return
             if not text.strip():
                 self.log("sys", "no words in that, ignoring")
                 return
@@ -115,12 +136,14 @@ class Assistant:
             self.log("you", text)
 
             tts = threading.Thread(target=self.speaker.say_stream,
-                                   args=(delta_iter(), on_first_audio), daemon=True)
+                                   args=(delta_iter(), on_first_audio, cancel), daemon=True)
             tts.start()
 
             full = ""
             try:
                 async for kind, payload in self.brain.ask(text):
+                    if cancel.is_set():
+                        break
                     if kind == "delta":
                         deltas.put(payload)
                     elif kind == "tool":
@@ -130,9 +153,11 @@ class Assistant:
             finally:
                 deltas.put(None)
 
-            if full:
+            if full and not cancel.is_set():
                 self.log("jarvis", full)
             await asyncio.to_thread(tts.join, 180)
+            if cancel.is_set():
+                return                       # the interruption owns the state now
             await asyncio.to_thread(self.player.wait_drained, 180)
 
         except BrainError as exc:
@@ -146,7 +171,8 @@ class Assistant:
             self.speaker.say("Something went wrong there.")
             self.player.wait_drained(timeout=60)
         finally:
-            self._back_to_idle()
+            if not cancel.is_set():
+                self._back_to_idle()
 
     async def _restart_brain(self):
         try:
@@ -169,6 +195,14 @@ class Assistant:
         listening_since = 0.0
         frame_ms = 1000.0 * config.INPUT_BLOCK / config.SAMPLE_RATE
         preroll_max = max(1, int(config.PRE_ROLL_MS / frame_ms))
+        loop = asyncio.get_running_loop()
+
+        def reset_buffers():
+            nonlocal silence_ms, speech_ms, started
+            preroll.clear()
+            utterance.clear()
+            silence_ms = speech_ms = 0.0
+            started = False
 
         while not self._stopping:
             try:
@@ -186,25 +220,37 @@ class Assistant:
                 await asyncio.sleep(0.01)
                 continue
 
-            if self.state != "idle" and self.state != "listening":
+            state = self.state
+
+            # While it is talking, the only thing worth listening for is the
+            # wake word, which cuts the reply off. The grace period stops its
+            # own opening word from triggering it.
+            if state == "speaking":
+                if (config.BARGE_IN
+                        and loop.time() - self._speaking_since > config.BARGE_GRACE_MS / 1000.0
+                        and self.wake.push(frame, threshold=config.WAKE_DURING_SPEECH)):
+                    self._interrupt()
+                    reset_buffers()
+                    listening_since = loop.time()
+                    self._begin_listening()
+                continue
+
+            if state not in ("idle", "listening"):
                 continue                                    # drain, do not act
 
-            if self.state == "idle":
+            if state == "idle":
                 if self.wake.push(frame):
                     self.player.write(blip())
-                    self.mic.drain()
-                    preroll.clear(); utterance.clear()
-                    silence_ms = speech_ms = 0.0
-                    started = False
-                    listening_since = asyncio.get_running_loop().time()
+                    reset_buffers()
+                    listening_since = loop.time()
                     self.log("sys", "wake word")
-                    self.set_state("listening")
+                    self._begin_listening()
                 continue
 
             score = self.speech_score(frame)
             if not started:
                 # woken but nothing said: do not sit here for ever
-                if asyncio.get_running_loop().time() - listening_since > config.LISTEN_TIMEOUT_S:
+                if loop.time() - listening_since > config.LISTEN_TIMEOUT_S:
                     self.log("sys", "nothing said, going quiet")
                     self._back_to_idle()
                     continue
