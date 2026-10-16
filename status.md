@@ -207,8 +207,9 @@ into the assistant, so a page that could switch it on could listen to the room.
 `./tests/run_all.sh` runs 18 groups, all green, none needing a microphone:
 stt, tts, tts streaming latency, tts interruption, wake model, wake phrase, the
 pi bridge, the brain deadline, the pump state machine, the software AGC, the
-listening focus, frame ownership, weak-mic accuracy, session memory, the durable
-store, transcription serialisation, and the dashboard's security.
+listening focus, the microphone toggle, frame ownership, weak-mic accuracy,
+session memory, the durable store, transcription serialisation, and the
+dashboard's security.
 
 Style worth keeping: tests measure the real object where possible, deliberately
 degrade audio to this microphone's actual level rather than testing on clean
