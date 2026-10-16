@@ -6,6 +6,7 @@ intelligible rather than just plausible-sounding.
 """
 import time, wave, subprocess, sys
 import numpy as np
+from jarvis.audio import resample
 
 TEXT = "Systems online. Your cpu usage is twelve percent and I have opened it for you."
 
@@ -15,11 +16,10 @@ def save(path, int16, sr):
         w.writeframes(int16.tobytes())
 
 def load16k(path):
-    from scipy.signal import resample_poly
     with wave.open(path) as w:
         sr = w.getframerate()
         raw = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32)
-    return resample_poly(raw, 16000, sr)
+    return resample(raw, sr, 16000)
 
 results = {}
 

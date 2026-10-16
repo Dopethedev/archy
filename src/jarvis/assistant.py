@@ -28,6 +28,7 @@ from .brain import BrainError, PiBrain
 from .hud import Hud
 from .stt import Transcriber
 from .tts import Speaker
+from .vad import SpeechVAD
 from .wake import SpeechWake, WakeWord
 
 
@@ -108,9 +109,8 @@ class Assistant:
     # ------------------------------------------------------------------ vad
     def speech_score(self, frame: np.ndarray) -> float:
         if self._vad is None:
-            from openwakeword.vad import VAD
-            self._vad = VAD()
-        return float(self._vad.predict(frame.astype(np.int16), frame_size=config.INPUT_BLOCK))
+            self._vad = SpeechVAD()
+        return self._vad.speech(frame.astype(np.int16), frame_size=config.INPUT_BLOCK)
 
     # ------------------------------------------------------------- utterances
     async def _check_wake(self, audio: np.ndarray, transcript: str | None):

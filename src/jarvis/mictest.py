@@ -22,6 +22,7 @@ import numpy as np
 from . import config
 from .audio import MicCapture
 from .stt import Transcriber
+from .vad import SpeechVAD
 from .wake import WakeWord
 
 
@@ -48,8 +49,7 @@ async def run(seconds: float | None = None, device: str | None = None, transcrib
     mic = MicCapture()
     wake = WakeWord()
     stt = Transcriber() if transcribe else None
-    from openwakeword.vad import VAD
-    vad = VAD()
+    vad = SpeechVAD()
     mic.start()
 
     import sounddevice as sd

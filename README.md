@@ -48,12 +48,24 @@ src/jarvis/
   tts.py            text to speech
   brain.py          the pi process and its rpc protocol
   assistant.py      the state machine and the audio pump
+  vad.py            is this frame speech, on onnxruntime directly
   hud.py            the dashboard server
   memory_store.py   durable facts, readable and editable by hand
   mictest.py        the live microphone check
 hud/                the dashboard page
 models/             voice and wake models (not committed)
 ```
+
+Models are not in the repository. Four files, all free downloads:
+
+| file | where |
+|------|-------|
+| `kokoro-v1.0.fp16.onnx` | github.com/thewh1teagle/kokoro-onnx, release `model-files-v1.1` |
+| `voices-v1.0.bin` | same release |
+| `en_GB-alan-medium.onnx` + `.json` | piper voices, for the fallback engine |
+| `silero_vad.onnx` | copy out of openWakeWord's `resources/models`, or silero-vad's own release |
+
+Whisper downloads itself into the huggingface cache the first time it runs.
 
 `./run.sh --input Fifine` picks a different input device by name. Run
 `./tests/run_all.sh` before trusting a change.

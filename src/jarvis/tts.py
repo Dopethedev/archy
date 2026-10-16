@@ -18,9 +18,8 @@ import wave
 from pathlib import Path
 
 import numpy as np
-from scipy.signal import resample_poly
-
 from . import config
+from .audio import resample
 
 MARKDOWN = [
     (re.compile(r"```.*?```", re.S), " "),
@@ -146,9 +145,7 @@ class Speaker:
             text, voice=config.TTS_VOICE, speed=config.TTS_SPEED, lang=config.TTS_LANG
         )
         audio = np.asarray(samples, dtype=np.float32)
-        if sr != config.HUD_RATE:
-            audio = resample_poly(audio, config.HUD_RATE, sr).astype(np.float32)
-        return audio
+        return resample(audio, sr, config.HUD_RATE)
 
     def _synth_piper(self, text: str) -> np.ndarray:
         model = config.MODELS / f"{config.PIPER_VOICE}.onnx"
@@ -165,9 +162,7 @@ class Speaker:
                 sr = w.getframerate()
                 raw = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
             audio = raw.astype(np.float32) / 32768.0
-            if sr != config.HUD_RATE:
-                audio = resample_poly(audio, config.HUD_RATE, sr).astype(np.float32)
-            return audio
+            return resample(audio, sr, config.HUD_RATE)
         finally:
             Path(out).unlink(missing_ok=True)
 

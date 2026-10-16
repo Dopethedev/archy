@@ -7,8 +7,8 @@ the real reason words come out wrong.
 """
 import sys, time
 sys.path.insert(0, "/home/dope/jarvis/src")
+from jarvis.audio import resample  # noqa: E402
 import numpy as np
-from scipy.signal import resample_poly
 from kokoro_onnx import Kokoro
 from faster_whisper import WhisperModel
 from jarvis import config
@@ -18,7 +18,7 @@ WANT = {"jarvis", "open", "sober", "cpu", "usage"}
 
 kokoro = Kokoro("models/kokoro-v1.0.onnx", "models/voices-v1.0.bin")
 samples, sr = kokoro.create(PHRASE, voice="bm_george", speed=1.0, lang="en-gb")
-clean = resample_poly(np.asarray(samples, dtype=np.float32), 16000, sr)
+clean = resample(np.asarray(samples, dtype=np.float32), sr, 16000)
 clean = clean / np.abs(clean).max()
 print(f"phrase: {PHRASE!r}\n")
 

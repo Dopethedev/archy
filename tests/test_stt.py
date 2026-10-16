@@ -5,7 +5,7 @@ measures whisper against realistic speech rather than a robotic synthesizer.
 """
 import re, time, sys
 import numpy as np
-from scipy.signal import resample_poly
+from jarvis.audio import resample
 from faster_whisper import WhisperModel
 from kokoro_onnx import Kokoro
 
@@ -14,7 +14,7 @@ WANT = {"jarvis", "cpu", "usage", "sober"}
 
 kokoro = Kokoro("models/kokoro-v1.0.onnx", "models/voices-v1.0.bin")
 samples, sr = kokoro.create(PHRASE, voice="bm_george", speed=1.0, lang="en-gb")
-audio = resample_poly(np.asarray(samples, dtype=np.float32), 16000, sr)
+audio = resample(np.asarray(samples, dtype=np.float32), sr, 16000)
 audio = (audio / max(1e-6, np.abs(audio).max())).astype(np.float32)
 print(f"audio: {len(audio)/16000:.2f}s @16k")
 

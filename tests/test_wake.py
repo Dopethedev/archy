@@ -1,9 +1,9 @@
 """Wake word: does 'hey jarvis' fire on speech, and stay quiet on everything else?"""
 import numpy as np, os, sys
+from jarvis.audio import resample
 import openwakeword
 from openwakeword.model import Model
 from kokoro_onnx import Kokoro
-from scipy.signal import resample_poly
 
 MODELS = os.path.join(os.path.dirname(openwakeword.__file__), "resources", "models")
 HEY = os.path.join(MODELS, "hey_jarvis_v0.1.onnx")
@@ -15,7 +15,7 @@ k = Kokoro("models/kokoro-v1.0.onnx", "models/voices-v1.0.bin")
 
 def say(text):
     samples, sr = k.create(text, voice="bm_george", speed=1.0, lang="en-gb")
-    a = resample_poly(np.asarray(samples, dtype=np.float32), 16000, sr)
+    a = resample(np.asarray(samples, dtype=np.float32), sr, 16000)
     return (a / max(1e-6, np.abs(a).max()) * 30000).astype(np.int16)
 
 def peak_of(audio):

@@ -46,6 +46,7 @@ WAKE_MAX_UTTERANCE_S = 10    # a wake phrase is short. Without this, continuous
                              # room noise becomes endless long recordings that all
                              # get transcribed, which saturates the CPU for nothing
 WAKE_MODEL = "hey_jarvis_v0.1.onnx"
+VAD_MODEL = MODELS / "silero_vad.onnx"   # silero VAD, run on onnxruntime directly
 WAKE_THRESHOLD = 0.45        # other speech and noise measured at 0.000-0.020, so this
                              # is still far above anything that is not the phrase
 WAKE_CONSECUTIVE = 2         # this many frames over threshold before waking

@@ -1,7 +1,14 @@
 """Wake word detection.
 
-openWakeWord needs exactly 1280-sample (80 ms) frames, so this buffers
-whatever the mic hands over and only scores when it has a full window.
+Two ways to hear the phrase. The default understands it from a transcript, so
+nothing here runs. The other scores audio against a trained detector, and that
+is what openWakeWord is for.
+
+openWakeWord costs 159 MB of memory and 0.74 s of start-up, and it drags in
+scikit-learn and scipy behind it. It used to be imported at the top of this
+module, which meant the default path paid all of that for a detector it never
+asks to run. The import lives inside WakeWord now, so the price falls only on
+whoever chooses WAKE_MODE = "model".
 """
 
 from __future__ import annotations
@@ -10,8 +17,6 @@ import os
 import re
 
 import numpy as np
-import openwakeword
-from openwakeword.model import Model
 
 from . import config
 
@@ -20,6 +25,13 @@ EDGES = re.compile(r"^[^\w]+|[^\w]+$")        # punctuation stuck to a word
 
 class WakeWord:
     def __init__(self):
+        try:
+            import openwakeword
+            from openwakeword.model import Model
+        except ImportError as exc:                # pragma: no cover
+            raise RuntimeError(
+                "the model wake path needs openwakeword installed: uv add openwakeword"
+            ) from exc
         path = os.path.join(
             os.path.dirname(openwakeword.__file__),
             "resources", "models", config.WAKE_MODEL,
