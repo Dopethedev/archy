@@ -22,6 +22,7 @@ def make_mic():
     mic.level = 0.0
     mic.gain = 1.0
     mic._env = 0.0
+    mic._noise = 0.0          # the AGC's noise floor, part of its state
     return mic
 
 
