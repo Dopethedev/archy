@@ -58,6 +58,10 @@ PIPER_VOICE = "en_GB-alan-medium"
 PI_BIN = "pi"
 PI_THINKING = "off"          # voice wants speed, not deliberation
 PI_CONTINUE = True           # resume the previous conversation after a restart
+# The voice path needs no extension. donsetch spawns an MCP binary and does a
+# handshake at session start, which costs a few hundred ms on the first turn
+# and slightly more on every turn after it.
+PI_EXTENSIONS = False
 SESSION_DIR = ROOT / ".sessions"
 
 VOICE_RULES = (
@@ -67,6 +71,11 @@ VOICE_RULES = (
     "path unless asked; say the content in words. Do not describe your own "
     "reasoning or mention tools by name. If the user asks for something on this "
     "computer, do it with your tools and then say in one sentence what happened. "
+    "To launch an application, use flatpak run with the app id for flatpak apps "
+    "(sober is org.vinegarhq.Sober), otherwise gtk-launch with the desktop entry "
+    "name. Run the launch command straight away rather than checking whether it "
+    "or the machine state first: checking costs the user several seconds of "
+    "silence, and a failed launch can be corrected afterwards. "
     "If you do not know something, say so in one short sentence."
 )
 

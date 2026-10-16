@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import queue
 import threading
+import time
 
 import numpy as np
 
@@ -56,6 +57,7 @@ class Assistant:
         self._cancel = threading.Event()      # set when the user interrupts
         self._speaking_since = 0.0
         self.last_heard = ""
+        self.turn_latency = 0.0               # spoken delay of the last turn
 
     # ------------------------------------------------------------------- hud
     def set_state(self, state: str):
@@ -64,7 +66,7 @@ class Assistant:
             self.hud.publish({"type": "state", "value": state})
 
     def log(self, who: str, text: str):
-        print(f"  {who}: {text}")
+        print(f"[{time.strftime('%H:%M:%S')}] {who}: {text}", flush=True)
         if self.hud:
             self.hud.publish({"type": "log", "who": who, "text": text})
 
@@ -115,6 +117,8 @@ class Assistant:
             if not spoken.is_set():
                 spoken.set()
                 self._speaking_since = loop.time()
+                self.turn_latency = loop.time() - turn_started
+                self.log("sys", f"answered in {self.turn_latency:.1f}s")
                 loop.call_soon_threadsafe(self.set_state, "speaking")
 
         def delta_iter():
@@ -124,6 +128,7 @@ class Assistant:
                     return
                 yield item
 
+        turn_started = loop.time()
         try:
             if text is None:
                 text = await asyncio.to_thread(self.transcriber.transcribe, audio)
@@ -276,6 +281,19 @@ class Assistant:
                 audio = np.concatenate(utterance).astype(np.float32) / 32768.0
                 self._start_utterance(audio, speech_ms)
 
+    async def _warm_up(self):
+        """Run one real inference through the recogniser.
+
+        The first call carries the model's lazy initialisation. Doing it here
+        means the user's first question does not pay for it.
+        """
+        try:
+            noise = (np.random.default_rng(0).standard_normal(config.SAMPLE_RATE) * 0.02)
+            await asyncio.to_thread(self.transcriber.transcribe, noise.astype(np.float32))
+            print("[warm] recogniser ready")
+        except Exception as exc:
+            print(f"[warm] skipped: {exc}")
+
     # -------------------------------------------------------------------- run
     async def run(self):
         if self.hud:
@@ -287,6 +305,7 @@ class Assistant:
             self.speaker.say(self.greet)
             self.player.wait_drained(timeout=30)
             self.log("jarvis", self.greet)
+        await self._warm_up()
         self.mic.start()
         self.mic.drain()
         self.log("sys", "listening for the wake word")

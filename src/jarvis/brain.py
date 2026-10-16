@@ -42,6 +42,8 @@ class PiBrain:
         ]
         if config.PI_CONTINUE:
             args.append("--continue")          # pick the conversation back up
+        if not config.PI_EXTENSIONS:
+            args.append("--no-extensions")
 
         self._proc = subprocess.Popen(
             args,
@@ -113,7 +115,11 @@ class PiBrain:
                     text += chunk
                     yield ("delta", chunk)
             elif kind == "tool_execution_start":
-                yield ("tool", event.get("toolName", "tool"))
+                args = event.get("args") or {}
+                detail = args.get("command") or args.get("path") or next(
+                    (str(v) for v in args.values() if isinstance(v, str)), "")
+                label = event.get("toolName", "tool")
+                yield ("tool", f"{label}: {detail}"[:160] if detail else label)
             elif kind == "agent_end":
                 yield ("done", text.strip())
                 return
