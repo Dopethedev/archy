@@ -203,12 +203,46 @@ into the assistant, so a page that could switch it on could listen to the room.
 - `ps` reports a process's CPU averaged over its whole life. Use `/proc/<pid>/stat`
   deltas instead, or multi-core spinning is easy to both invent and miss.
 
+### Memory and disk, after the pass that removed two imports
+| | before | after |
+|---|---|---|
+| import chain to a working VAD | 186 MB, 0.75 s | **85 MB, 0.10 s** |
+| scipy, imported for one call | 107 MB, 660 ms | replaced by soxr (28 MB, and that is numpy) |
+| openWakeWord, imported for its VAD | 159 MB, 740 ms | replaced by `vad.py` on onnxruntime (10 MB) |
+| whole live process | 1064 MB | 1022 MB |
+
+The live figure barely moves because two thirds of it is the models themselves:
+860 MB of the 1022 MB is anonymous heap, which is kokoro's weights, whisper's
+weights and their buffers. The import savings show up in start-up, in every
+process that does not need the models, and in what a fresh process costs.
+
+Measured and deliberately not done:
+- **Whisper is already int8** (156 MB less than float32) and the rest is
+  ctranslate2's own overhead, so there is nothing left to win without a smaller
+  model, which would cost accuracy on this microphone of all things.
+- **fp16 kokoro** saves 159 MB but does not reproduce the fp32 audio. The
+  release claims 0.999 spectral correlation; measured 0.70, with a 1.9 percent
+difference in length, and the file is a different export version as well as a
+different precision. Both renders are in `voice-samples/kokoro_fp32.wav` and
+  `kokoro_fp16.wav` to be judged by ear, because that is the only honest test.
+- **av** costs 22 MB and cannot be dropped cleanly: faster-whisper declares it,
+  even though the only thing that uses it is file decoding we never call.
+- **openWakeWord on disk** is 170 MB with scikit-learn and scipy behind it, all
+  of it for `WAKE_MODE = "model"`, which is not the mode in use. Kept because the
+  mode is supported and its tests cover it.
+
+Disk: the project is 1.3 GB, of which `.venv` 672 MB, models 562 MB (including
+the 164 MB fp16 sample), the rest a few MB. The huggingface cache is 12 GB, and
+this project needs **139 MB** of it: whisper's base.en. The rest is from earlier
+experiments (a 4.3 GB Qwen TTS among them) and is not referenced by anything
+here.
+
 ## Testing
-`./tests/run_all.sh` runs 18 groups, all green, none needing a microphone:
+`./tests/run_all.sh` runs 19 groups, all green, none needing a microphone:
 stt, tts, tts streaming latency, tts interruption, wake model, wake phrase, the
 pi bridge, the brain deadline, the pump state machine, the software AGC, the
 listening focus, the microphone toggle, frame ownership, weak-mic accuracy,
-session memory, the durable store, transcription serialisation, and the
+session memory, the durable store, transcription serialisation, the VAD, and the
 dashboard's security.
 
 Style worth keeping: tests measure the real object where possible, deliberately
