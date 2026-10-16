@@ -27,6 +27,7 @@ class WakeWord:
         self._label = next(iter(self._model.models.keys()))
         self._buffer = np.zeros(0, dtype=np.int16)
         self._over = 0                        # consecutive frames above threshold
+        self.last_score = 0.0                 # most recent score, for diagnostics
 
     def push(self, frame: np.ndarray) -> bool:
         """Feed one mic frame. True the moment the wake phrase is heard."""
@@ -35,6 +36,7 @@ class WakeWord:
         while len(self._buffer) >= config.WAKE_FRAME:
             window, self._buffer = self._buffer[:config.WAKE_FRAME], self._buffer[config.WAKE_FRAME:]
             score = float(self._model.predict(window).get(self._label, 0.0))
+            self.last_score = score
             if score >= config.WAKE_THRESHOLD:
                 self._over += 1
                 if self._over >= config.WAKE_CONSECUTIVE:

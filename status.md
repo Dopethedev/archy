@@ -29,6 +29,15 @@
 - Barge-in: it cannot currently be interrupted while speaking.
 
 ## Known limits
+- **The Fantech headset mic currently emits digital silence.** Diagnosed as a
+  hardware mute, not software: the device is enumerated, ALSA capture is on at
+  100% / 31 dB with AGC enabled, pipewire reports the source RUNNING and
+  unmuted, the stream is confirmed `s16le 1ch 16000Hz`, and every client
+  including the assistant receives exact zeros. Check the headset's mute button
+  or boom position. `./run.sh --mic-test` shows it live.
+- Auto Gain Control on the headset was off and the raw gain was far too low;
+  it is now on. Without it speech arrived at 0.001 RMS, which no wake model or
+  VAD can work with.
 - Answers depend on the free Gemini quota through `pi`. When that runs dry,
   replies degrade but the local speech parts keep working.
 - Whisper base.en occasionally mishears names; small.en is the upgrade if that
@@ -48,6 +57,9 @@
     ./run.sh                 voice loop + dashboard window
     ./run.sh --no-hud        console only
     ./run.sh --say "hi"      one typed message, no mic
+    ./run.sh --mic-test      live mic check, run this first if it ignores you
+    ./run.sh --mic-test --input Fifine    check the other microphone
+    ./tests/run_all.sh       every check that needs no microphone
 
 ## Next
 - Live mic test with a human voice.

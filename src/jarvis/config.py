@@ -11,6 +11,7 @@ SAMPLE_RATE = 16000          # what whisper, silero and openWakeWord all want
 HUD_RATE = 48000             # what the headset's hardware actually runs at
 INPUT_BLOCK = 480            # 30 ms, silero's native frame
 WAKE_FRAME = 1280            # 80 ms, openWakeWord's native frame
+INPUT_DEVICE = None          # None = system default, or a device name substring
 
 # ------------------------------------------------------------- wake word
 WAKE_MODEL = "hey_jarvis_v0.1.onnx"

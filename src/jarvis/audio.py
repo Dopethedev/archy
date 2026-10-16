@@ -18,13 +18,45 @@ import sounddevice as sd
 from . import config
 
 
+def resolve_input(device):
+    """Turn a device name into one device.
+
+    A substring is convenient but often ambiguous: "Fifine" matches both the
+    hardware device and its JACK alias, and sounddevice refuses to guess. So
+    prefer an exact name, then the first candidate that actually opens at the
+    rate we need, and only then give up.
+    """
+    if device is None or isinstance(device, int):
+        return device
+
+    needle = str(device).lower()
+    candidates = [i for i, d in enumerate(sd.query_devices())
+                  if needle in d["name"].lower() and d["max_input_channels"] > 0]
+    if not candidates:
+        raise ValueError(f"no input device matching {device!r}")
+    if len(candidates) == 1:
+        return candidates[0]
+
+    for i in candidates:                                  # exact name wins
+        if sd.query_devices(i)["name"].lower() == needle:
+            return i
+    for i in candidates:                                  # else first that opens
+        try:
+            sd.check_input_settings(device=i, samplerate=config.SAMPLE_RATE, channels=1)
+            return i
+        except Exception:
+            continue
+    return candidates[0]
+
+
 class MicCapture:
     """16 kHz mono int16 frames, handed over a plain thread-safe queue."""
 
-    def __init__(self, blocksize: int = config.INPUT_BLOCK):
+    def __init__(self, blocksize: int = config.INPUT_BLOCK, device=None):
         self.frames: queue.Queue[np.ndarray] = queue.Queue(maxsize=200)
         self.level = 0.0                     # 0..1, for the HUD waveform
         self._blocksize = blocksize
+        self._device = resolve_input(device if device is not None else config.INPUT_DEVICE)
         self._stream: sd.InputStream | None = None
 
     def _callback(self, indata, frames, time_info, status):
@@ -41,9 +73,17 @@ class MicCapture:
             channels=1,
             dtype="int16",
             blocksize=self._blocksize,
+            device=self._device,
             callback=self._callback,
         )
         self._stream.start()
+
+    @property
+    def device_name(self) -> str:
+        try:
+            return sd.query_devices(self._device if self._device is not None else sd.default.device[0])["name"]
+        except Exception:
+            return str(self._device)
 
     def stop(self):
         if self._stream is not None:

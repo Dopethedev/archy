@@ -53,6 +53,10 @@ def main():
     parser.add_argument("--engine", choices=("kokoro", "piper"), help="override the speech engine")
     parser.add_argument("--voice", help="override the voice name")
     parser.add_argument("--port", type=int, help="dashboard port")
+    parser.add_argument("--mic-test", action="store_true",
+                        help="live microphone check: watch the level while you talk")
+    parser.add_argument("--input", help="input device name substring, for example Fifine")
+    parser.add_argument("--seconds", type=float, help="stop after this many seconds")
     args = parser.parse_args()
 
     if args.engine:
@@ -64,6 +68,14 @@ def main():
 
     if args.say:
         asyncio.run(one_shot(args.say))
+        return
+
+    if args.mic_test:
+        from .mictest import run as mic_run
+        try:
+            asyncio.run(mic_run(seconds=args.seconds, device=args.input))
+        except KeyboardInterrupt:
+            pass
         return
 
     hud = None if args.no_hud else Hud()
