@@ -38,6 +38,13 @@ MIN_SENTENCE = 12
 FIRST_CHUNK_MIN = 12         # at least a couple of words, or it sounds clipped
 FIRST_CHUNK_MAX = 48         # no punctuation in sight: take this much and go
 CLAUSE_END = re.compile(r"[,;:]\s")
+# A whole sentence is the natural unit to speak, but a long one is also a long
+# wait: synthesis runs at about real time, so a 200 character sentence is three
+# seconds of work. That matters most when a reply is interrupted, because the
+# chunk being synthesised at that moment keeps burning CPU and cannot be
+# cancelled. Capping the chunk bounds the waste.
+SENTENCE_MAX = 90
+SENTENCE_MIN = 40            # below this, prefer waiting for the sentence end
 
 
 def clean(text: str) -> str:
@@ -66,11 +73,12 @@ def split_ready(buffer: str, first: bool = False) -> tuple[str, str]:
             match = m
     if match is not None:
         return buffer[:match.end()], buffer[match.end():]
-    if len(buffer) > 200:                     # a run-on with no punctuation in sight
-        cut = buffer.rfind(" ", 0, 200)
+    if len(buffer) > SENTENCE_MAX:            # a run-on with no end in sight
+        cut = _tail_cut(buffer)
         if cut > 0:
             return buffer[:cut], buffer[cut:]
     return "", buffer
+
 
 
 def _first_cut(buffer: str) -> int:
@@ -79,14 +87,38 @@ def _first_cut(buffer: str) -> int:
     The boundary lands after the punctuation and before the space, so the
     clause keeps its comma (which is what makes the prosody right) and the
     next chunk starts on a clean word.
+
+    The clause has to be an early one. Taking the first comma wherever it falls
+    meant a sentence that only punctuates near the end was held back whole, so a
+    single late comma cost seconds before the first word was heard, which is the
+    exact thing this function exists to avoid.
     """
     for match in CLAUSE_END.finditer(buffer):
-        if match.end() >= FIRST_CHUNK_MIN:
-            return match.end() - 1
+        end = match.end() - 1
+        if FIRST_CHUNK_MIN <= end <= FIRST_CHUNK_MAX:
+            return end
     if len(buffer) >= FIRST_CHUNK_MAX:
         cut = buffer.rfind(" ", 0, FIRST_CHUNK_MAX)
         return cut if cut > 0 else 0
     return 0
+
+
+def _tail_cut(buffer: str) -> int:
+    """Where to break a sentence that is running long, or 0 to keep waiting.
+
+    A clause boundary is the least audible place to stop, so take the last one
+    inside the budget. Failing that, break at a space. The bound matters: a
+    clause far past the cap is no better than no clause at all.
+    """
+    cut = 0
+    for match in CLAUSE_END.finditer(buffer):
+        end = match.end() - 1
+        if SENTENCE_MIN <= end <= SENTENCE_MAX:
+            cut = end
+    if cut > 0:
+        return cut
+    cut = buffer.rfind(" ", 0, SENTENCE_MAX)
+    return cut if cut >= SENTENCE_MIN else 0
 
 
 class Speaker:
@@ -148,8 +180,9 @@ class Speaker:
         text = clean(text)
         if not text:
             return
+        generation = self.player.start_reply()
         try:
-            self.player.write(self.synth(text))
+            self.player.write(self.synth(text), generation)
         except Exception as exc:
             print(f"[tts] synthesis failed: {exc}")
 
@@ -162,6 +195,9 @@ class Speaker:
         """
         buffer = ""
         first = True
+        # Claim a generation for this reply. Anything still being synthesised for
+        # the previous one is refused from here on instead of arriving late.
+        generation = self.player.start_reply()
 
         def emit_text(text: str) -> bool:
             nonlocal on_spoken, first
@@ -174,7 +210,11 @@ class Speaker:
                 return False
             if audio.size == 0:
                 return False
-            self.player.write(audio)
+            # this call is where synthesis spent seconds, so the reply may have
+            # been interrupted while it ran. Refused audio must not count as
+            # spoken either, or the state machine says "speaking" with silence.
+            if not self.player.write(audio, generation):
+                return False
             first = False
             if on_spoken is not None:
                 on_spoken()

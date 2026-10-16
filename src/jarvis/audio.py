@@ -207,6 +207,7 @@ class Player:
         self._needs_fade = True
         self._stream: sd.OutputStream | None = None
         self._channels = channels
+        self._generation = 0
 
     def _callback(self, outdata, frames, time_info, status):
         out = np.zeros(frames, dtype=np.float32)
@@ -253,18 +254,35 @@ class Player:
             self._stream.close()
             self._stream = None
 
-    def write(self, samples: np.ndarray):
-        """Queue mono float32 audio for playback."""
+    def write(self, samples: np.ndarray, generation: int | None = None) -> bool:
+        """Queue mono float32 audio for playback. False if the reply is over.
+
+        A reply that gets interrupted is usually mid-synthesis at that moment,
+        and a sentence takes seconds to synthesise. Without the generation check
+        that sentence lands here just after the flush and is heard as a fragment
+        of the very answer the user cut off, mixed into the new one.
+        """
         with self._lock:
+            if generation is not None and generation != self._generation:
+                return False
             self._chunks.append(np.asarray(samples, dtype=np.float32))
+            return True
+
+    def start_reply(self) -> int:
+        """Begin a reply, invalidating any audio left over from a previous one."""
+        with self._lock:
+            self._generation += 1
+            return self._generation
 
     def playing(self) -> bool:
         with self._lock:
             return bool(self._chunks)
 
     def flush(self):
+        """Drop what is queued, and invalidate audio still being synthesised."""
         with self._lock:
             self._chunks.clear()
+            self._generation += 1
 
     def wait_drained(self, timeout: float = 60.0) -> bool:
         """Block until everything queued has actually left the speaker."""

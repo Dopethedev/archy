@@ -121,6 +121,24 @@ screenshot of the running dashboard is the only honest way to judge it.
   per-run token plus origin and host checks. The static handler also served
   files from any directory whose name merely started with `hud`, which a string
   prefix check allowed; it is `is_relative_to` now.
+- **Interrupting left a fragment of the old reply to play.** A reply is spoken
+  sentence by sentence and synthesis runs at about real time, so at the moment
+  the user cuts in the speaker is almost always mid-sentence. That chunk was
+  queued regardless of the flush, so seconds later a piece of the answer they had
+  just stopped arrived and played over the new one. Reported as "it lags and
+  glitches for a few seconds". `Player` now carries a generation: `flush()`
+  invalidates, `start_reply()` claims a new one, and a write from an older reply
+  is refused under the same lock. Audio that is refused does not count as spoken
+  either, so the state machine cannot report "speaking" over silence.
+- **A single uncancellable synthesis could be 3.1s of wasted work.** onnxruntime
+  cannot be interrupted mid-run, so whatever is being synthesised when the user
+  cuts in keeps burning CPU while the new reply waits its turn. A sentence is now
+  capped at `SENTENCE_MAX = 90` characters, cut at a clause or a space: measured
+  worst case falls from 3.13s to 1.22s.
+- **The opening chunk took the first comma wherever it fell.** A sentence that
+  only punctuates near the end was held back whole, so one late comma cost
+  seconds before the first word was heard, the exact thing the early cut exists
+  to prevent. The clause now has to fall inside `FIRST_CHUNK_MIN..FIRST_CHUNK_MAX`.
 - **A hung model process hung the assistant.** Nothing had a deadline, so a
   silent `pi` left it stuck in "thinking" with no way back but a restart.
 - **The give-up deadline was measured from a stale timestamp.** A task arms
@@ -168,11 +186,11 @@ screenshot of the running dashboard is the only honest way to judge it.
   deltas instead, or multi-core spinning is easy to both invent and miss.
 
 ## Testing
-`./tests/run_all.sh` runs 16 groups, all green, none needing a microphone:
-stt, tts, tts streaming latency, wake model, wake phrase, the pi bridge, the
-brain deadline, the pump state machine, the software AGC, the listening focus,
-frame ownership, weak-mic accuracy, session memory, the durable store,
-transcription serialisation, and the dashboard's security.
+`./tests/run_all.sh` runs 17 groups, all green, none needing a microphone:
+stt, tts, tts streaming latency, tts interruption, wake model, wake phrase, the
+pi bridge, the brain deadline, the pump state machine, the software AGC, the
+listening focus, frame ownership, weak-mic accuracy, session memory, the durable
+store, transcription serialisation, and the dashboard's security.
 
 Style worth keeping: tests measure the real object where possible, deliberately
 degrade audio to this microphone's actual level rather than testing on clean

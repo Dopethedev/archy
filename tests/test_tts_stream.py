@@ -43,13 +43,27 @@ CHARS_PER_SECOND = 40.0          # kokoro, measured at about 1x real time
 
 
 class FakePlayer:
+    """Models the real player: replies carry a generation, and audio from an
+    older one is refused."""
+
     def __init__(self):
         self.first_at = None
         self.chunks = []
-    def write(self, audio):
+        self.generation = 0
+        self.refused = 0
+
+    def start_reply(self):
+        self.generation += 1
+        return self.generation
+
+    def write(self, audio, generation=None):
+        if generation is not None and generation != self.generation:
+            self.refused += 1
+            return False
         if self.first_at is None:
             self.first_at = time.monotonic()
         self.chunks.append(audio.size)
+        return True
 
 
 def stream(first_cut: bool):
