@@ -382,15 +382,28 @@ class Assistant:
             # a wake phrase should resolve faster than a full request
             end_ms = (config.END_SILENCE_MS if state == "listening"
                       else config.WAKE_IDLE_SILENCE_MS)
+            # In the wake path there is no reason to record for long: a phrase is
+            # short. Dropping it here means continuous room noise cannot turn into
+            # a queue of long recordings all waiting to be transcribed.
+            limit_ms = (config.MAX_UTTERANCE_S * 1000 if state == "listening"
+                        else config.WAKE_MAX_UTTERANCE_S * 1000)
+            if state != "listening" and total_ms >= limit_ms:
+                self.log("sys", "that was not a wake phrase, dropping it")
+                # buffers must be cleared here too: the state stays idle, so the
+                # state-change reset below never fires and this would repeat on
+                # every remaining frame
+                reset_buffers()
+                self._back_to_idle()
+                continue
             if (spec_task is None
                     and silence_ms >= config.SPECULATE_AT_MS
-                    and total_ms < config.MAX_UTTERANCE_S * 1000 - 250):
+                    and total_ms < limit_ms - 250):
                 snapshot = np.concatenate(utterance).astype(np.float32) / 32768.0
                 spec_frames = len(utterance)
                 spec_valid = True
                 spec_task = asyncio.create_task(self._speculate(snapshot))
 
-            if silence_ms >= end_ms or total_ms >= config.MAX_UTTERANCE_S * 1000:
+            if silence_ms >= end_ms or total_ms >= limit_ms:
                 audio = np.concatenate(utterance).astype(np.float32) / 32768.0
                 transcript = None
                 # Use the speculative result only if nothing but silence followed

@@ -64,6 +64,7 @@ class Harness(Assistant):
         self.brain = brain
         self.wake = FakeWake()
         self.speech_wake = SpeechWake()
+        self.wake_audio = []
         self.transcriber = FakeTranscriber()
         self.processed = []
         self._typed = queue.Queue()
@@ -91,6 +92,9 @@ class Harness(Assistant):
             # state, which is what stops one recording being handled twice
     async def _process(self, audio=None, text=None):
         self.processed.append(text)               # None means it transcribed normally
+    async def _check_wake(self, audio, transcript):
+        self.wake_audio.append(len(audio))
+        self._back_to_idle()
     def _back_to_idle(self):
         self.trace.append("sys: idle")
         self.set_state("idle")
@@ -251,11 +255,48 @@ async def scenario_speech_idle(name, plan, expect_wake_check, expect_timeout_log
         pass
 
     spam = sum("nothing said" in line for line in h.trace)
-    checked = h.transcriber.calls > 0
+    checked = bool(h.wake_audio)          # did the wake phrase get looked for
     ok = spam == expect_timeout_logs and checked == expect_wake_check
     print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: timeout_logs={spam} "
           f"wake_checked={checked} (expected logs={expect_timeout_logs}, "
           f"checked={expect_wake_check})")
+    config.WAKE_MODE = "model"
+    return ok
+
+
+async def scenario_endless_noise(name, seconds, expect_max_s):
+    """Continuous sound must not become a queue of long recordings.
+
+    With nothing to end the utterance, the wake path recorded up to the general
+    limit and transcribed all of it, and several of those ran at once, which put
+    the machine at nearly three cores for minutes with nothing to show for it.
+    """
+    config.WAKE_MODE = "speech"
+    h = Harness()
+    h.state = "idle"
+    h.wake = None
+
+    frames = int(seconds * 1000 / 30)          # 30 ms frames of unbroken "speech"
+    task = asyncio.create_task(h._pump())
+    for _ in range(frames):
+        h.mic.frames.put(np.full(config.INPUT_BLOCK, 900, dtype=np.int16))
+        await asyncio.sleep(0)
+    await asyncio.sleep(0.3)
+    h._stopping = True
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    longest = max(h.wake_audio) / config.SAMPLE_RATE if h.wake_audio else 0.0
+    dropped = sum("dropping it" in line for line in h.trace)
+    # nothing that long should ever reach a transcription, and the rule that
+    # stops it has to be what stopped it
+    ok = longest == 0.0 and not h.wake_audio and 0 < dropped <= 6
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: {len(h.wake_audio)} recordings, "
+          f"dropped {dropped} times, longest {longest:.1f}s (limit {expect_max_s}s)")
     config.WAKE_MODE = "model"
     return ok
 
@@ -308,6 +349,8 @@ async def main():
     results.append(await scenario_speech_idle(
         "idle hears a blip -> not worth transcribing",
         ["speech"] * 4 + ["quiet"] * 40, False))
+    results.append(await scenario_endless_noise(
+        "unbroken noise for 60s -> recordings stay short", 60, config.WAKE_MAX_UTTERANCE_S + 0.5))
 
     print(f"\n{'ALL PASS' if all(results) else 'FAILURES'}")
     return 0 if all(results) else 1

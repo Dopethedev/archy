@@ -34,6 +34,9 @@ WAKE_PHRASE = "hey maki"
 WAKE_ALIASES = ("maki", "macki", "macky", "makki", "maky", "maki,",
                 "machi", "magi", "maggi", "moki", "makahi", "maki?")
 WAKE_IDLE_SILENCE_MS = 500   # silence that ends a wake-phrase utterance
+WAKE_MAX_UTTERANCE_S = 10    # a wake phrase is short. Without this, continuous
+                             # room noise becomes endless long recordings that all
+                             # get transcribed, which saturates the CPU for nothing
 WAKE_MODEL = "hey_jarvis_v0.1.onnx"
 WAKE_THRESHOLD = 0.45        # other speech and noise measured at 0.000-0.020, so this
                              # is still far above anything that is not the phrase
@@ -43,7 +46,7 @@ WAKE_CONSECUTIVE = 2         # this many frames over threshold before waking
 SPEECH_ON = 0.35             # silero probability that counts as speech
 END_SILENCE_MS = 700         # silence this long ends the utterance
 MIN_SPEECH_MS = 250          # shorter than this is noise, not a request
-MAX_UTTERANCE_S = 25         # hard stop, so a stuck mic cannot grow forever
+MAX_UTTERANCE_S = 20         # hard stop, so a stuck mic cannot grow forever
 PRE_ROLL_MS = 300            # audio kept from before speech was detected
 LISTEN_TIMEOUT_S = 12.0      # wake word, then silence: give up and go back to idle
 # Once the user has been silent this long, the rest of the utterance is silence,

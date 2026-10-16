@@ -7,6 +7,8 @@ so short or empty audio is rejected here rather than passed on.
 
 from __future__ import annotations
 
+import threading
+
 import numpy as np
 from faster_whisper import WhisperModel
 
@@ -30,6 +32,10 @@ class Transcriber:
             compute_type="int8",
             cpu_threads=config.WHISPER_THREADS,
         )
+        # The model is not meant to be run concurrently, and several overlapping
+        # transcriptions on a six-thread model thrash the whole machine instead
+        # of finishing quicker. One at a time.
+        self._lock = threading.Lock()
 
     def transcribe(self, audio: np.ndarray) -> str:
         """16 kHz float32 mono in, text out. Empty string when there is nothing to hear."""
@@ -42,17 +48,18 @@ class Transcriber:
             return ""
         audio = audio / peak                  # whisper expects roughly unit scale
 
-        segments, _ = self._model.transcribe(
-            audio,
-            beam_size=config.WHISPER_BEAM,
-            language="en",
-            condition_on_previous_text=False,
-            initial_prompt=config.WHISPER_HINT,   # bias towards his actual vocabulary
-            no_speech_threshold=0.6,
-            log_prob_threshold=-1.0,
-            temperature=[0.0, 0.2, 0.4],          # fall back if a pass looks bad
-        )
-        text = " ".join(s.text.strip() for s in segments).strip()
+        with self._lock:
+            segments, _ = self._model.transcribe(
+                audio,
+                beam_size=config.WHISPER_BEAM,
+                language="en",
+                condition_on_previous_text=False,
+                initial_prompt=config.WHISPER_HINT,   # bias towards his real vocabulary
+                no_speech_threshold=0.6,
+                log_prob_threshold=-1.0,
+                temperature=[0.0, 0.2, 0.4],          # fall back if a pass looks bad
+            )
+            text = " ".join(s.text.strip() for s in segments).strip()
 
         if text.lower() in _HALLUCINATIONS:
             return ""
