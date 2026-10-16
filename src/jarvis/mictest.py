@@ -64,7 +64,9 @@ async def run(seconds: float | None = None, device: str | None = None, transcrib
     window_level = 0.0
     peak_level = 0.0
     peak_score = 0.0
+    peak_vad = 0.0
     detections = 0
+    captured: list[np.ndarray] = []
     clipped = 0
     total_samples = 0
     utterance: list[np.ndarray] = []
@@ -94,6 +96,10 @@ async def run(seconds: float | None = None, device: str | None = None, transcrib
             peak_score = max(peak_score, score)
 
             prob = float(vad.predict(frame.astype(np.int16), frame_size=frame.size))
+            peak_vad = max(peak_vad, prob)
+            captured.append(frame)
+            if len(captured) > 16000 * 60 // max(1, frame.size):
+                captured.pop(0)                       # keep the last minute
             if prob >= config.SPEECH_ON:
                 speaking = True
                 silence_frames = 0
@@ -114,7 +120,8 @@ async def run(seconds: float | None = None, device: str | None = None, transcrib
             if now - last_print >= 0.4:
                 last_print = now
                 bar = "#" * min(56, int(window_level * 120))
-                print(f"  {window_level:6.4f} |{bar:<56}|  wake hits {detections}", flush=True)
+                print(f"  {window_level:6.4f} |{bar:<56}|  speech {prob:.2f}  wake hits {detections}",
+                      flush=True)
                 window_level = 0.0
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
@@ -122,12 +129,20 @@ async def run(seconds: float | None = None, device: str | None = None, transcrib
         mic.stop()
 
     clip_pct = 100.0 * clipped / max(1, total_samples)
-    print(f"\npeak level {peak_level:.4f}   clipping {clip_pct:.2f}% of samples")
+    print(f"\npeak level {peak_level:.4f}   peak speech score {peak_vad:.2f}   clipping {clip_pct:.2f}%")
     print(f"peak wake score {peak_score:.3f}   wake hits: {detections}")
-    if peak_level < 0.05 and detections == 0:
+    if captured:
+        try:
+            np.save("/tmp/mic_last.npy", np.concatenate(captured))
+            print("saved the last minute to /tmp/mic_last.npy for offline analysis")
+        except Exception as exc:
+            print(f"could not save audio: {exc}")
+    if peak_level < 0.005 and detections == 0:
         print("\nThe microphone barely heard anything. If you were talking, the problem")
-        print("is the mic, not the software. Check the boom is lowered and that there")
-        print("is no mute switch pressed on the headset or its cable.")
+        print("is the mic or its gain, not the software.")
+    if peak_wake := peak_score:
+        print(f"\nwake word {'fired' if detections else 'did not fire'} "
+              f"(best score {peak_wake:.3f}, threshold {config.WAKE_THRESHOLD})")
     if clip_pct > 1.0:
         print("\nWARNING: the signal is clipping. Turn Auto Gain Control back off:")
         print("  amixer -c 0 sset 'Auto Gain Control' off")

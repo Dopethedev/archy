@@ -13,18 +13,28 @@ INPUT_BLOCK = 480            # 30 ms, silero's native frame
 WAKE_FRAME = 1280            # 80 ms, openWakeWord's native frame
 INPUT_DEVICE = None          # None = system default, or a device name substring
 
+# The headset's own Auto Gain Control feeds the microphone back into its
+# headphones, so it stays off and the gain is applied here instead.
+HARDWARE_AGC = False
+SOFT_AGC = True              # track the level and boost it in software
+AGC_TARGET = 0.12            # speech RMS we aim for
+AGC_MAX_GAIN = 80.0          # never boost more than this
+AGC_FLOOR = 3e-5             # below this it is silence, so do not amplify it
+AGC_GATE_FACTOR = 3.0        # only boost audio this far above the noise floor
+MIC_GAIN = 1.0               # fixed extra gain, used when SOFT_AGC is off
+
 # ------------------------------------------------------------- wake word
 WAKE_MODEL = "hey_jarvis_v0.1.onnx"
 WAKE_THRESHOLD = 0.55
 WAKE_CONSECUTIVE = 2         # this many frames over threshold before waking
 
 # ------------------------------------------------------------ endpointing
-SPEECH_ON = 0.50             # silero probability that counts as speech
+SPEECH_ON = 0.35             # silero probability that counts as speech
 END_SILENCE_MS = 850         # silence this long ends the utterance
 MIN_SPEECH_MS = 250          # shorter than this is noise, not a request
 MAX_UTTERANCE_S = 25         # hard stop, so a stuck mic cannot grow forever
 PRE_ROLL_MS = 300            # audio kept from before speech was detected
-LISTEN_TIMEOUT_S = 6.0       # wake word, then silence: give up and go back to idle
+LISTEN_TIMEOUT_S = 12.0      # wake word, then silence: give up and go back to idle
 
 # ------------------------------------------------------- speech to text
 WHISPER_MODEL = "base.en"

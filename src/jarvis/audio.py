@@ -55,12 +55,66 @@ class MicCapture:
     def __init__(self, blocksize: int = config.INPUT_BLOCK, device=None):
         self.frames: queue.Queue[np.ndarray] = queue.Queue(maxsize=200)
         self.level = 0.0                     # 0..1, for the HUD waveform
+        self.gain = 1.0                      # what the software AGC is currently applying
         self._blocksize = blocksize
         self._device = resolve_input(device if device is not None else config.INPUT_DEVICE)
+        self._env = 0.0                      # slow running RMS, drives the AGC
+        self._noise = 0.0                    # noise floor estimate, drives the gate
         self._stream: sd.InputStream | None = None
 
+    def _apply_gain(self, mono: np.ndarray) -> np.ndarray:
+        """Boost the microphone in software.
+
+        The headset's own AGC loops the mic into the headphones, so it is left
+        off and this replaces it. Attack is slow and release is slower, which
+        keeps the level steady without pumping. Silence is never amplified, or
+        the noise floor would start looking like speech to the VAD.
+        Silent rule: never hand out a view into PortAudio's buffer. That buffer
+        is reused by the audio thread on the very next callback, so a queued
+        view would silently turn into a copy of whatever was played last. Every
+        path here therefore returns an independent array.
+        """
+        mono = np.array(mono, dtype=np.int16, copy=True)
+        if not config.SOFT_AGC:
+            if config.MIC_GAIN == 1.0:
+                return mono
+            return np.clip(mono.astype(np.float32) * config.MIC_GAIN, -32768, 32767).astype(np.int16)
+
+        x = mono.astype(np.float32) / 32768.0
+        rms = float(np.sqrt(np.mean(x * x)))
+        # envelope rises instantly and falls slowly, so a sudden loud sound is
+        # seen immediately instead of being amplified at the old quiet gain
+        self._env = max(0.97 * self._env + 0.03 * rms, rms)
+
+        # Noise floor: drops towards quiet audio quickly and climbs only very
+        # slowly, so a long speech does not drag it upwards. The first frame
+        # sets it outright, otherwise the opening seconds of room noise would
+        # be amplified before the estimate caught up.
+        if self._noise <= 0.0:
+            self._noise = rms
+        elif rms < self._noise:
+            self._noise += (rms - self._noise) * 0.5
+        else:
+            self._noise += (rms - self._noise) * 0.0004
+
+        # The gate is the whole point. Without it the room noise itself gets
+        # amplified to speech level, the VAD believes the room is talking, and
+        # every turn either fires on nothing or never ends.
+        gate = max(config.AGC_FLOOR, self._noise * config.AGC_GATE_FACTOR)
+        if self._env < gate:
+            self.gain = max(1.0, self.gain * 0.9)     # below the gate: do not boost
+            return mono
+
+        target = max(1.0, min(config.AGC_TARGET / self._env, config.AGC_MAX_GAIN))
+        if target < self.gain:
+            self.gain = target                # cut instantly, so loud audio never clips
+        else:
+            self.gain += (target - self.gain) * 0.08   # ease up gently when quiet
+        boosted = np.clip(x * self.gain * 32768.0, -32768, 32767)
+        return boosted.astype(np.int16)
+
     def _callback(self, indata, frames, time_info, status):
-        mono = indata[:, 0].copy()
+        mono = self._apply_gain(indata[:, 0])
         self.level = float(np.sqrt(np.mean((mono.astype(np.float64) / 32768.0) ** 2)) * 4.0)
         try:
             self.frames.put_nowait(mono)
@@ -68,6 +122,8 @@ class MicCapture:
             pass                              # dropping a frame beats stalling the audio thread
 
     def start(self):
+        if not config.HARDWARE_AGC:
+            self._disable_hardware_agc()
         self._stream = sd.InputStream(
             samplerate=config.SAMPLE_RATE,
             channels=1,
@@ -77,6 +133,15 @@ class MicCapture:
             callback=self._callback,
         )
         self._stream.start()
+
+    @staticmethod
+    def _disable_hardware_agc():
+        """Keep the card's own AGC off: it is what loops the mic into the headphones."""
+        import subprocess
+        for card in range(4):
+            for control in ("Auto Gain Control",):
+                subprocess.run(["amixer", "-c", str(card), "cset", f"name={control}", "off"],
+                               capture_output=True, timeout=5)
 
     @property
     def device_name(self) -> str:
