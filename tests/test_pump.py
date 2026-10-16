@@ -52,7 +52,7 @@ class Harness(Assistant):
     def __init__(self):
         self.hud = None
         self.state = "booting"
-        self.mic = type("M", (), {"frames": queue.Queue(), "level": 0.0, "drain": lambda s: None})()
+        self.mic = type("M", (), {"frames": queue.Queue(), "level": 0.0, "drain": lambda s: None, "set_focus": lambda s, on: None})()
         self.flushed = 0
         self.aborted = 0
         player = type("P", (), {"level": 0.0, "write": lambda s, a: None, "playing": lambda s: False,
@@ -203,6 +203,77 @@ async def scenario_speech_while_thinking(name, enabled, frames=16, expect_interr
     print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: state={state} interrupted={aborted} "
           f"after {frames * 30}ms of speech (BARGE_ON_THINKING={enabled})")
     config.BARGE_ON_THINKING = True
+    return ok
+
+
+async def scenario_too_short_keeps_listening(name):
+    """A blip while listening must not end the turn outright.
+
+    The tail of the wake phrase, or a cough, used to be enough to send it back
+    to idle, so a request that started a moment later was simply not heard.
+    """
+    h = Harness()
+    h.state = "idle"
+
+    async def feed():
+        h.wake.fire_at = h.wake.pushes + 1
+        h.mic.frames.put(np.full(config.INPUT_BLOCK, 100, dtype=np.int16))
+        await asyncio.sleep(0.1)                 # wake arms listening
+        h.mic.frames.put(np.full(config.INPUT_BLOCK, 900, dtype=np.int16))   # one movement
+        await asyncio.sleep(0.05)
+        for _ in range(30):                      # then silence ends the utterance
+            h.mic.frames.put(np.full(config.INPUT_BLOCK, 100, dtype=np.int16))
+            await asyncio.sleep(0)
+        await asyncio.sleep(0.15)
+
+    task = asyncio.create_task(h._pump())
+    await feed()
+    state = h.state
+    h._stopping = True
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    ok = state == "listening" and h.ended is None
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: state={state} (still waiting for a request)")
+    return ok
+
+
+async def scenario_armed_while_queue_is_empty(name):
+    """The give-up deadline is measured from when listening was armed.
+
+    A task arms listening (the beep has just played) and for a moment no audio
+    frame is queued. Judged against a stale timestamp, the deadline fired in the
+    same instant and the reply was "nothing said, going quiet" one line after
+    the wake phrase: it beeped, listened, and stopped.
+    """
+    config.LISTEN_TIMEOUT_S = 0.8
+    h = Harness()
+    h.state = "idle"
+    task = asyncio.create_task(h._pump())
+    await asyncio.sleep(0.05)
+
+    h.set_state("listening")          # exactly what the beep path does
+    await asyncio.sleep(0.35)         # well inside the deadline
+    early = sum("nothing said" in t for t in h.trace)
+    await asyncio.sleep(0.75)         # now past it
+    late = sum("nothing said" in t for t in h.trace)
+
+    h._stopping = True
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    ok = early == 0 and late >= 1
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: gave up {early} times inside the "
+          f"deadline, {late} after it")
+    config.LISTEN_TIMEOUT_S = 12.0
     return ok
 
 
@@ -414,8 +485,7 @@ async def main():
         ["quiet", "quiet", "wake", "speech"] + ["speech"] * 19 + ["quiet"] * 40,
         "utterance"))
     results.append(await scenario(
-        "wake, then nothing said -> gives up",
-        # the extra frames matter: the timeout is only noticed when a frame
+        "wake, then nothing said -> gives up",        # the extra frames matter: the timeout is only noticed when a frame
         # arrives, so one quiet frame after the wait can be missed under load
         ["wake", "quiet"] + ["wait", "quiet"] * 3 + ["quiet"] * 12,
         "timeout", timeout_s=0.7))
@@ -457,6 +527,10 @@ async def main():
         ["speech"] * 4 + ["quiet"] * 40, False))
     results.append(await scenario_endless_noise(
         "unbroken noise for 60s -> recordings stay short", 60, config.WAKE_MAX_UTTERANCE_S + 0.5))
+    results.append(await scenario_armed_while_queue_is_empty(
+        "armed while no audio is queued -> deadline still measured from the arm"))
+    results.append(await scenario_too_short_keeps_listening(
+        "a blip while listening -> keeps waiting instead of giving up"))
     results.append(await scenario_typed_while_replying(
         "typing while it talks -> still one turn at a time"))
     results.append(await scenario_speech_while_thinking(

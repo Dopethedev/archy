@@ -23,6 +23,13 @@ AGC_MAX_GAIN = 80.0          # never boost more than this
 AGC_FLOOR = 3e-5             # below this it is silence, so do not amplify it
 AGC_GATE_FACTOR = 3.0        # only boost audio this far above the noise floor
 MIC_GAIN = 1.0               # fixed extra gain, used when SOFT_AGC is off
+# While it is waiting for a request it listens harder. The words after the wake
+# phrase are the entire point, and a soft one must not be lost, so the gain goes
+# up and the gate comes down. It is a window of seconds right after a beep,
+# which is what makes being less conservative acceptable here.
+AGC_TARGET_FOCUSED = 0.20
+AGC_GATE_FACTOR_FOCUSED = 2.0
+SPEECH_ON_FOCUSED = 0.22     # softer speech counts as speech while waiting
 
 # ------------------------------------------------------------- wake word
 # "speech" understands the phrase with whisper, so any phrase works and no

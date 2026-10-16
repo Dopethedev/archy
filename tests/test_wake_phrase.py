@@ -63,7 +63,7 @@ class Harness(Assistant):
         self.state = "booting"
         self.trace = []
         self.processed = []
-        self.mic = type("M", (), {"drain": lambda s: None})()
+        self.mic = type("M", (), {"drain": lambda s: None, "set_focus": lambda s, on: None})()
         wrote = []
         self.player = type("P", (), {"write": staticmethod(lambda a: wrote.append(len(a)))})()
         self.wrote = wrote

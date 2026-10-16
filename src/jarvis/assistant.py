@@ -66,6 +66,12 @@ class Assistant:
     # ------------------------------------------------------------------- hud
     def set_state(self, state: str):
         self.state = state
+        # The listening window is the only place where a quiet word is lost for
+        # good, so it is the only place that listens harder. Leaving it on while
+        # it speaks would feed the barge detector a hotter signal, and it could
+        # start interrupting itself.
+        if getattr(self, "mic", None) is not None:
+            self.mic.set_focus(state == "listening")
         if self.hud:
             self.hud.publish({"type": "state", "value": state})
 
@@ -138,7 +144,7 @@ class Assistant:
     def _begin_listening(self):
         """Enter listening state. Shared by the wake word and by an interruption."""
         self.mic.drain()
-        self.set_state("listening")
+        self.set_state("listening")          # which is also what enables focus
 
     def _interrupt(self):
         """Cut off a reply in progress, because the user has spoken."""
@@ -301,6 +307,20 @@ class Assistant:
         prev_state = self.state
 
         while not self._stopping:
+            # Notice state changes made by tasks before anything else, with or
+            # without a frame arriving. The listening deadline is measured from
+            # listening_since, so syncing it only when a frame happens to turn up
+            # means a task that arms listening while the queue is momentarily
+            # empty gets judged against a stale timestamp and gives up on the
+            # spot: the reply was "nothing said, going quiet" in the same second
+            # as the wake phrase.
+            if self.state != prev_state:
+                reset_buffers()
+                if self.state == "listening":
+                    listening_since = loop.time()
+                prev_state = self.state
+            state = self.state
+
             try:
                 typed = self._typed.get_nowait()
             except queue.Empty:
@@ -316,11 +336,10 @@ class Assistant:
             try:
                 frame = self.mic.frames.get_nowait()
             except queue.Empty:
-                # A deadline must not depend on audio arriving. Checking the
-                # listening timeout only when a frame turns up means a stalled
-                # microphone waits forever, and it made the test that covers
-                # this depend on frame timing rather than on the deadline.
-                if (self.state == "listening" and not started
+                # A deadline must not depend on audio arriving either. If the
+                # stream stalls, waiting for a frame before noticing would wait
+                # forever.
+                if (state == "listening" and not started
                         and loop.time() - listening_since > config.LISTEN_TIMEOUT_S):
                     self.log("sys", "nothing said, going quiet")
                     reset_buffers()
@@ -330,15 +349,6 @@ class Assistant:
                 continue
 
             state = self.state
-
-            # The state can be changed by a task rather than by this loop, so
-            # notice it and start the new state with empty buffers. Without this
-            # the previous utterance would leak into the next one.
-            if state != prev_state:
-                reset_buffers()
-                if state == "listening":
-                    listening_since = loop.time()
-                prev_state = state
 
             # While it is talking, stillness is the default and the user is the
             # exception. Both the wake word and plain speech cut it off. Its own
@@ -399,6 +409,8 @@ class Assistant:
                 continue                                    # drain, do not act
 
             score = self.speech_score(frame)
+            # softer speech counts while it is waiting for a request
+            on = config.SPEECH_ON_FOCUSED if state == "listening" else config.SPEECH_ON
             if not started:
                 # The give-up timeout belongs to the listening state only. In
                 # speech mode idle also records, and idle has no deadline: using
@@ -410,7 +422,7 @@ class Assistant:
                 preroll.append(frame)
                 if len(preroll) > preroll_max:
                     preroll.pop(0)
-                if score >= config.SPEECH_ON:
+                if score >= on:
                     started = True
                     speech_ms = frame_ms
                     utterance.extend(preroll)
@@ -418,7 +430,7 @@ class Assistant:
                 continue
 
             utterance.append(frame)
-            if score >= config.SPEECH_ON:
+            if score >= on:
                 speech_ms += frame_ms
                 silence_ms = 0.0
                 spec_valid = False          # he spoke again, any snapshot is stale
@@ -475,6 +487,13 @@ class Assistant:
                 spec_task = None
 
                 if state == "listening":
+                    if speech_ms < config.MIN_SPEECH_MS:
+                        # A blip is not a request. Keep waiting for a real one
+                        # rather than making him say the wake phrase again; the
+                        # deadline still runs, so silence still ends it.
+                        self.log("sys", "too short, ignoring")
+                        reset_buffers()
+                        continue
                     self._start_utterance(audio, speech_ms, transcript)
                 elif speech_ms >= config.MIN_SPEECH_MS:
                     # idle in speech mode: this utterance may be the wake phrase.

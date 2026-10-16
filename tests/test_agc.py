@@ -18,6 +18,7 @@ def make_mic():
     mic._env = 0.0
     mic._noise = 0.0
     mic.gain = 1.0
+    mic._focus = False          # idle posture: conservative
     return mic
 
 def run(mic, rms, frames, freq=220.0):

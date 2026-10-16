@@ -50,7 +50,19 @@ def resolve_input(device):
 
 
 class MicCapture:
-    """16 kHz mono int16 frames, handed over a plain thread-safe queue."""
+    """16 kHz mono int16 frames, handed over a plain thread-safe queue.
+
+    The audio state below is declared at class level as well as set in
+    __init__. Tests build this object with __new__ to exercise the gain stage on
+    its own, and three of them broke in turn as each new field was added. A
+    default that already exists cannot be forgotten.
+    """
+
+    _env = 0.0                           # slow running RMS, drives the AGC
+    _noise = 0.0                         # noise floor estimate, drives the gate
+    _focus = False                       # true while waiting for a request
+    gain = 1.0                           # what the software AGC is applying
+    level = 0.0                          # 0..1, for the HUD waveform
 
     def __init__(self, blocksize: int = config.INPUT_BLOCK, device=None):
         self.frames: queue.Queue[np.ndarray] = queue.Queue(maxsize=200)
@@ -60,7 +72,18 @@ class MicCapture:
         self._device = resolve_input(device if device is not None else config.INPUT_DEVICE)
         self._env = 0.0                      # slow running RMS, drives the AGC
         self._noise = 0.0                    # noise floor estimate, drives the gate
+        self._focus = False                  # true while waiting for a request
         self._stream: sd.InputStream | None = None
+
+    def set_focus(self, on: bool):
+        """Listen harder while a request is expected.
+
+        The same microphone settings cannot suit both jobs. Idle only has to
+        notice a wake phrase, where being conservative is free because a missed
+        word just means saying it again. Waiting for a request is the one moment
+        where a quiet word is lost for good.
+        """
+        self._focus = bool(on)
 
     def _apply_gain(self, mono: np.ndarray) -> np.ndarray:
         """Boost the microphone in software.
@@ -99,13 +122,17 @@ class MicCapture:
 
         # The gate is the whole point. Without it the room noise itself gets
         # amplified to speech level, the VAD believes the room is talking, and
-        # every turn either fires on nothing or never ends.
-        gate = max(config.AGC_FLOOR, self._noise * config.AGC_GATE_FACTOR)
+        # every turn either fires on nothing or never ends. While waiting for a
+        # request the gate is looser, so a soft word still gets through.
+        gate_factor = (config.AGC_GATE_FACTOR_FOCUSED if self._focus
+                       else config.AGC_GATE_FACTOR)
+        gate = max(config.AGC_FLOOR, self._noise * gate_factor)
         if self._env < gate:
             self.gain = max(1.0, self.gain * 0.9)     # below the gate: do not boost
             return mono
 
-        target = max(1.0, min(config.AGC_TARGET / self._env, config.AGC_MAX_GAIN))
+        target_rms = config.AGC_TARGET_FOCUSED if self._focus else config.AGC_TARGET
+        target = max(1.0, min(target_rms / self._env, config.AGC_MAX_GAIN))
         if target < self.gain:
             self.gain = target                # cut instantly, so loud audio never clips
         else:
