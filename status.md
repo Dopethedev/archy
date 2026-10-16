@@ -49,6 +49,14 @@ microphone queue keeps draining in every state.
 - Transcription is serialised by a lock. `WAKE_MAX_UTTERANCE_S = 10`,
   `MAX_UTTERANCE_S = 20`.
 - `HARDWARE_AGC = False`, `SOFT_AGC = True` with a noise gate.
+- **Focused listening.** While waiting for a request the microphone listens
+  harder: `AGC_TARGET_FOCUSED = 0.20` against 0.12, `AGC_GATE_FACTOR_FOCUSED = 2.0`
+  against 3.0, `SPEECH_ON_FOCUSED = 0.22` against 0.35. Measured: soft speech
+  comes through 66% louder, room noise stays 250x below speech, nothing clips.
+  It is enabled by `set_state("listening")` and only there: leaving it on while
+  it speaks would feed the barge detector a hotter signal. Idle does not need it,
+  because a missed wake phrase only costs saying it again, while the seconds
+  after the beep are the one place a quiet word is lost for good.
 - `PI_CONTINUE = True` (memory survives restarts), `PI_EXTENSIONS = False`,
   `PI_THINKING = "off"`, `BRAIN_SILENCE_TIMEOUT_S = 45` (a deadline on silence,
   not on total time, so a long tool run is not cut off but a hung one is).
@@ -115,6 +123,20 @@ screenshot of the running dashboard is the only honest way to judge it.
   prefix check allowed; it is `is_relative_to` now.
 - **A hung model process hung the assistant.** Nothing had a deadline, so a
   silent `pi` left it stuck in "thinking" with no way back but a restart.
+- **The give-up deadline was measured from a stale timestamp.** A task arms
+  listening when the beep plays; if no audio frame was queued at that instant the
+  wait was counted from the last arm, so it gave up immediately: the log showed
+  the wake phrase and "nothing said, going quiet" in the same second. Reported
+  as "it beeps and then stops after a second". The state is synced at the top of
+  every pump iteration now, not only when a frame arrives.
+- **A blip ended the turn.** The tail of the wake phrase, or a cough, was enough
+  to send it back to idle, so a request starting a moment later was never heard.
+  In the listening state a too-short utterance now clears and keeps waiting, with
+  the deadline still running.
+- **Fragile test setup, three times over.** Tests build `MicCapture` with
+  `__new__` to exercise the gain stage alone, and each new field broke another
+  one of them. The audio state is declared at class level as well as in
+  `__init__` now, so a default that already exists cannot be forgotten.
 - **The same deadline trap, one state over.** The listening give-up timeout was
   only checked when a frame arrived, so a stalled microphone would wait forever.
   It also made the test covering it flaky rather than wrong, which is how it was
@@ -146,11 +168,11 @@ screenshot of the running dashboard is the only honest way to judge it.
   deltas instead, or multi-core spinning is easy to both invent and miss.
 
 ## Testing
-`./tests/run_all.sh` runs 15 groups, all green, none needing a microphone:
+`./tests/run_all.sh` runs 16 groups, all green, none needing a microphone:
 stt, tts, tts streaming latency, wake model, wake phrase, the pi bridge, the
-brain deadline, the pump state machine, the software AGC, frame ownership,
-weak-mic accuracy, session memory, the durable store, transcription
-serialisation, and the dashboard's security.
+brain deadline, the pump state machine, the software AGC, the listening focus,
+frame ownership, weak-mic accuracy, session memory, the durable store,
+transcription serialisation, and the dashboard's security.
 
 Style worth keeping: tests measure the real object where possible, deliberately
 degrade audio to this microphone's actual level rather than testing on clean
