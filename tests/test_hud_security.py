@@ -16,7 +16,9 @@ PORT = 8799
 HOST = config.HUD_HOST
 hud = Hud(port=PORT)
 said: list[str] = []
+mic_calls: list[bool] = []
 hud.on_say = said.append
+hud.on_mic = mic_calls.append
 hud.start()
 time.sleep(0.3)
 
@@ -45,8 +47,9 @@ def raw(request: str, settle: float = 1.0) -> str:
     return out.decode(errors="replace")
 
 
-def post(body: str, token=None, origin=None, ctype="application/json") -> str:
-    head = (f"POST /say HTTP/1.1\r\nHost: {HOST}:{PORT}\r\n"
+def post(body: str, token=None, origin=None, ctype="application/json",
+         path="/say") -> str:
+    head = (f"POST {path} HTTP/1.1\r\nHost: {HOST}:{PORT}\r\n"
             f"Content-Type: {ctype}\r\nContent-Length: {len(body)}\r\n")
     if token is not None:
         head += f"X-Jarvis-Token: {token}\r\n"
@@ -86,6 +89,34 @@ time.sleep(0.3)
 check("the real dashboard still gets through",
       len(said) == before + 1 and said[-1] == "what is the time",
       f"server said {resp.splitlines()[0] if resp else 'nothing'}; got {said[before:]}")
+
+# ------------------------------------------------------------ the mic toggle is guarded too
+# The microphone is the other way in, so it needs the same treatment. A page
+# that could switch it on could listen to the room.
+before_mic = len(mic_calls)
+resp = post(json.dumps({"on": True}), token=None, origin="https://evil.example",
+            ctype="text/plain", path="/mic")
+time.sleep(0.3)
+check("a random website cannot open the microphone",
+      len(mic_calls) == before_mic,
+      f"server said {resp.splitlines()[0] if resp else 'nothing'}; reached it: {mic_calls[before_mic:]}")
+
+resp = post(json.dumps({"on": False}), token="not-the-token", path="/mic")
+time.sleep(0.3)
+check("the microphone toggle needs the token",
+      len(mic_calls) == before_mic, f"server said {resp.splitlines()[0] if resp else 'nothing'}")
+
+resp = post(json.dumps({"on": False}), token=hud.token,
+            origin=f"http://{HOST}:{PORT}", path="/mic")
+time.sleep(0.3)
+check("the dashboard can switch the microphone",
+      mic_calls[before_mic:] == [False],
+      f"server said {resp.splitlines()[0] if resp else 'nothing'}; got {mic_calls[before_mic:]}")
+
+resp = post(json.dumps({"on": True}), token=hud.token,
+            origin=f"http://{HOST}:{PORT}", path="/nonsense")
+check("an unknown control path is not a control path",
+      resp.startswith("HTTP/1.1 404"), resp.splitlines()[0] if resp else "no response")
 
 # ------------------------------------------------------------ static files stay inside hud/
 sibling = Path(config.HUD_DIR).parent / "hud_evil"

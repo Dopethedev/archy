@@ -93,6 +93,24 @@ On drawing: `hud/app.js` renders the orb as a dark sphere with a bright rim and
 one highlight, not a soft radial glow, because a glow reads as a blur. A
 screenshot of the running dashboard is the only honest way to judge it.
 
+### The microphone toggle
+Header button, or the `M` key (which it ignores while you are typing). The button
+posts `/mic` and then follows the state that comes back over the event stream
+rather than flipping a local flag, so whoever pressed it, the page shows what is
+actually true.
+
+Off closes the capture stream; on reopens it. Muting is a state of its own (red,
+"microphone off"), so a dead microphone never looks like a live one, and
+`_back_to_idle` returns to `muted` instead of `idle` while it is off. In the
+`muted` state audio does nothing at all: no wake, no request, no interrupt, and
+a test sends loud speech through the pump to keep it that way. Typed input still
+works, which is most of the reason to have the switch. Not persisted: a restart
+starts live, and a microphone that fails to reopen is reported instead of being
+assumed on.
+
+`/mic` sits behind the same token as `/say`. The microphone is the other way
+into the assistant, so a page that could switch it on could listen to the room.
+
 ## The microphone (this cost the most time)
 - The headset's own Auto Gain Control makes the microphone audible at all, and is
   also what feeds the mic back into the headphones. It stays **off**, and the
@@ -186,7 +204,7 @@ screenshot of the running dashboard is the only honest way to judge it.
   deltas instead, or multi-core spinning is easy to both invent and miss.
 
 ## Testing
-`./tests/run_all.sh` runs 17 groups, all green, none needing a microphone:
+`./tests/run_all.sh` runs 18 groups, all green, none needing a microphone:
 stt, tts, tts streaming latency, tts interruption, wake model, wake phrase, the
 pi bridge, the brain deadline, the pump state machine, the software AGC, the
 listening focus, frame ownership, weak-mic accuracy, session memory, the durable

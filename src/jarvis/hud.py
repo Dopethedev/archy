@@ -145,36 +145,52 @@ class _Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------------- post
     def do_POST(self):
-        """Typed input, treated exactly like something spoken."""
-        hud = self._hud
-        if self.path.split("?")[0] != "/say":
+        """Typed input and microphone control. Only the served page gets in."""
+        path = self.path.split("?")[0]
+        if path not in ("/say", "/mic"):
             self._send(404, b"not found", "text/plain")
             return
-        # a request without the served token, or from another page, or not
-        # speaking JSON, is refused before it can reach the assistant
+        payload = self._json_body()
+        if payload is None:
+            return                            # already answered with the reason
+        hud = self._hud
+        if path == "/say":
+            text = str(payload.get("text", "")).strip()
+            if text and hud.on_say:
+                hud.on_say(text)
+        else:
+            on = bool(payload.get("on", True))
+            if hud.on_mic:
+                hud.on_mic(on)
+        self._send(200, b'{"ok":true}', "application/json")
+
+    def _json_body(self) -> dict | None:
+        """The checks every control request passes, or None once it is refused.
+
+        A request without the served token, or from another page, or not
+        speaking JSON, is turned away before it can reach the assistant. Any
+        page in the browser can POST to a local port, so the token is the only
+        thing standing between a web page and a command surface.
+        """
         if not (self._host_ok() and self._origin_ok() and self._token_ok()):
             self._send(403, b"not allowed", "text/plain")
-            return
+            return None
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype != "application/json":
             self._send(415, b"application/json only", "text/plain")
-            return
+            return None
         try:
             length = int(self.headers.get("Content-Length", 0))
         except ValueError:
             length = 0
         if not 0 < length <= MAX_BODY:
             self._send(413, b"bad length", "text/plain")
-            return
+            return None
         try:
-            payload = json.loads(self.rfile.read(length) or b"{}")
-            text = str(payload.get("text", "")).strip()
+            return json.loads(self.rfile.read(length) or b"{}")
         except Exception:
             self._send(400, b"bad request", "text/plain")
-            return
-        if text and hud.on_say:
-            hud.on_say(text)
-        self._send(200, b'{"ok":true}', "application/json")
+            return None
 
 
 class Hud:
@@ -185,6 +201,7 @@ class Hud:
         self.replay: list[dict] = []          # last few events, to prime a new page
         self.last_state: dict | None = None   # kept apart: it must never be evicted
         self.on_say = None                    # set by the assistant: callable(str)
+        self.on_mic = None                    # set by the assistant: callable(bool)
         self._lock = threading.Lock()
         self._server: ThreadingHTTPServer | None = None
         self._stop = threading.Event()

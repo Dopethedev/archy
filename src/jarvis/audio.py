@@ -149,6 +149,8 @@ class MicCapture:
             pass                              # dropping a frame beats stalling the audio thread
 
     def start(self):
+        if self._stream is not None:              # never leak a second stream
+            self.stop()
         if not config.HARDWARE_AGC:
             self._disable_hardware_agc()
         self._stream = sd.InputStream(

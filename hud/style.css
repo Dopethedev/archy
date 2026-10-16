@@ -81,6 +81,53 @@ header {
   transition: color 220ms ease;
 }
 
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+/* The microphone button is the one control that has to be obvious at a glance:
+   a muted assistant still looks alive, and the difference between the two is
+   whether it can hear you. */
+.mic {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 14px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #46e6a0;
+  background: rgba(70, 230, 160, 0.08);
+  border: 1px solid rgba(70, 230, 160, 0.4);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 200ms ease, border-color 200ms ease, background 200ms ease;
+}
+
+.mic:hover { background: rgba(70, 230, 160, 0.16); }
+.mic:focus-visible { outline: 2px solid rgba(70, 230, 160, 0.6); outline-offset: 2px; }
+
+.mic.off {
+  color: #ff6b7a;
+  background: rgba(255, 107, 122, 0.08);
+  border-color: rgba(255, 107, 122, 0.45);
+}
+
+.mic.off:hover { background: rgba(255, 107, 122, 0.16); }
+
+.mic-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.mic.off .mic-dot { animation: none; opacity: 0.55; }
+
 .dot {
   width: 9px;
   height: 9px;

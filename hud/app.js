@@ -14,6 +14,7 @@ const COLORS = {
   listening: "#46e6a0",
   thinking:  "#ffb347",
   speaking:  "#9d7bff",
+  muted:     "#ff6b7a",
 };
 const LABELS = {
   booting:   "starting",
@@ -21,6 +22,7 @@ const LABELS = {
   listening: "hearing you",
   thinking:  "thinking",
   speaking:  "speaking",
+  muted:     "microphone off",
 };
 
 let state = "booting";
@@ -54,6 +56,7 @@ source.onmessage = (event) => {
     dot.style.background = colour;
     dot.style.boxShadow = `0 0 12px ${colour}`;
     hintEl.classList.toggle("hidden", state !== "idle" && !heardEl.textContent);
+    showMicState();
   } else if (msg.type === "level") {
     mic = msg.mic || 0;
     out = msg.out || 0;
@@ -107,6 +110,38 @@ function addLog(who, text) {
   box.scrollTop = box.scrollHeight;
   while (box.childElementCount > 120) box.removeChild(box.firstChild);
 }
+
+/* --------------------------------------------------------------- mic toggle */
+const micBtn = document.getElementById("mic");
+const micText = document.getElementById("mic-text");
+
+/* The state is the truth, not a local flag: the server knows whether the
+   microphone is actually open, and it is the same switch whoever pressed it. */
+function showMicState() {
+  const off = state === "muted";
+  micBtn.classList.toggle("off", off);
+  micText.textContent = off ? "mic off" : "mic on";
+  hintEl.textContent = off ? "microphone is off, press M or click mic" : 'say \u201chey maki\u201d';
+  hintEl.classList.toggle("hidden", !off && state !== "idle" && !heardEl.textContent);
+}
+
+function toggleMic() {
+  const on = state === "muted";        // muted now means we are turning it on
+  micBtn.disabled = true;              // one press, one request
+  fetch("/mic", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Jarvis-Token": window.JARVIS_TOKEN },
+    body: JSON.stringify({ on }),
+  }).catch(() => {}).finally(() => { micBtn.disabled = false; });
+}
+
+micBtn.addEventListener("click", toggleMic);
+window.addEventListener("keydown", (e) => {
+  // never steal the key while he is typing a request
+  const el = e.target;
+  if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+  if (e.key === "m" || e.key === "M") toggleMic();
+});
 
 /* --------------------------------------------------------------- typed in */
 const input = document.getElementById("say");

@@ -52,7 +52,8 @@ class Harness(Assistant):
     def __init__(self):
         self.hud = None
         self.state = "booting"
-        self.mic = type("M", (), {"frames": queue.Queue(), "level": 0.0, "drain": lambda s: None, "set_focus": lambda s, on: None})()
+        self.mic = type("M", (), {"frames": queue.Queue(), "level": 0.0, "drain": lambda s: None, "set_focus": lambda s, on: None,
+                                    "start": lambda s: None, "stop": lambda s: None})()
         self.flushed = 0
         self.aborted = 0
         player = type("P", (), {"level": 0.0, "write": lambda s, a: None, "playing": lambda s: False,
@@ -274,6 +275,35 @@ async def scenario_armed_while_queue_is_empty(name):
     print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: gave up {early} times inside the "
           f"deadline, {late} after it")
     config.LISTEN_TIMEOUT_S = 12.0
+    return ok
+
+
+async def scenario_muted_is_inert(name):
+    """With the microphone off, audio must not be able to do anything at all.
+
+    This is the point of the switch: the same frames that would wake it, be
+    heard as a request, and interrupt a reply, must reach none of those.
+    """
+    h = Harness()
+    h.mic_enabled = False
+    h.state = "muted"
+    h.wake.fire_at = 1                    # the detector would fire if asked
+    task = asyncio.create_task(h._pump())
+    for _ in range(25):
+        h.mic.frames.put(np.full(config.INPUT_BLOCK, 900, dtype=np.int16))
+        await asyncio.sleep(0.01)
+    seen = h.state
+    h._stopping = True
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    ok = seen == "muted" and h.ended is None and not any("wake" in t for t in h.trace)
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: state={seen}, "
+          f"turns={len(h.ended is not None and [1] or [])}, trace={h.trace}")
     return ok
 
 
@@ -527,6 +557,8 @@ async def main():
         ["speech"] * 4 + ["quiet"] * 40, False))
     results.append(await scenario_endless_noise(
         "unbroken noise for 60s -> recordings stay short", 60, config.WAKE_MAX_UTTERANCE_S + 0.5))
+    results.append(await scenario_muted_is_inert(
+        "microphone off -> loud speech does nothing"))
     results.append(await scenario_armed_while_queue_is_empty(
         "armed while no audio is queued -> deadline still measured from the arm"))
     results.append(await scenario_too_short_keeps_listening(

@@ -62,6 +62,8 @@ class Assistant:
         self._levels_at = 0.0
         self.last_heard = ""
         self.turn_latency = 0.0               # spoken delay of the last turn
+        self.mic_enabled = True               # what the dashboard's toggle controls
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     # ------------------------------------------------------------------- hud
     def set_state(self, state: str):
@@ -252,6 +254,37 @@ class Assistant:
             if not cancel.is_set():
                 self._back_to_idle()
 
+    # ------------------------------------------------------------------ mic
+    def _request_mic(self, on: bool):
+        """Called from the dashboard's HTTP thread, so hand it to the loop."""
+        if self._loop is None:
+            return
+        self._loop.call_soon_threadsafe(self.set_mic_enabled, bool(on))
+
+    def set_mic_enabled(self, on: bool):
+        """Open or close the microphone. Nothing reaches the assistant when off.
+
+        Turning it off also drops the state to muted, which the dashboard shows
+        as its own colour, so a dead microphone never looks like a live one.
+        """
+        on = bool(on)
+        if on == self.mic_enabled:
+            return
+        self.mic_enabled = on
+        if on:
+            try:
+                self.mic.start()
+            except Exception as exc:
+                self.log("sys", f"could not open the microphone: {exc}")
+                self.mic_enabled = False
+                return
+            self.log("sys", "microphone on")
+            self._back_to_idle()
+        else:
+            self.mic.stop()
+            self.log("sys", "microphone off")
+            self.set_state("muted")
+
     async def _restart_brain(self):
         try:
             await asyncio.to_thread(self.brain.stop)
@@ -263,7 +296,10 @@ class Assistant:
         self.mic.drain()
         if self.wake is not None:
             self.wake.reset()
-        self.set_state("idle")
+        # muting outlives a single turn, so idle is only reachable with a live
+        # microphone; otherwise the dashboard would say it is listening while
+        # the microphone is closed
+        self.set_state("idle" if self.mic_enabled else "muted")
 
     # ------------------------------------------------------------------ pump
     async def _pump(self):
@@ -518,8 +554,10 @@ class Assistant:
 
     # -------------------------------------------------------------------- run
     async def run(self):
+        self._loop = asyncio.get_running_loop()
         if self.hud:
             self.hud.on_say = self._typed.put
+            self.hud.on_mic = self._request_mic
         await self.brain.start()
         self.player.start()
         if self.greet:
@@ -535,7 +573,7 @@ class Assistant:
         self.mic.start()
         self.mic.drain()
         self.log("sys", f"listening for \"{config.WAKE_PHRASE}\"")
-        self.set_state("idle")
+        self._back_to_idle()
         try:
             await self._pump()
         finally:
