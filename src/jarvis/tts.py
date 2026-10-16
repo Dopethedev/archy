@@ -1,0 +1,152 @@
+"""Text to speech.
+
+Kokoro is the voice: noticeably more natural than piper, and still about 3x
+realtime on this CPU. piper stays as the fallback so a broken model file
+degrades into a worse voice rather than silence.
+
+Speech starts as soon as the first sentence exists rather than after the
+whole reply arrives, which is most of what makes a voice feel responsive.
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+import tempfile
+import wave
+from pathlib import Path
+
+import numpy as np
+from scipy.signal import resample_poly
+
+from . import config
+
+MARKDOWN = [
+    (re.compile(r"```.*?```", re.S), " "),
+    (re.compile(r"`([^`]*)`"), r"\1"),
+    (re.compile(r"\[([^\]]*)\]\([^)]*\)"), r"\1"),
+    (re.compile(r"[*_#>]+"), ""),
+    (re.compile(r"^\s*[-•]\s*", re.M), ""),
+    (re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]"), ""),
+]
+SENTENCE_END = re.compile(r"[.!?](?:\s|$)")
+MIN_SENTENCE = 12
+
+
+def clean(text: str) -> str:
+    """Strip anything that reads badly out loud."""
+    for pattern, repl in MARKDOWN:
+        text = pattern.sub(repl, text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def split_ready(buffer: str) -> tuple[str, str]:
+    """Peel off the part of the buffer that is safe to speak now."""
+    match = None
+    for m in SENTENCE_END.finditer(buffer):
+        if m.end() >= MIN_SENTENCE:
+            match = m
+    if match is not None:
+        return buffer[:match.end()], buffer[match.end():]
+    if len(buffer) > 200:                     # a run-on with no punctuation in sight
+        cut = buffer.rfind(" ", 0, 200)
+        if cut > 0:
+            return buffer[:cut], buffer[cut:]
+    return "", buffer
+
+
+class Speaker:
+    def __init__(self, player, engine: str = config.TTS_ENGINE):
+        self.player = player
+        self.engine = engine
+        self._kokoro = None
+        self._piper = None
+        if engine == "kokoro":
+            from kokoro_onnx import Kokoro
+            model = config.MODELS / "kokoro-v1.0.onnx"
+            voices = config.MODELS / "voices-v1.0.bin"
+            if model.exists() and voices.exists():
+                self._kokoro = Kokoro(str(model), str(voices))
+            else:
+                self.engine = "piper"
+        if self.engine == "piper":
+            self._piper = Path(sys.executable).parent / "piper"
+            if not self._piper.exists():
+                raise RuntimeError("no usable speech engine: kokoro models missing and piper not found")
+
+    # ---------------------------------------------------------------- engines
+    def _synth_kokoro(self, text: str) -> np.ndarray:
+        samples, sr = self._kokoro.create(
+            text, voice=config.TTS_VOICE, speed=config.TTS_SPEED, lang=config.TTS_LANG
+        )
+        audio = np.asarray(samples, dtype=np.float32)
+        if sr != config.HUD_RATE:
+            audio = resample_poly(audio, config.HUD_RATE, sr).astype(np.float32)
+        return audio
+
+    def _synth_piper(self, text: str) -> np.ndarray:
+        model = config.MODELS / f"{config.PIPER_VOICE}.onnx"
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            out = tmp.name
+        try:
+            proc = subprocess.run(
+                [str(self._piper), "-m", str(model), "-f", out],
+                input=text, text=True, capture_output=True, timeout=60,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr[-300:])
+            with wave.open(out) as w:
+                sr = w.getframerate()
+                raw = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+            audio = raw.astype(np.float32) / 32768.0
+            if sr != config.HUD_RATE:
+                audio = resample_poly(audio, config.HUD_RATE, sr).astype(np.float32)
+            return audio
+        finally:
+            Path(out).unlink(missing_ok=True)
+
+    def synth(self, text: str) -> np.ndarray:
+        return self._synth_kokoro(text) if self.engine == "kokoro" else self._synth_piper(text)
+
+    # ------------------------------------------------------------------- api
+    def say(self, text: str):
+        """Speak a complete string. Returns once the audio is queued."""
+        text = clean(text)
+        if not text:
+            return
+        try:
+            self.player.write(self.synth(text))
+        except Exception as exc:
+            print(f"[tts] synthesis failed: {exc}")
+
+    def say_stream(self, deltas, on_spoken=None):
+        """Speak text as it arrives, one sentence at a time.
+
+        on_spoken fires exactly once, when the first audio is queued, which is
+        the moment the assistant has actually started talking.
+        """
+        buffer = ""
+
+        def emit_text(text: str) -> bool:
+            nonlocal on_spoken
+            try:
+                audio = self.synth(text)
+            except Exception as exc:
+                print(f"[tts] synthesis failed: {exc}")
+                return False
+            if audio.size == 0:
+                return False
+            self.player.write(audio)
+            if on_spoken is not None:
+                on_spoken()
+                on_spoken = None
+            return True
+
+        for delta in deltas:
+            buffer += delta
+            ready, buffer = split_ready(buffer)
+            if ready and (text := clean(ready)):
+                emit_text(text)
+        if tail := clean(buffer):
+            emit_text(tail)

@@ -1,0 +1,258 @@
+"""The assistant loop.
+
+Four states, one audio pump:
+
+  IDLE      listening only for the wake phrase
+  LISTENING recording the request, ending it when you stop talking
+  THINKING  transcribing, then waiting on pi
+  SPEAKING  playing the reply
+
+The pump never blocks. Transcription, the model and the voice all run off the
+loop, so the microphone queue keeps draining in every state and stale audio
+never leaks into the next turn. The brain stays on the loop itself because its
+queues belong to that loop.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import queue
+import threading
+
+import numpy as np
+
+from . import config
+from .audio import MicCapture, Player
+from .brain import BrainError, PiBrain
+from .hud import Hud
+from .stt import Transcriber
+from .tts import Speaker
+from .wake import WakeWord
+
+
+def blip(freq=880.0, ms=70, rate=config.HUD_RATE) -> np.ndarray:
+    """A short quiet tone, so the wake word gives instant feedback."""
+    t = np.linspace(0, ms / 1000, int(rate * ms / 1000), dtype=np.float32)
+    tone = np.sin(2 * np.pi * freq * t).astype(np.float32)
+    ramp = np.minimum(1.0, np.minimum(np.arange(tone.size),
+                                      tone.size - np.arange(tone.size)) / 240).astype(np.float32)
+    return tone * ramp * 0.25
+
+
+class Assistant:
+    def __init__(self, hud: Hud | None = None, greet: str = ""):
+        self.hud = hud
+        self.greet = greet
+        self.state = "booting"
+        self.mic = MicCapture()
+        self.player = Player()
+        self.transcriber = Transcriber()
+        self.speaker = Speaker(self.player)
+        self.wake = WakeWord()
+        self.brain = PiBrain()
+        self._vad = None
+        self._typed: queue.Queue[str] = queue.Queue()
+        self._stopping = False
+        self.last_heard = ""
+
+    # ------------------------------------------------------------------- hud
+    def set_state(self, state: str):
+        self.state = state
+        if self.hud:
+            self.hud.publish({"type": "state", "value": state})
+
+    def log(self, who: str, text: str):
+        print(f"  {who}: {text}")
+        if self.hud:
+            self.hud.publish({"type": "log", "who": who, "text": text})
+
+    def _publish_levels(self):
+        if self.hud:
+            self.hud.publish({"type": "level", "mic": round(min(self.mic.level, 1.0), 3),
+                              "out": round(min(self.player.level, 1.0), 3)})
+
+    # ------------------------------------------------------------------ vad
+    def speech_score(self, frame: np.ndarray) -> float:
+        if self._vad is None:
+            from openwakeword.vad import VAD
+            self._vad = VAD()
+        return float(self._vad.predict(frame.astype(np.int16), frame_size=config.INPUT_BLOCK))
+
+    # ------------------------------------------------------------- utterances
+    def _start_utterance(self, audio: np.ndarray, speech_ms: float):
+        """Called when the user stops talking, or the recording hits its limit."""
+        if speech_ms < config.MIN_SPEECH_MS:
+            self.log("sys", "too short, ignoring")
+            self._back_to_idle()
+            return
+        self.set_state("thinking")                      # claim the state before yielding
+        asyncio.create_task(self._process(audio=audio))
+
+    async def _process(self, audio: np.ndarray | None = None, text: str | None = None):
+        deltas: queue.Queue[str | None] = queue.Queue()
+        spoken = threading.Event()
+        loop = asyncio.get_running_loop()
+
+        def on_first_audio():
+            if not spoken.is_set():
+                spoken.set()
+                loop.call_soon_threadsafe(self.set_state, "speaking")
+
+        def delta_iter():
+            while True:
+                item = deltas.get()
+                if item is None:
+                    return
+                yield item
+
+        try:
+            if text is None:
+                text = await asyncio.to_thread(self.transcriber.transcribe, audio)
+            if not text.strip():
+                self.log("sys", "no words in that, ignoring")
+                return
+            self.last_heard = text
+            self.log("you", text)
+
+            tts = threading.Thread(target=self.speaker.say_stream,
+                                   args=(delta_iter(), on_first_audio), daemon=True)
+            tts.start()
+
+            full = ""
+            try:
+                async for kind, payload in self.brain.ask(text):
+                    if kind == "delta":
+                        deltas.put(payload)
+                    elif kind == "tool":
+                        self.log("doing", payload)
+                    elif kind == "done":
+                        full = payload
+            finally:
+                deltas.put(None)
+
+            if full:
+                self.log("jarvis", full)
+            await asyncio.to_thread(tts.join, 180)
+            await asyncio.to_thread(self.player.wait_drained, 180)
+
+        except BrainError as exc:
+            print(f"[brain] {exc}")
+            self.log("sys", "the model connection dropped, restarting it")
+            self.speaker.say("My connection to the model dropped. Ask me again.")
+            self.player.wait_drained(timeout=60)
+            await self._restart_brain()
+        except Exception as exc:
+            print(f"[assistant] {type(exc).__name__}: {exc}")
+            self.speaker.say("Something went wrong there.")
+            self.player.wait_drained(timeout=60)
+        finally:
+            self._back_to_idle()
+
+    async def _restart_brain(self):
+        try:
+            await asyncio.to_thread(self.brain.stop)
+            await self.brain.start()
+        except Exception as exc:
+            print(f"[brain] restart failed: {exc}")
+
+    def _back_to_idle(self):
+        self.mic.drain()
+        self.wake.reset()
+        self.set_state("idle")
+
+    # ------------------------------------------------------------------ pump
+    async def _pump(self):
+        preroll: list[np.ndarray] = []
+        utterance: list[np.ndarray] = []
+        silence_ms = speech_ms = 0.0
+        started = False
+        listening_since = 0.0
+        frame_ms = 1000.0 * config.INPUT_BLOCK / config.SAMPLE_RATE
+        preroll_max = max(1, int(config.PRE_ROLL_MS / frame_ms))
+
+        while not self._stopping:
+            try:
+                typed = self._typed.get_nowait()
+            except queue.Empty:
+                typed = None
+            if typed:
+                self.set_state("thinking")
+                asyncio.create_task(self._process(text=typed))
+
+            try:
+                frame = self.mic.frames.get_nowait()
+            except queue.Empty:
+                self._publish_levels()
+                await asyncio.sleep(0.01)
+                continue
+
+            if self.state != "idle" and self.state != "listening":
+                continue                                    # drain, do not act
+
+            if self.state == "idle":
+                if self.wake.push(frame):
+                    self.player.write(blip())
+                    self.mic.drain()
+                    preroll.clear(); utterance.clear()
+                    silence_ms = speech_ms = 0.0
+                    started = False
+                    listening_since = asyncio.get_running_loop().time()
+                    self.log("sys", "wake word")
+                    self.set_state("listening")
+                continue
+
+            score = self.speech_score(frame)
+            if not started:
+                # woken but nothing said: do not sit here for ever
+                if asyncio.get_running_loop().time() - listening_since > config.LISTEN_TIMEOUT_S:
+                    self.log("sys", "nothing said, going quiet")
+                    self._back_to_idle()
+                    continue
+                preroll.append(frame)
+                if len(preroll) > preroll_max:
+                    preroll.pop(0)
+                if score >= config.SPEECH_ON:
+                    started = True
+                    speech_ms = frame_ms
+                    utterance.extend(preroll)
+                    preroll.clear()
+                continue
+
+            utterance.append(frame)
+            if score >= config.SPEECH_ON:
+                speech_ms += frame_ms
+                silence_ms = 0.0
+            else:
+                silence_ms += frame_ms
+
+            total_ms = len(utterance) * frame_ms
+            if silence_ms >= config.END_SILENCE_MS or total_ms >= config.MAX_UTTERANCE_S * 1000:
+                audio = np.concatenate(utterance).astype(np.float32) / 32768.0
+                self._start_utterance(audio, speech_ms)
+
+    # -------------------------------------------------------------------- run
+    async def run(self):
+        if self.hud:
+            self.hud.on_say = self._typed.put
+        await self.brain.start()
+        self.player.start()
+        if self.greet:
+            self.set_state("speaking")
+            self.speaker.say(self.greet)
+            self.player.wait_drained(timeout=30)
+            self.log("jarvis", self.greet)
+        self.mic.start()
+        self.mic.drain()
+        self.log("sys", "listening for the wake word")
+        self.set_state("idle")
+        try:
+            await self._pump()
+        finally:
+            self.shutdown()
+
+    def shutdown(self):
+        self._stopping = True
+        self.mic.stop()
+        self.player.stop()
+        self.brain.stop()
+        print("\noffline.")

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>JARVIS</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="brand">J A R V I S</div>
+    <div class="state" id="state">
+      <span class="dot"></span><span id="state-text">connecting</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="core">
+      <canvas id="orb" width="620" height="420"></canvas>
+      <div class="hint" id="hint">say &ldquo;hey jarvis&rdquo;</div>
+    </section>
+
+    <aside class="side">
+      <div class="panel">
+        <h2>system</h2>
+        <div class="stat"><span>cpu</span><b id="cpu">--</b></div>
+        <div class="bar"><i id="cpu-bar"></i></div>
+        <div class="stat"><span>memory</span><b id="mem">--</b></div>
+        <div class="bar"><i id="mem-bar"></i></div>
+        <div class="stat"><span>temp</span><b id="temp">--</b></div>
+      </div>
+      <div class="panel log-panel">
+        <h2>activity</h2>
+        <div id="log"></div>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    <input id="say" type="text" placeholder="type instead of talking, press enter" autocomplete="off">
+  </footer>
+
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
