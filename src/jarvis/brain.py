@@ -10,9 +10,11 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
+import sys
 import threading
 
 from . import config
+from .memory_store import Memory
 
 DIALOG_METHODS = {"select", "confirm", "input", "editor"}
 
@@ -28,6 +30,34 @@ class PiBrain:
         self._queue: asyncio.Queue | None = None
         self._stderr: list[str] = []
 
+    @staticmethod
+    def _system_prompt() -> str:
+        """Voice rules, plus how to use the durable store, plus what is in it.
+
+        The stored facts go into the prompt itself so that remembering costs no
+        tool call and no round trip. It is capped, because a prompt that grows
+        without bound would slow every turn down.
+        """
+        python = sys.executable
+        how = (
+            f" You keep durable facts about Bishesh in {config.MEMORY_FILE}. "
+            f"Read them with `{python} -m jarvis.memory_store list`, add one with "
+            f"`{python} -m jarvis.memory_store set NAME \"VALUE\"`, and remove one "
+            "with `forget NAME`. Whenever he asks you to remember, note, or keep "
+            "something, store it there, because the conversation alone will not "
+            "survive. Do it quietly without announcing the mechanism.\n"
+        )
+        try:
+            memory = Memory()
+            if memory.line_count():
+                facts = memory.summary()
+                if len(facts) > 1200:
+                    facts = facts[:1200] + " ..."
+                how += f"\nWhat you already know about him: {facts}\n"
+        except Exception as exc:
+            print(f"[memory] could not load: {exc}")
+        return config.VOICE_RULES + how
+
     # ------------------------------------------------------------------ setup
     async def start(self):
         config.SESSION_DIR.mkdir(exist_ok=True)
@@ -38,7 +68,7 @@ class PiBrain:
             config.PI_BIN, "--mode", "rpc",
             "--session-dir", str(config.SESSION_DIR),
             "--thinking", config.PI_THINKING,
-            "--append-system-prompt", config.VOICE_RULES,
+            "--append-system-prompt", self._system_prompt(),
         ]
         if config.PI_CONTINUE:
             args.append("--continue")          # pick the conversation back up

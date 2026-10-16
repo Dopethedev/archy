@@ -35,6 +35,14 @@ class FakeWake:
         pass
 
 
+class FakeTranscriber:
+    def __init__(self):
+        self.calls = 0
+    def transcribe(self, audio):
+        self.calls += 1
+        return "speculative words"
+
+
 class Harness(Assistant):
     """The real Assistant with the heavy and audible parts swapped out."""
     def __init__(self):
@@ -51,6 +59,8 @@ class Harness(Assistant):
                                "abort": lambda s: setattr(s, "aborted", s.aborted + 1)})()
         self.brain = brain
         self.wake = FakeWake()
+        self.transcriber = FakeTranscriber()
+        self.processed = []
         self._typed = queue.Queue()
         self._stopping = False
         self._vad = None
@@ -67,14 +77,15 @@ class Harness(Assistant):
         self.state = s
     def _publish_levels(self):
         pass
-    def _start_utterance(self, audio, speech_ms):
+    def _start_utterance(self, audio, speech_ms, transcript=None):
         # call the real one, so its too-short guard is what is being tested
-        Assistant._start_utterance(self, audio, speech_ms)
+        Assistant._start_utterance(self, audio, speech_ms, transcript)
         if self.state == "thinking":      # the real code accepted it
             self.ended = (len(audio), speech_ms)
-            self.set_state("listening")   # release the state for the next case
+            # deliberately left in "thinking": the pump drains audio in that
+            # state, which is what stops one recording being handled twice
     async def _process(self, audio=None, text=None):
-        pass                              # replacing this is the point
+        self.processed.append(text)               # None means it transcribed normally
     def _back_to_idle(self):
         self.trace.append("sys: idle")
         self.set_state("idle")
@@ -127,17 +138,28 @@ async def scenario(name, frames_plan, expect_end, timeout_s=None):
     return ok
 
 
-async def scenario_barge(name, speaking_ago, expect_interrupt, score=0.99):
-    """While it is speaking, does the wake word cut it off, and only sometimes?"""
+async def scenario_barge(name, speaking_ago, expect_interrupt, wake_score=0.99,
+                         frame_value=100, frames=20, then_silence=0, wake_fires=True):
+    """While it is speaking, what does and does not cut it off?
+
+    frame_value 900 reads as speech to the VAD, 100 reads as quiet, and
+    wake_fires decides whether the wake word also triggers. That lets the two
+    interrupt paths be tested separately, since either one can cut it off.
+    """
     h = Harness()
     h.state = "speaking"
     h._speaking_since = asyncio.get_running_loop().time() - speaking_ago
-    h.wake.fire_at = h.wake.pushes + 1
-    h.wake.score = score
+    h.wake.fire_at = h.wake.pushes + 1 if wake_fires else None
+    h.wake.score = wake_score
 
     task = asyncio.create_task(h._pump())
-    for _ in range(20):
-        h.mic.frames.put(np.full(config.INPUT_BLOCK, 900, dtype=np.int16))
+    for _ in range(frames):
+        h.mic.frames.put(np.full(config.INPUT_BLOCK, frame_value, dtype=np.int16))
+        await asyncio.sleep(0)
+    await asyncio.sleep(0.1)
+    was_listening = h.state == "listening"
+    for _ in range(then_silence):
+        h.mic.frames.put(np.full(config.INPUT_BLOCK, 100, dtype=np.int16))
         await asyncio.sleep(0)
     await asyncio.sleep(0.1)
     h._stopping = True
@@ -148,10 +170,53 @@ async def scenario_barge(name, speaking_ago, expect_interrupt, score=0.99):
     except asyncio.CancelledError:
         pass
 
-    interrupted = h.state == "listening" and h.player.flushed > 0 and h.brain.aborted > 0
+    interrupted = was_listening and h.player.flushed > 0 and h.brain.aborted > 0
     ok = interrupted == expect_interrupt
-    print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: state={h.state} flushed={h.player.flushed} "
-          f"aborted={h.brain.aborted} (interrupted={interrupted}, expected={expect_interrupt})")
+    detail = (f"state={h.state} flushed={h.player.flushed} aborted={h.brain.aborted} "
+              f"interrupted={interrupted} expected={expect_interrupt}")
+    if then_silence:
+        # if the triggering audio was kept, the utterance can now end on silence;
+        # if it was dropped, nothing was ever recorded and this stays None
+        kept = h.ended is not None
+        ok = ok and kept
+        detail += f" utterance_kept={kept}"
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: {detail}")
+    return ok
+
+
+async def scenario_speculation(name, resume_speaking, expect_reused):
+    """Is the paused-time transcript reused, and thrown away if he talks again?"""
+    h = Harness()
+    h.state = "idle"
+    h.wake.fire_at = h.wake.pushes + 1
+
+    async def feed(value, count):
+        for _ in range(count):
+            h.mic.frames.put(np.full(config.INPUT_BLOCK, value, dtype=np.int16))
+            await asyncio.sleep(0)
+
+    task = asyncio.create_task(h._pump())
+    await feed(900, 20)                        # speech
+    # enough silence to trigger speculation, not enough to end the utterance
+    await feed(100, int(config.SPECULATE_AT_MS / 30) + 3)
+    await asyncio.sleep(0.15)                  # let it transcribe in the background
+    if resume_speaking:
+        await feed(900, 10)                    # he speaks again: snapshot is stale
+    await feed(100, 40)                        # silence, this ends the utterance
+    await asyncio.sleep(0.35)
+
+    h._stopping = True
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    reused = bool(h.processed) and h.processed[-1] == "speculative words"
+    ok = reused == expect_reused
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: reused={reused} expected={expect_reused} "
+          f"transcriber_calls={h.transcriber.calls} handled={h.processed}")
     return ok
 
 
@@ -171,13 +236,27 @@ async def main():
     results.append(await scenario(
         "wake, 5 frames of speech -> too short, ignored",
         ["wake"] + ["speech"] * 5 + ["quiet"] * 40, "none"))
+
     print("  -- interruption --")
     results.append(await scenario_barge(
-        "speaking, wake word well after the grace period -> interrupts", 1.5, True))
+        "wake word after the grace period -> cuts it off", 1.5, True))
     results.append(await scenario_barge(
-        "speaking, wake word during the grace period -> allowed through", 0.1, False))
+        "wake word during the grace period -> allowed through", 0.1, False))
     results.append(await scenario_barge(
-        "speaking, a weak match below the strict threshold -> ignored", 1.5, False, score=0.4))
+        "weak wake match below the strict threshold -> ignored", 1.5, False, wake_score=0.4))
+    results.append(await scenario_barge(
+        "just talking over it -> cuts it off, and keeps the first word",
+        1.5, True, frame_value=900, frames=14, then_silence=25, wake_fires=False))
+    results.append(await scenario_barge(
+        "a brief blip of speech -> not enough to interrupt",
+        1.5, False, frame_value=900, frames=2, wake_fires=False))
+
+    print("  -- transcription during the pause --")
+    results.append(await scenario_speculation(
+        "silence after speech -> the ready transcript is used", False, True))
+    results.append(await scenario_speculation(
+        "speaks again -> the stale transcript is discarded", True, False))
+
     print(f"\n{'ALL PASS' if all(results) else 'FAILURES'}")
     return 0 if all(results) else 1
 

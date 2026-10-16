@@ -16,11 +16,21 @@ a spoken answer.
   it still knows what you told it before it was restarted.
 - Voice: kokoro `bm_george` (British male), ~3x realtime, starts speaking at the
   first sentence while the model is still thinking.
-- **Interruption.** Say "hey jarvis" while it is talking and it stops, aborts
-  the model and listens. Guarded three ways: a 500 ms grace period at the start
-  so its own opening word cannot trigger it, a stricter threshold (0.70) while
-  speaking, and a fresh cancellation token per turn so an interrupted turn
-  cannot clear the state its replacement has moved into.
+- **Interruption.** Say "hey jarvis" while it is talking and it stops, or simply
+  start speaking over it. Three guards on the wake-word path: a 500 ms grace
+  period at the start so its own opening word cannot trigger it, a stricter
+  threshold (0.70) while speaking, and a fresh cancellation token per turn so an
+  interrupted turn cannot clear the state its replacement has moved into. The
+  speech path needs 150 ms of sustained speech, and the audio that triggered the
+  interruption is kept so the first word is not swallowed.
+- **Durable memory.** `memory.json`, read at startup and put into the prompt, so
+  it knows stored facts without spending a tool call. Written with
+  `python -m jarvis.memory_store set NAME "VALUE"`, read with `list`. Atomic
+  writes, and a corrupt file degrades to empty instead of taking it down.
+- **Transcription runs during your pause, not after it.** Once you have been
+  silent 400 ms the rest of the utterance is silence, so a transcript taken then
+  is already final. Measured: one transcription instead of two, about a second
+  off every turn. Discarded and redone if you start talking again.
 - Turns end after 700 ms of silence.
 - Dashboard: stdlib http server, loopback only, SSE. Orb reacts to real input
   and output levels, activity log, CPU/RAM/temp. Typing in the box is handled
@@ -38,11 +48,20 @@ a spoken answer.
   out views into PortAudio's reused buffer (which turned a 20 second recording
   into a constant tone), and the AGC had no gate.
 
-## Not verified
+## Not measured / not verified
 - Endpointing against real speech habits. 700 ms of silence ends a turn.
 - Long-run stability. Every session so far has been minutes, not hours.
-- Interruption on real speech: the logic is tested, but whether its own voice
-  through the room trips the wake word has only been reasoned about, not heard.
+- Whether its own voice through the room trips the wake word on a real
+  interruption. Its voice was measured as not reaching the microphone as speech
+  (VAD peak 0.129 during playback, zero frames over threshold), so it should not,
+  but that was one room at one volume.
+
+## Model choice
+Benchmarked the alternatives that authenticated. `wandb/deepseek-ai/DeepSeek-V4.1-Flash`
+was already the fastest (1.23 s first token plain, 0.46 s when it goes straight
+to a tool). GLM-5.3-Flash was about twice as slow, and three other fast routes
+failed to authenticate. Beam search costs nothing measurable over greedy here
+(identical time, identical accuracy on degraded audio), so it stays on.
 
 ## Known limits
 - Answers depend on the free Gemini quota through `pi`. When that runs dry the
@@ -71,4 +90,4 @@ a spoken answer.
 
 ## Next
 - The email and security-sweep tools that were wanted at the start.
-- Persist the wake word setting and other preferences across restarts.
+- Improve microphone pickup at distance; the hardware is the remaining limit.

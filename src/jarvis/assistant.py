@@ -95,14 +95,21 @@ class Assistant:
         self.brain.abort()
         self.log("sys", "interrupted")
 
-    def _start_utterance(self, audio: np.ndarray, speech_ms: float):
+    def _start_utterance(self, audio: np.ndarray, speech_ms: float, transcript: str | None = None):
         """Called when the user stops talking, or the recording hits its limit."""
         if speech_ms < config.MIN_SPEECH_MS:
             self.log("sys", "too short, ignoring")
             self._back_to_idle()
             return
         self.set_state("thinking")                      # claim the state before yielding
-        asyncio.create_task(self._process(audio=audio))
+        asyncio.create_task(self._process(audio=audio, text=transcript))
+
+    async def _speculate(self, audio: np.ndarray) -> str | None:
+        """Transcribe while the user is still pausing, off the critical path."""
+        try:
+            return await asyncio.to_thread(self.transcriber.transcribe, audio)
+        except Exception:
+            return None
 
     async def _process(self, audio: np.ndarray | None = None, text: str | None = None):
         deltas: queue.Queue[str | None] = queue.Queue()
@@ -200,14 +207,26 @@ class Assistant:
         listening_since = 0.0
         frame_ms = 1000.0 * config.INPUT_BLOCK / config.SAMPLE_RATE
         preroll_max = max(1, int(config.PRE_ROLL_MS / frame_ms))
+        # kept while it is speaking, so an interruption does not swallow the
+        # first word of the sentence that caused it
+        barge_history: list[np.ndarray] = []
+        barge_max = max(1, int(config.BARGE_HISTORY_MS / frame_ms))
+        barge_run = 0
+        # speculative transcription, started during the pause after speech stops
+        spec_task: asyncio.Task | None = None
+        spec_frames = 0
+        spec_valid = False
         loop = asyncio.get_running_loop()
 
         def reset_buffers():
-            nonlocal silence_ms, speech_ms, started
+            nonlocal silence_ms, speech_ms, started, spec_task, spec_valid, spec_frames
             preroll.clear()
             utterance.clear()
             silence_ms = speech_ms = 0.0
             started = False
+            spec_task = None
+            spec_valid = False
+            spec_frames = 0
 
         while not self._stopping:
             try:
@@ -227,17 +246,38 @@ class Assistant:
 
             state = self.state
 
-            # While it is talking, the only thing worth listening for is the
-            # wake word, which cuts the reply off. The grace period stops its
-            # own opening word from triggering it.
+            # While it is talking, stillness is the default and the user is the
+            # exception. Both the wake word and plain speech cut it off. Its own
+            # voice does not reach the microphone as speech (measured), so this
+            # cannot make it interrupt itself.
             if state == "speaking":
-                if (config.BARGE_IN
-                        and loop.time() - self._speaking_since > config.BARGE_GRACE_MS / 1000.0
-                        and self.wake.push(frame, threshold=config.WAKE_DURING_SPEECH)):
+                in_grace = loop.time() - self._speaking_since <= config.BARGE_GRACE_MS / 1000.0
+                if not config.BARGE_IN or in_grace:
+                    barge_history.clear()
+                    barge_run = 0
+                    continue
+
+                barge_history.append(frame)
+                if len(barge_history) > barge_max:
+                    barge_history.pop(0)
+
+                woke = self.wake.push(frame, threshold=config.WAKE_DURING_SPEECH)
+                if config.BARGE_ON_SPEECH and self.speech_score(frame) >= config.SPEECH_ON:
+                    barge_run += 1
+                else:
+                    barge_run = 0
+
+                if woke or barge_run >= config.BARGE_FRAMES:
                     self._interrupt()
                     reset_buffers()
                     listening_since = loop.time()
                     self._begin_listening()
+                    if barge_history:            # keep what triggered it
+                        started = True
+                        speech_ms = len(barge_history) * frame_ms
+                        utterance.extend(barge_history)
+                        barge_history = []
+                    barge_run = 0
                 continue
 
             if state not in ("idle", "listening"):
@@ -273,13 +313,42 @@ class Assistant:
             if score >= config.SPEECH_ON:
                 speech_ms += frame_ms
                 silence_ms = 0.0
+                spec_valid = False          # he spoke again, any snapshot is stale
             else:
                 silence_ms += frame_ms
 
+            # He has been quiet long enough that the rest of this utterance is
+            # silence, so a transcript from here is already the final one. Only
+            # worth doing while there is room left before the hard limit.
             total_ms = len(utterance) * frame_ms
+            if (spec_task is None
+                    and silence_ms >= config.SPECULATE_AT_MS
+                    and total_ms < config.MAX_UTTERANCE_S * 1000 - 250):
+                snapshot = np.concatenate(utterance).astype(np.float32) / 32768.0
+                spec_frames = len(utterance)
+                spec_valid = True
+                spec_task = asyncio.create_task(self._speculate(snapshot))
+
             if silence_ms >= config.END_SILENCE_MS or total_ms >= config.MAX_UTTERANCE_S * 1000:
                 audio = np.concatenate(utterance).astype(np.float32) / 32768.0
-                self._start_utterance(audio, speech_ms)
+                transcript = None
+                # Use the speculative result only if nothing but silence followed
+                # it, and only if it actually produced words.
+                if spec_task is not None and spec_valid and spec_task.done():
+                    extra = (len(utterance) - spec_frames) * frame_ms
+                    if extra <= config.END_SILENCE_MS + 2 * frame_ms:
+                        try:
+                            candidate = spec_task.result()
+                        except Exception:
+                            candidate = None
+                        if candidate:
+                            transcript = candidate
+                            self.log("sys", "transcript was ready already")
+                # Never wait for a speculation: if it has not finished, transcribing
+                # normally is exactly as fast as it would have been without it.
+                if spec_task is not None and not spec_task.done():
+                    spec_task.cancel()
+                self._start_utterance(audio, speech_ms, transcript)
 
     async def _warm_up(self):
         """Run one real inference through the recogniser.
