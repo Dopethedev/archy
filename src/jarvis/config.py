@@ -37,8 +37,15 @@ PRE_ROLL_MS = 300            # audio kept from before speech was detected
 LISTEN_TIMEOUT_S = 12.0      # wake word, then silence: give up and go back to idle
 
 # ------------------------------------------------------- speech to text
-WHISPER_MODEL = "base.en"
+WHISPER_MODEL = "small.en"   # base.en is faster but mishears names and numbers
 WHISPER_THREADS = 6
+WHISPER_BEAM = 5             # beam search instead of greedy: slower, clearly better
+# Biases the recogniser towards words it would otherwise guess at. Whisper uses
+# this as context, so proper nouns and jargon stop coming out as lookalikes.
+WHISPER_HINT = (
+    "Jarvis, Bishesh, Sober, Roblox, Hyprland, EndeavourOS, cpu, gpu, ram, "
+    "terminal, wifi, bluetooth, screenshot, rkhunter, clamav."
+)
 
 # ------------------------------------------------------- text to speech
 TTS_ENGINE = "kokoro"        # "kokoro" (natural) or "piper" (faster)

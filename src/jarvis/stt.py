@@ -43,8 +43,14 @@ class Transcriber:
         audio = audio / peak                  # whisper expects roughly unit scale
 
         segments, _ = self._model.transcribe(
-            audio, beam_size=1, language="en", condition_on_previous_text=False,
-            no_speech_threshold=0.6, log_prob_threshold=-1.0,
+            audio,
+            beam_size=config.WHISPER_BEAM,
+            language="en",
+            condition_on_previous_text=False,
+            initial_prompt=config.WHISPER_HINT,   # bias towards his actual vocabulary
+            no_speech_threshold=0.6,
+            log_prob_threshold=-1.0,
+            temperature=[0.0, 0.2, 0.4],          # fall back if a pass looks bad
         )
         text = " ".join(s.text.strip() for s in segments).strip()
 
