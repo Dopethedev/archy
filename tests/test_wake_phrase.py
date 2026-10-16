@@ -1,0 +1,112 @@
+"""The wake phrase, understood rather than matched.
+
+No pretrained model exists for an arbitrary name, so the phrase is found in what
+was said. That makes these cases the whole feature: the phrase with a request
+attached, the phrase alone, the recogniser's imperfect spellings of a name, and
+everything that must NOT wake it.
+"""
+import asyncio, sys
+sys.path.insert(0, "/home/dope/jarvis/src")
+from jarvis import config
+from jarvis.assistant import Assistant, blip
+from jarvis.wake import SpeechWake
+
+failures = 0
+def check(label, ok, detail=""):
+    global failures
+    if not ok:
+        failures += 1
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {label:52s} {detail}")
+
+w = SpeechWake()
+
+print("-- what should wake it --")
+for text, want in [
+    ("Hey Maki, open Sober", "open Sober"),
+    ("hey maki", ""),
+    ("Hey, Maki. what is my cpu usage", "what is my cpu usage"),
+    ("Maki what is the time", "what is the time"),
+    ("Hey Macki open brave", "open brave"),
+    ("Hey Maki take a screenshot", "take a screenshot"),
+]:
+    heard, rest = w.match(text)
+    check(f"{text!r}", heard and rest == want, f"-> {rest!r}")
+
+print("-- recogniser spellings of the name --")
+for text in ("Hey Maki", "Hey Macki", "Hey Macky", "Hey Makki", "Hey Maky"):
+    heard, _ = w.match(text)
+    check(f"accepted {text!r}", heard)
+
+print("-- what must stay quiet --")
+for text in ("Hey Jarvis open sober", "how are you today", "open brave",
+             "what is the weather", "", "   ", "the mackintosh is nice",
+             "Maggie played music"):
+    heard, _ = w.match(text)
+    check(f"ignored {text!r}", not heard)
+
+print("-- tidying what follows the phrase --")
+for text, want in [("hey maki, so please open sober", "open sober"),
+                   ("hey maki, open brave", "open brave"),
+                   ("hey maki , what time is it", "what time is it")]:
+    heard, rest = w.match(text)
+    tidied = w.strip_greeting(rest)
+    check(f"{text!r}", heard and tidied == want, f"-> {tidied!r}")
+
+
+# ---------------------------------------------------------------- behaviour
+class Harness(Assistant):
+    """_check_wake with the microphone and voice replaced."""
+    def __init__(self, transcript):
+        self.speech_wake = SpeechWake()
+        self.transcriber = type("T", (), {"transcribe": staticmethod(lambda a: transcript)})()
+        self.state = "booting"
+        self.trace = []
+        self.processed = []
+        self.mic = type("M", (), {"drain": lambda s: None})()
+        wrote = []
+        self.player = type("P", (), {"write": staticmethod(lambda a: wrote.append(len(a)))})()
+        self.wrote = wrote
+    def log(self, who, text):
+        self.trace.append(f"{who}: {text}")
+    def set_state(self, s):
+        self.state = s
+        self.trace.append(f"state={s}")
+    def _back_to_idle(self):
+        self.state = "idle"
+        self.trace.append("state=idle")
+    async def _process(self, audio=None, text=None):
+        self.processed.append(text)
+
+
+async def behaviour():
+    print("-- behaviour after the utterance ends --")
+    import numpy as np
+    audio = np.zeros(16000, dtype=np.float32)
+
+    h = Harness("Hey Maki, open Sober")
+    await h._check_wake(audio, None)
+    check("phrase plus a request -> handled at once",
+          h.processed == ["open Sober"], f"processed={h.processed}")
+
+    h = Harness("hey maki")
+    await h._check_wake(audio, None)
+    check("phrase alone -> armed and listening",
+          h.state == "listening" and not h.processed, f"state={h.state}")
+
+    h = Harness("how are you today")
+    await h._check_wake(audio, None)
+    check("ordinary speech -> back to idle",
+          h.state == "idle" and not h.processed, f"state={h.state}")
+
+    h = Harness("hey maki")
+    await h._check_wake(audio, "hey maki")           # ready transcript path
+    check("a ready transcript is used, not re-transcribed",
+          h.state == "listening", f"state={h.state}")
+
+    h = Harness("Hey Maki, open Brave")
+    await h._check_wake(audio, None)
+    check("it acknowledges before handling", len(h.wrote) == 1 and h.wrote[0] > 0, f"blips={h.wrote}")
+
+asyncio.run(behaviour())
+print(f"\n{'ALL PASS' if failures == 0 else str(failures) + ' FAILED'}")
+sys.exit(1 if failures else 0)

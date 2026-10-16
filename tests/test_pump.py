@@ -9,7 +9,11 @@ import numpy as np
 
 sys.path.insert(0, "/home/dope/jarvis/src")
 from jarvis import config
+# this file tests the trained-detector path; speech mode is covered by
+# tests/test_wake_phrase.py
+config.WAKE_MODE = "model"
 from jarvis.assistant import Assistant
+from jarvis.wake import SpeechWake
 from jarvis.assistant import blip
 
 print("config: INPUT_BLOCK=%d WAKE_FRAME=%d END_SILENCE_MS=%d" %
@@ -59,6 +63,7 @@ class Harness(Assistant):
                                "abort": lambda s: setattr(s, "aborted", s.aborted + 1)})()
         self.brain = brain
         self.wake = FakeWake()
+        self.speech_wake = SpeechWake()
         self.transcriber = FakeTranscriber()
         self.processed = []
         self._typed = queue.Queue()
@@ -220,6 +225,41 @@ async def scenario_speculation(name, resume_speaking, expect_reused):
     return ok
 
 
+async def scenario_speech_idle(name, plan, expect_wake_check, expect_timeout_logs=0):
+    """Speech mode: idle records, but idle has no deadline.
+
+    Treating idle as "listening with a timeout" produced a runaway that logged
+    once per queued frame, so this pins the correct behaviour down.
+    """
+    config.WAKE_MODE = "speech"
+    h = Harness()
+    h.state = "idle"
+    h.wake = None                       # nothing to detect with in this mode
+
+    task = asyncio.create_task(h._pump())
+    for kind in plan:
+        value = 900 if kind == "speech" else 100
+        h.mic.frames.put(np.full(config.INPUT_BLOCK, value, dtype=np.int16))
+        await asyncio.sleep(0)
+    await asyncio.sleep(0.3)
+    h._stopping = True
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    spam = sum("nothing said" in line for line in h.trace)
+    checked = h.transcriber.calls > 0
+    ok = spam == expect_timeout_logs and checked == expect_wake_check
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: timeout_logs={spam} "
+          f"wake_checked={checked} (expected logs={expect_timeout_logs}, "
+          f"checked={expect_wake_check})")
+    config.WAKE_MODE = "model"
+    return ok
+
+
 async def main():
     results = []
     results.append(await scenario(
@@ -228,7 +268,9 @@ async def main():
         "utterance"))
     results.append(await scenario(
         "wake, then nothing said -> gives up",
-        ["wake", "quiet"] + ["wait", "quiet"] * 3,
+        # the extra frames matter: the timeout is only noticed when a frame
+        # arrives, so one quiet frame after the wait can be missed under load
+        ["wake", "quiet"] + ["wait", "quiet"] * 3 + ["quiet"] * 12,
         "timeout", timeout_s=0.7))
     results.append(await scenario(
         "no wake -> never records",
@@ -256,6 +298,16 @@ async def main():
         "silence after speech -> the ready transcript is used", False, True))
     results.append(await scenario_speculation(
         "speaks again -> the stale transcript is discarded", True, False))
+
+    print("  -- speech mode --")
+    results.append(await scenario_speech_idle(
+        "idle with only silence -> no timeout spam", ["quiet"] * 40, False))
+    results.append(await scenario_speech_idle(
+        "idle hears speech -> the wake phrase is looked for",
+        ["speech"] * 20 + ["quiet"] * 40, True))
+    results.append(await scenario_speech_idle(
+        "idle hears a blip -> not worth transcribing",
+        ["speech"] * 4 + ["quiet"] * 40, False))
 
     print(f"\n{'ALL PASS' if all(results) else 'FAILURES'}")
     return 0 if all(results) else 1

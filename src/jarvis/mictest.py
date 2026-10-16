@@ -120,8 +120,8 @@ async def run(seconds: float | None = None, device: str | None = None, transcrib
             if now - last_print >= 0.4:
                 last_print = now
                 bar = "#" * min(56, int(window_level * 120))
-                print(f"  {window_level:6.4f} |{bar:<56}|  speech {prob:.2f}  wake hits {detections}",
-                      flush=True)
+                print(f"  {window_level:6.4f} |{bar:<56}|  speech {prob:.2f}  "
+                      f"wake {peak_score:.2f}  hits {detections}", flush=True)
                 window_level = 0.0
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass

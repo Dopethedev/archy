@@ -56,3 +56,52 @@ class WakeWord:
         self._model.reset()
         self._buffer = np.zeros(0, dtype=np.int16)
         self._over = 0
+
+
+class SpeechWake:
+    """Wake phrase detection by understanding the words, not by a trained model.
+
+    openWakeWord only ships a handful of pretrained phrases and none of them is
+    a name of your choosing. Training a model is hours of work and a GPU. Since
+    the recogniser is already loaded and running locally, it can simply read what
+    was said and look for the phrase, which works for any phrase at all and lets
+    the request arrive in the same breath as the wake word.
+    """
+
+    def __init__(self, phrase: str = config.WAKE_PHRASE,
+                 aliases: tuple[str, ...] = config.WAKE_ALIASES):
+        self.phrase = phrase.lower().strip()
+        # the distinctive word, without the greeting: "maki" from "hey maki"
+        parts = self.phrase.split()
+        self.key = parts[-1] if parts else self.phrase
+        self.aliases = tuple(a.strip().lower().rstrip("?,.!") for a in aliases)
+
+    def match(self, text: str) -> tuple[bool, str]:
+        """Return (heard the phrase, whatever came after it)."""
+        if not text:
+            return False, ""
+        cleaned = text.strip()
+        lowered = cleaned.lower()
+
+        # the whole phrase, said plainly
+        at = lowered.find(self.phrase)
+        if at >= 0:
+            return True, cleaned[at + len(self.phrase):].strip(" ,.!?-")
+
+        # any spelling the recogniser produced for the distinctive word
+        words = lowered.replace(",", " ").replace("?", " ").replace(".", " ").split()
+        for i, word in enumerate(words):
+            if word in self.aliases or word == self.key:
+                rest = " ".join(words[i + 1:]).strip()
+                # drop a greeting that ended up after the name
+                if rest.startswith(("hey", "hi", "ok", "okay")) and len(words) > i + 1:
+                    pass
+                return True, rest
+        return False, ""
+
+    def strip_greeting(self, text: str) -> str:
+        """Tidy a command that came in with the wake phrase."""
+        for word in ("hey", "hi", "hello", "ok", "okay", "so", "please"):
+            if text.lower().startswith(word + " "):
+                text = text[len(word) + 1:]
+        return text.strip(" ,.!?-")

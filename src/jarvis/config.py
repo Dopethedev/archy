@@ -24,8 +24,19 @@ AGC_GATE_FACTOR = 3.0        # only boost audio this far above the noise floor
 MIC_GAIN = 1.0               # fixed extra gain, used when SOFT_AGC is off
 
 # ------------------------------------------------------------- wake word
+# "speech" understands the phrase with whisper, so any phrase works and no
+# training is needed. "model" uses openWakeWord's pretrained detector, which
+# only exists for hey_jarvis, hey_mycroft, hey_marvin, alexa, timer, weather.
+WAKE_MODE = "speech"
+WAKE_PHRASE = "hey maki"
+# Whisper will not spell an unfamiliar name the same way twice, so accept the
+# shapes it actually produces rather than requiring one exact spelling.
+WAKE_ALIASES = ("maki", "macki", "macky", "makki", "maky", "maki,",
+                "machi", "magi", "maggi", "moki", "makahi", "maki?")
+WAKE_IDLE_SILENCE_MS = 500   # silence that ends a wake-phrase utterance
 WAKE_MODEL = "hey_jarvis_v0.1.onnx"
-WAKE_THRESHOLD = 0.55
+WAKE_THRESHOLD = 0.45        # other speech and noise measured at 0.000-0.020, so this
+                             # is still far above anything that is not the phrase
 WAKE_CONSECUTIVE = 2         # this many frames over threshold before waking
 
 # ------------------------------------------------------------ endpointing
@@ -48,8 +59,9 @@ WHISPER_BEAM = 5             # beam search instead of greedy: slower, clearly be
 # Biases the recogniser towards words it would otherwise guess at. Whisper uses
 # this as context, so proper nouns and jargon stop coming out as lookalikes.
 WHISPER_HINT = (
-    "Jarvis, Bishesh, Kathmandu, Nepal, Sober, Roblox, Hyprland, EndeavourOS, "
-    "cpu, gpu, ram, terminal, wifi, bluetooth, screenshot, rkhunter, clamav."
+    "Jarvis, Maki, Bishesh, Kathmandu, Nepal, Sober, Roblox, Hyprland, "
+    "EndeavourOS, cpu, gpu, ram, terminal, wifi, bluetooth, screenshot, "
+    "rkhunter, clamav."
 )
 
 # ------------------------------------------------------- text to speech
@@ -96,4 +108,5 @@ BARGE_FRAMES = 5             # 150 ms of sustained speech counts as talking
 BARGE_GRACE_MS = 500         # ignore the wake word this long after speech starts,
                              # so its own voice cannot trigger it
 BARGE_HISTORY_MS = 600       # audio kept so the first word survives an interruption
-WAKE_DURING_SPEECH = 0.70    # stricter threshold while it is speaking
+WAKE_DURING_SPEECH = 0.60    # stricter than normal while it is speaking, but not so
+                             # strict that interrupting becomes hard

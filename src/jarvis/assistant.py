@@ -28,7 +28,7 @@ from .brain import BrainError, PiBrain
 from .hud import Hud
 from .stt import Transcriber
 from .tts import Speaker
-from .wake import WakeWord
+from .wake import SpeechWake, WakeWord
 
 
 def blip(freq=880.0, ms=70, rate=config.HUD_RATE) -> np.ndarray:
@@ -49,7 +49,10 @@ class Assistant:
         self.player = Player()
         self.transcriber = Transcriber()
         self.speaker = Speaker(self.player)
-        self.wake = WakeWord()
+        # In speech mode the phrase is understood rather than matched, so the
+        # pretrained detector is not even loaded.
+        self.wake = WakeWord() if config.WAKE_MODE == "model" else None
+        self.speech_wake = SpeechWake() if config.WAKE_MODE == "speech" else None
         self.brain = PiBrain()
         self._vad = None
         self._typed: queue.Queue[str] = queue.Queue()
@@ -83,6 +86,35 @@ class Assistant:
         return float(self._vad.predict(frame.astype(np.int16), frame_size=config.INPUT_BLOCK))
 
     # ------------------------------------------------------------- utterances
+    async def _check_wake(self, audio: np.ndarray, transcript: str | None):
+        """Speech mode: was that the wake phrase, and did a request arrive with it?
+
+        This is what replaces a trained detector. It also means "hey maki, open
+        sober" works in one breath, since anything after the phrase is the
+        request.
+        """
+        try:
+            if transcript is None:
+                transcript = await asyncio.to_thread(self.transcriber.transcribe, audio)
+            heard, rest = self.speech_wake.match(transcript)
+            if not heard:
+                if transcript:
+                    print(f"[wake] not for me: {transcript[:70]!r}")
+                self._back_to_idle()
+                return
+
+            self.player.write(blip())
+            self.log("sys", f"wake phrase: {transcript[:50]!r}")
+            rest = self.speech_wake.strip_greeting(rest)
+            if len(rest) >= 3:
+                await self._process(text=rest)      # the request came with it
+            else:
+                self.mic.drain()
+                self.set_state("listening")         # armed, waiting for the request
+        except Exception as exc:
+            print(f"[wake] {type(exc).__name__}: {exc}")
+            self._back_to_idle()
+
     def _begin_listening(self):
         """Enter listening state. Shared by the wake word and by an interruption."""
         self.mic.drain()
@@ -195,7 +227,8 @@ class Assistant:
 
     def _back_to_idle(self):
         self.mic.drain()
-        self.wake.reset()
+        if self.wake is not None:
+            self.wake.reset()
         self.set_state("idle")
 
     # ------------------------------------------------------------------ pump
@@ -220,6 +253,8 @@ class Assistant:
 
         def reset_buffers():
             nonlocal silence_ms, speech_ms, started, spec_task, spec_valid, spec_frames
+            if spec_task is not None and not spec_task.done():
+                spec_task.cancel()
             preroll.clear()
             utterance.clear()
             silence_ms = speech_ms = 0.0
@@ -227,6 +262,15 @@ class Assistant:
             spec_task = None
             spec_valid = False
             spec_frames = 0
+
+        def recording_now(state: str) -> bool:
+            """In speech mode, idle is also a recording state: that is where the
+            wake phrase is understood from what was said."""
+            if state == "listening":
+                return True
+            return state == "idle" and config.WAKE_MODE == "speech"
+
+        prev_state = self.state
 
         while not self._stopping:
             try:
@@ -246,6 +290,15 @@ class Assistant:
 
             state = self.state
 
+            # The state can be changed by a task rather than by this loop, so
+            # notice it and start the new state with empty buffers. Without this
+            # the previous utterance would leak into the next one.
+            if state != prev_state:
+                reset_buffers()
+                if state == "listening":
+                    listening_since = loop.time()
+                prev_state = state
+
             # While it is talking, stillness is the default and the user is the
             # exception. Both the wake word and plain speech cut it off. Its own
             # voice does not reach the microphone as speech (measured), so this
@@ -261,7 +314,7 @@ class Assistant:
                 if len(barge_history) > barge_max:
                     barge_history.pop(0)
 
-                woke = self.wake.push(frame, threshold=config.WAKE_DURING_SPEECH)
+                woke = self.wake.push(frame, threshold=config.WAKE_DURING_SPEECH) if self.wake else False
                 if config.BARGE_ON_SPEECH and self.speech_score(frame) >= config.SPEECH_ON:
                     barge_run += 1
                 else:
@@ -280,10 +333,10 @@ class Assistant:
                     barge_run = 0
                 continue
 
-            if state not in ("idle", "listening"):
-                continue                                    # drain, do not act
-
-            if state == "idle":
+            # Model mode: idle is not a recording state, it is where the trained
+            # detector listens. This has to be checked before the recording guard,
+            # otherwise idle is skipped and the wake word can never fire.
+            if state == "idle" and self.wake is not None:
                 if self.wake.push(frame):
                     self.player.write(blip())
                     reset_buffers()
@@ -292,10 +345,15 @@ class Assistant:
                     self._begin_listening()
                 continue
 
+            if not recording_now(state):
+                continue                                    # drain, do not act
+
             score = self.speech_score(frame)
             if not started:
-                # woken but nothing said: do not sit here for ever
-                if loop.time() - listening_since > config.LISTEN_TIMEOUT_S:
+                # The give-up timeout belongs to the listening state only. In
+                # speech mode idle also records, and idle has no deadline: using
+                # the timeout there spins, logging once per queued frame.
+                if state == "listening" and loop.time() - listening_since > config.LISTEN_TIMEOUT_S:
                     self.log("sys", "nothing said, going quiet")
                     self._back_to_idle()
                     continue
@@ -321,6 +379,9 @@ class Assistant:
             # silence, so a transcript from here is already the final one. Only
             # worth doing while there is room left before the hard limit.
             total_ms = len(utterance) * frame_ms
+            # a wake phrase should resolve faster than a full request
+            end_ms = (config.END_SILENCE_MS if state == "listening"
+                      else config.WAKE_IDLE_SILENCE_MS)
             if (spec_task is None
                     and silence_ms >= config.SPECULATE_AT_MS
                     and total_ms < config.MAX_UTTERANCE_S * 1000 - 250):
@@ -329,14 +390,14 @@ class Assistant:
                 spec_valid = True
                 spec_task = asyncio.create_task(self._speculate(snapshot))
 
-            if silence_ms >= config.END_SILENCE_MS or total_ms >= config.MAX_UTTERANCE_S * 1000:
+            if silence_ms >= end_ms or total_ms >= config.MAX_UTTERANCE_S * 1000:
                 audio = np.concatenate(utterance).astype(np.float32) / 32768.0
                 transcript = None
                 # Use the speculative result only if nothing but silence followed
                 # it, and only if it actually produced words.
                 if spec_task is not None and spec_valid and spec_task.done():
                     extra = (len(utterance) - spec_frames) * frame_ms
-                    if extra <= config.END_SILENCE_MS + 2 * frame_ms:
+                    if extra <= end_ms + 2 * frame_ms:
                         try:
                             candidate = spec_task.result()
                         except Exception:
@@ -348,7 +409,17 @@ class Assistant:
                 # normally is exactly as fast as it would have been without it.
                 if spec_task is not None and not spec_task.done():
                     spec_task.cancel()
-                self._start_utterance(audio, speech_ms, transcript)
+                spec_task = None
+
+                if state == "listening":
+                    self._start_utterance(audio, speech_ms, transcript)
+                elif speech_ms >= config.MIN_SPEECH_MS:
+                    # idle in speech mode: this utterance may be the wake phrase.
+                    # A cough or a click is not worth transcribing.
+                    self.set_state("thinking")
+                    asyncio.create_task(self._check_wake(audio, transcript))
+                else:
+                    self._back_to_idle()
 
     async def _warm_up(self):
         """Run one real inference through the recogniser.
@@ -377,7 +448,7 @@ class Assistant:
         await self._warm_up()
         self.mic.start()
         self.mic.drain()
-        self.log("sys", "listening for the wake word")
+        self.log("sys", f"listening for \"{config.WAKE_PHRASE}\"")
         self.set_state("idle")
         try:
             await self._pump()
