@@ -5,10 +5,11 @@ every threshold in the assistant with it. This feeds the same audio through both
 implementations and requires identical numbers, then checks the two things the
 assistant actually depends on: speech scores high, silence and noise score low.
 """
+from pathlib import Path
 import sys
 import time
 
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np  # noqa: E402
 from jarvis import config  # noqa: E402
 from jarvis.vad import SpeechVAD  # noqa: E402

@@ -8,7 +8,7 @@ page still gets through.
 import json, socket, sys, time
 from pathlib import Path
 
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from jarvis import config
 from jarvis.hud import Hud
 

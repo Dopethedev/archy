@@ -5,8 +5,9 @@ of 32767. That is roughly nine bits of resolution, so the audio whisper gets is
 coarse before anything is amplified. This test reproduces that, because it is
 the real reason words come out wrong.
 """
+from pathlib import Path
 import sys, time
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from jarvis.audio import resample  # noqa: E402
 import numpy as np
 from kokoro_onnx import Kokoro
@@ -21,6 +22,12 @@ samples, sr = kokoro.create(PHRASE, voice="bm_george", speed=1.0, lang="en-gb")
 clean = resample(np.asarray(samples, dtype=np.float32), sr, 16000)
 clean = clean / np.abs(clean).max()
 print(f"phrase: {PHRASE!r}\n")
+
+# the vocabulary hint is the machine owner's business, so this test states
+# the one it needs instead of inheriting it: the point is that a hint makes
+# coarse audio legible, and that has to hold on a fresh checkout
+config.WHISPER_HINT = ("Jarvis, Sober, cpu, usage, Hyprland, terminal, "
+                       "wifi, bluetooth, screenshot")
 
 def degrade(a, peak_counts, noise_rms):
     """Bring it down to the microphone's real level, then add its noise floor."""

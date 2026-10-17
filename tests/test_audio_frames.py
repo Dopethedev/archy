@@ -8,9 +8,10 @@ model scored it as nothing.
 Compared by ownership, not by value: the software AGC deliberately drives
 different inputs to the same output level, so equal values prove nothing.
 """
+from pathlib import Path
 import queue
 import sys
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
 from jarvis import config
 from jarvis.audio import MicCapture

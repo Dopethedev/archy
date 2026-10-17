@@ -284,10 +284,17 @@ main {
   padding-right: 4px;
   font-size: 11.5px;
   line-height: 1.42;
+  /* Firefox ignores ::-webkit-scrollbar and paints its own, which showed up as
+     a bright default bar against the dark panel. Both spellings, one look. */
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent) 32%, transparent) transparent;
 }
 
 #log::-webkit-scrollbar { width: 6px; }
-#log::-webkit-scrollbar-thumb { background: rgba(120, 200, 230, 0.22); border-radius: 3px; }
+#log::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  border-radius: 3px;
+}
 
 #log > div { display: grid; grid-template-columns: 52px 1fr; gap: 8px; animation: rise 160ms ease; }
 

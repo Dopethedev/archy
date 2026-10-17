@@ -37,7 +37,7 @@ for text in ("what's on my screen", "look at this", "take a screenshot",
              "what is this game", "read this page for me"):
     check(f"wanted {text!r}", wanted(text))
 for text in ("what time is it", "open brave", "close yourself",
-             "what's the weather", "remember that my name is Bishesh",
+             "what's the weather", "remember that my name is Alex",
              "how much ram is free"):
     check(f"not wanted {text!r}", not wanted(text))
 

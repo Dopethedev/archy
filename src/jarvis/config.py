@@ -1,6 +1,12 @@
-"""Every tunable lives here, so behaviour can be changed without touching logic."""
+"""Every tunable lives here, so behaviour can be changed without touching logic.
+
+Anything personal (your name, your city, words the recogniser should know) is
+read from config.local.json if you create one; see config.local.example.json.
+Nothing personal belongs in this file.
+"""
 
 from pathlib import Path
+import json
 import os
 
 ROOT = Path(__file__).resolve().parents[2]          # ~/jarvis
@@ -73,10 +79,10 @@ WHISPER_BEAM = 5             # beam search instead of greedy: slower, clearly be
 WHISPER_TEMPERATURE = 0.0
 # Biases the recogniser towards words it would otherwise guess at. Whisper uses
 # this as context, so proper nouns and jargon stop coming out as lookalikes.
+# Add your own names and programs through WHISPER_HINT in config.local.json.
 WHISPER_HINT = (
-    "Jarvis, Maki, Bishesh, Kathmandu, Nepal, Sober, Roblox, Hyprland, "
-    "EndeavourOS, cpu, gpu, ram, terminal, wifi, bluetooth, screenshot, "
-    "rkhunter, clamav."
+    "Jarvis, Maki, Linux, cpu, gpu, ram, terminal, wifi, bluetooth, "
+    "screenshot, rootkit, malware"
 )
 
 # ------------------------------------------------------- text to speech
@@ -152,35 +158,47 @@ BRIEF_WORDS = ("brief me", "briefing", "good morning", "good afternoon",
                "todays date", "what day is it", "what time is it",
                "how's the machine", "hows the machine", "system status",
                "status report", "am i good")
-# Kathmandu, from the timezone this machine already keeps.
-LATITUDE, LONGITUDE = 27.7172, 85.3240
+# The spelling of the wake phrase is this project's own business, but the name
+# it calls you is yours. Used in the system prompt and in spoken confirmations.
+USER_NAME = "the user"
+
+# The briefing's weather line. open-meteo needs no key, only a location; with no
+# coordinates it says the weather is unavailable instead of guessing.
+CITY = ""
+LATITUDE = None
+LONGITUDE = None
 WEATHER_CACHE_S = 1800.0
 
 # Reminders and timers: parsed locally, kept in a small file, spoken when due.
 REMINDER_CHECK_S = 5.0
 
-VOICE_RULES = (
-    "Your words are spoken aloud through a speaker. You are talking to Bishesh. "
-    "Answer in one or two short sentences of plain prose. Never use markdown, "
-    "code fences, bullet points, headings, emoji, or URLs, and never spell out a "
-    "path unless asked; say the content in words. Do not describe your own "
-    "reasoning or mention tools by name. If the user asks for something on this "
-    "computer, do it with your tools and then say in one sentence what happened. "
-    "To launch an application, use flatpak run with the app id for flatpak apps "
-    "(sober is org.vinegarhq.Sober), otherwise gtk-launch with the desktop entry "
-    "name. Run the launch command straight away rather than checking whether it "
-    "or the machine state first: checking costs the user several seconds of "
-    "silence, and a failed launch can be corrected afterwards. "
-    "You have abilities that run without you: the dashboard has three themes he "
-    "changes by saying stealth mode, combat mode or standard mode (if he asks "
-    "you to change it, tell him to say that and it happens); reminders and "
-    "timers he sets by saying remind me or set a timer; a morning briefing when "
-    "he says brief me, with time, weather, machine health and the last security "
-    "sweep; a security sweep when he asks for one; and you can see his screen "
-    "when he asks about something on it. When he asks what you can do, list "
-    "these honestly alongside your tools. "
-    "If you do not know something, say so in one short sentence."
-)
+def _voice_rules() -> str:
+    """The spoken-conversation rules. A function so it is built after the local
+    overlay has had its say about the user's name."""
+    return (
+        "Your words are spoken aloud through a speaker. You are talking to "
+        f"{USER_NAME}. "
+        "Answer in one or two short sentences of plain prose. Never use markdown, "
+        "code fences, bullet points, headings, emoji, or URLs, and never spell out "
+        "a path unless asked; say the content in words. Do not describe your own "
+        "reasoning or mention tools by name. If the user asks for something on "
+        "this computer, do it with your tools and then say in one sentence what "
+        "happened. To launch an application, use flatpak run with the app id for "
+        "flatpak apps, otherwise gtk-launch with the desktop entry name. Run the "
+        "launch command straight away rather than checking whether it works or "
+        "the machine state first: checking costs the user several seconds of "
+        "silence, and a failed launch can be corrected afterwards. "
+        "You have abilities that run without you: the dashboard has three themes "
+        "the user changes by saying stealth mode, combat mode or standard mode "
+        "(if asked to change it, say that saying it is what changes it); "
+        "reminders and timers set by saying remind me or set a timer; a morning "
+        "briefing when the user says brief me, with time, weather, machine health "
+        "and the last security sweep; a security sweep when one is asked for; and "
+        "you can see the screen when the user asks about something on it. When "
+        "asked what you can do, list these honestly alongside your tools. "
+        "If you do not know something, say so in one short sentence."
+    )
+
 
 # ------------------------------------------------------------------- hud
 HUD_HOST = "127.0.0.1"
@@ -200,3 +218,37 @@ BARGE_GRACE_MS = 500         # ignore the wake word this long after speech start
 BARGE_HISTORY_MS = 600       # audio kept so the first word survives an interruption
 WAKE_DURING_SPEECH = 0.60    # stricter than normal while it is speaking, but not so
                              # strict that interrupting becomes hard
+
+
+def _apply_local_overrides() -> None:
+    """Fold config.local.json in, so personal settings stay out of the repo.
+
+    Copy config.local.example.json, fill in your name, city, coordinates and the
+    words your recogniser should know, and it is read at import. Keys have to
+    match the upper-case names above; anything else is ignored with a warning
+    rather than silently doing nothing.
+    """
+    path = ROOT / "config.local.json"
+    if not path.exists():
+        return
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError) as exc:
+        print(f"[config] ignoring config.local.json: {exc}")
+        return
+    if not isinstance(data, dict):
+        print("[config] ignoring config.local.json: not an object")
+        return
+    for key, value in data.items():
+        if key.startswith("_"):
+            continue                    # a _comment field, by convention
+        if not (key.isupper() and key in globals()):
+            print(f"[config] config.local.json: unknown setting {key!r}")
+            continue
+        globals()[key] = value
+
+
+_apply_local_overrides()
+
+# Built last, so it carries whatever name the local file set.
+VOICE_RULES = _voice_rules()

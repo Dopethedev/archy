@@ -38,6 +38,14 @@ const PALETTES = {
   },
 };
 let COLORS = PALETTES.standard;
+// ?theme=combat paints a theme before any event arrives, which is what makes a
+// screenshot of a given theme reproducible; the server's own events override it
+// the moment they land.
+const askedTheme = new URLSearchParams(location.search).get("theme");
+if (askedTheme && PALETTES[askedTheme]) {
+  COLORS = PALETTES[askedTheme];
+  document.body.dataset.theme = askedTheme;
+}
 const LABELS = {
   booting:   "starting",
   idle:      "listening",

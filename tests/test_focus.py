@@ -8,8 +8,9 @@ gate comes down.
 The trade being checked: quieter speech gets through, but room noise must still
 not be amplified into something the VAD would call speech.
 """
+from pathlib import Path
 import sys
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
 from jarvis import config
 from jarvis.audio import MicCapture

@@ -8,6 +8,9 @@ dependencies = [
     "faster-whisper>=1.2.1",
     "kokoro-onnx>=0.6.1",
     "numpy>=2.5.4",
+    # the VAD runs on onnxruntime directly rather than through openWakeWord,
+    # so it is named here even though those packages would pull it in
+    "onnxruntime>=1.20.0",
     "openwakeword>=0.4.0",
     "piper-tts>=1.8.0",
     "sounddevice>=0.5.6",

@@ -5,7 +5,7 @@ that never makes it into what the model sees, fails the point of existing.
 """
 import json, os, subprocess, sys, tempfile
 from pathlib import Path
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from jarvis import config
 from jarvis.memory_store import Memory
 
@@ -68,7 +68,7 @@ with tempfile.TemporaryDirectory() as tmp:
     env = {**os.environ, "JARVIS_MEMORY_FILE": str(rush)}
     procs = [subprocess.Popen(
         [sys.executable, "-m", "jarvis.memory_store", "set", f"k{i}", f"v{i}"],
-        cwd="/home/dope/jarvis", env=env,
+        cwd=str(Path(__file__).resolve().parents[1]), env=env,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for i in range(6)]
     for p in procs:
         p.wait(timeout=90)
@@ -81,7 +81,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
 # the command the model is told to run must actually work
 out = subprocess.run([sys.executable, "-m", "jarvis.memory_store", "list"],
-                     capture_output=True, text=True, cwd="/home/dope/jarvis")
+                     capture_output=True, text=True, cwd=str(Path(__file__).resolve().parents[1]))
 check("module runs as a command", out.returncode == 0, out.stdout.strip().splitlines()[0] if out.stdout else out.stderr[-80:])
 
 # and the prompt building must include the stored facts

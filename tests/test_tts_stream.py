@@ -5,8 +5,9 @@ speaking therefore costs that sentence in silence, which was 2.77s of the 4.26s
 it took to say anything at all. The risk of cutting earlier is dropping or
 duplicating words, so that is checked too.
 """
+from pathlib import Path
 import re, sys, time
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
 from jarvis.tts import Speaker, clean, split_ready
 

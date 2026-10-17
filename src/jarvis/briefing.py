@@ -50,6 +50,8 @@ def wants_light(text: str) -> bool:
 def _weather() -> str:
     """One line of sky. Cached for half an hour; the sky does not move faster."""
     global _weather_cache
+    if config.LATITUDE is None or config.LONGITUDE is None:
+        return "unavailable, no location is set"
     now = time.monotonic()
     if _weather_cache[0] and now - _weather_cache[0] < config.WEATHER_CACHE_S:
         return _weather_cache[1]
@@ -115,7 +117,7 @@ def gather(weather: bool = True) -> str:
     """The facts block, in plain sentences a model can read aloud from."""
     lines = [f"Time: {time.strftime('%H:%M on %A, %d %B %Y')}."]
     if weather:
-        lines.append(f"Weather in Kathmandu: {_weather()}.")
+        lines.append(f"Weather in {config.CITY or 'your area'}: {_weather()}.")
     lines.append(f"This machine: {_machine()}.")
     lines.append(f"Security: {_last_sweep()}.")
     return ("LOCAL FACTS, gathered just now. Do not search the web for these.\n"

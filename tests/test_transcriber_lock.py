@@ -4,8 +4,9 @@ The model is not meant to run concurrently. Several overlapping transcriptions
 on a six-thread model thrash the machine instead of finishing sooner: this was
 measuring nearly three cores busy for minutes with no output to show for it.
 """
+from pathlib import Path
 import sys, threading, time
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
 from jarvis import config
 from jarvis.stt import Transcriber

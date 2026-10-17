@@ -22,3 +22,11 @@ __pycache__/
 
 # local state: sweep reports, reminders, sessions
 .state/
+
+# personal settings: your name, city, the words your recogniser should know
+config.local.json
+
+# working notes, about this machine and this project's progress, not the code
+status.md
+project.md
+SOAK_PROMPT.md

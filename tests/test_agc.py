@@ -4,8 +4,9 @@ Without the gate, a quiet microphone gets its own room noise amplified up to
 speech level, the VAD then hears the room as talking, and turns either fire on
 nothing or never end. These cases pin that behaviour down.
 """
+from pathlib import Path
 import sys
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
 from jarvis import config
 from jarvis.audio import MicCapture

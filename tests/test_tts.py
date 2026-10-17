@@ -4,6 +4,7 @@ Synthesize the same sentence with each, time it, then feed the result back
 through whisper. If whisper can read it back, the voice is genuinely
 intelligible rather than just plausible-sounding.
 """
+from pathlib import Path
 import time, wave, subprocess, sys
 import numpy as np
 from jarvis.audio import resample
@@ -27,7 +28,7 @@ results = {}
 t = time.monotonic()
 p = subprocess.run(
     ["uv", "run", "piper", "-m", "models/en_GB-alan-medium.onnx", "-f", "/tmp/out_piper.wav"],
-    input=TEXT, text=True, capture_output=True, cwd="/home/dope/jarvis")
+    input=TEXT, text=True, capture_output=True, cwd=str(Path(__file__).resolve().parents[1]))
 if p.returncode != 0:
     print("piper FAILED:", p.stderr[-400:])
 else:

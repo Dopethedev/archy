@@ -61,7 +61,7 @@ PERM_REASONS = (
     ("proxy", "can reroute your traffic"),
 )
 # the scratch locations. /run/user because a userland payload can write there
-# without root; bare /run/ is left out, /home/dope/runner would match it.
+# without root; bare /run/ is left out, a user's own ~/runner would match it.
 SCRATCH_PARTS = ("/tmp/", "/dev/shm/", "/var/tmp/", "/run/user/", "/.cache/")
 
 

@@ -4,10 +4,11 @@ This is the one part that cannot be verified without a human at the mic, so
 it is exercised directly: does it wake, does it end the utterance when the
 speech stops, and does it give up when nothing is said.
 """
+from pathlib import Path
 import asyncio, queue, sys, threading, time
 import numpy as np
 
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from jarvis import config
 # this file tests the trained-detector path; speech mode is covered by
 # tests/test_wake_phrase.py

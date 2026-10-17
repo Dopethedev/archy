@@ -1,41 +1,115 @@
 # jarvis
 
-A local voice assistant for Linux. Say the wake phrase, ask something, hear the
-answer, and control the machine by voice.
+A voice assistant that runs on your own machine. Say the wake phrase, ask
+something, hear the answer. It can also look at your screen, set reminders, read
+you a morning briefing, sweep the machine for anything odd, and drive a
+dashboard that changes mood by voice.
+
+Everything that hears and speaks runs locally: silero for voice activity,
+faster-whisper for speech to text, kokoro for speech out. Only the thinking goes
+to a model, through a local `pi` process.
+
+![the dashboard, combat theme](docs/theme-combat.png)
+
+The dashboard ships with three themes, switchable by voice. It repaints the orb,
+the rings, the radar and every panel:
+
+| standard | stealth | combat |
+|---|---|---|
+| ![standard](docs/theme-standard.png) | ![stealth](docs/theme-stealth.png) | ![combat](docs/theme-combat.png) |
+
+## What it does
+
+- **Voice loop.** Wake phrase, request, answer, back to idle. The phrase is
+  recognised rather than matched against a trained model, so any phrase works
+  and a request can arrive in the same breath as the wake word.
+- **Interruption.** Talk over it, or say the phrase again, and it stops mid
+  sentence. It also gives up on a slow model if you start talking.
+- **Typed input.** The dashboard has a text box, for when the microphone is not
+  the right tool.
+- **Screen vision.** Ask about what is on screen and it takes a screenshot and
+  looks at it.
+- **Security sweep.** One request runs a set of checks over the machine:
+  processes, listeners, SSH, host file, world writable paths, user services,
+  browser extensions, launchers, pending updates, and a ClamAV scan of the usual
+  drop points. It reports what is normal as well as what is not.
+- **Briefing.** Time, date, weather, machine load, memory, uptime, and how the
+  last sweep went. Gathered locally, before the model is asked anything.
+- **Reminders and timers.** "Remind me in twenty minutes to check the oven."
+  Parsed locally, so it is confirmed in under a second, and spoken when due.
+- **Themes.** Three dashboard themes, switched by voice.
+- **Memory.** Durable facts in a file you can read and edit by hand, handed to
+  the model on every turn so remembering costs no round trip.
+- **A model chain.** Free relays die without warning. If the first one stops
+  answering, the next takes over and it says so.
+- **A microphone switch.** Off means off, from the dashboard or a key.
+
+## Requirements
+
+- Linux with PipeWire, a microphone and headphones. Written and used on Arch and
+  Hyprland; the voice loop is not tied to a desktop, but the security sweep is
+  (it asks `pacman` what owns a file, and reads Brave's profiles).
+- Python 3.12. `uv` handles that, and ctranslate2 has no wheels past 3.12.
+- [`pi`](https://github.com/badlogic/pi-mono) on `PATH`, which is where the
+  model connection lives.
+- For screen vision: `grim` and `ffmpeg`. Without them it says it cannot see.
+- For the ClamAV part of the sweep: `clamav`. The other checks that need a tool
+  it does not have are skipped and reported as skipped, not as clean.
+
+## Install
 
 ```
-microphone -> silero VAD -> faster-whisper -> wake phrase check
-           -> pi --mode rpc (the brain)
-           -> kokoro voice -> headphones
-           -> dashboard at http://127.0.0.1:8731
+git clone <this repo> jarvis && cd jarvis
+uv sync
 ```
 
-Everything that hears and speaks runs locally. The thinking is done by a `pi`
-process, which is where a model connection is used.
+Then the models. They are not in the repository, and all of them are free:
+
+| file | where |
+|------|-------|
+| `kokoro-v1.0.fp16.onnx` | `github.com/thewh1teagle/kokoro-onnx`, release `model-files-v1.1` |
+| `voices-v1.0.bin` | the same release |
+| `silero_vad.onnx` | copy it out of openWakeWord's `resources/models`, or silero-vad's own release |
+| `en_GB-alan-medium.onnx` and `.json` | piper voices, only needed for the fallback voice |
+
+Put them in `models/`. Whisper downloads itself into the huggingface cache the
+first time it runs.
 
 ## Running it
 
 ```
-./run.sh                 voice loop, dashboard opens in its own window
+./run.sh                 voice loop, dashboard in its own window
 ./run.sh --no-hud        console only
 ./run.sh --say "hi"      one typed message, no microphone
 ./run.sh --mic-test      live microphone check: level, speech score, transcript
 ./tests/run_all.sh       every check that needs no microphone
 ```
 
-The wake phrase is **"hey maki"**. It is understood by the recogniser rather
-than matched by a trained model, which is why an arbitrary phrase works and why
-a request can arrive in the same breath ("hey maki, open sober").
+`./run.sh --input Fifine` picks an input device by name.
 
-Four states, one audio loop: `idle` waits for the phrase, `listening` records
-the request, `thinking` waits on the model, `speaking` plays the reply. Talking
-over it, or saying the phrase again, cuts it off.
+## Your own settings
 
-## Requirements
+`config.py` holds every tunable and nothing personal. Copy the example and fill
+in yours:
 
-- Python 3.12 (`uv` handles this). ctranslate2 has no wheels past 3.12.
-- A microphone and headphones. Pipewire is assumed.
-- The `pi` coding agent on `PATH`.
+```
+cp config.local.example.json config.local.json
+```
+
+```json
+{
+  "USER_NAME": "your name",
+  "CITY": "your city",
+  "LATITUDE": 0.0,
+  "LONGITUDE": 0.0,
+  "WHISPER_HINT": "your name, your town, the programs you launch by voice",
+  "WAKE_PHRASE": "hey jarvis"
+}
+```
+
+That file is gitignored. Anything you leave out falls back to a sane default: no
+location means the briefing says the weather is unavailable rather than guessing,
+and the default wake phrase is `hey jarvis`.
 
 ## Layout
 
@@ -43,29 +117,41 @@ over it, or saying the phrase again, cuts it off.
 src/jarvis/
   config.py         every tunable, nothing else stores settings
   audio.py          microphone capture and speaker playback
-  wake.py           wake phrase detection (understood, and the trained model)
+  wake.py           wake phrase detection, by recognition or a trained model
+  vad.py            is this frame speech, on onnxruntime directly
   stt.py            speech to text
   tts.py            text to speech
   brain.py          the pi process and its rpc protocol
   assistant.py      the state machine and the audio pump
-  vad.py            is this frame speech, on onnxruntime directly
-  hud.py            the dashboard server
-  memory_store.py   durable facts, readable and editable by hand
+  sweep.py          the security checks
+  briefing.py       time, weather, machine health, last sweep
+  reminders.py      reminders and timers
+  vision.py         screenshots for the model
+  memory_store.py   durable facts, readable by hand
+  hud.py            the dashboard server, the mic switch, the typed input
   mictest.py        the live microphone check
 hud/                the dashboard page
-models/             voice and wake models (not committed)
+docs/               theme screenshots, and the script that renders them
+tests/              one file per behaviour, all runnable without a microphone
 ```
 
-Models are not in the repository. Four files, all free downloads:
+`hud/` (the page) sits beside the package rather than inside it, because it is
+served as static files: no build step, no external assets, no framework.
+`docs/render-screenshots.sh` regenerates the images above against a fake event
+stream, so they need no live assistant. The start-up reset of the activity log,
+the mic switch and the boot film are all in `hud/app.js`.
 
-| file | where |
-|------|-------|
-| `kokoro-v1.0.fp16.onnx` | github.com/thewh1teagle/kokoro-onnx, release `model-files-v1.1` |
-| `voices-v1.0.bin` | same release |
-| `en_GB-alan-medium.onnx` + `.json` | piper voices, for the fallback engine |
-| `silero_vad.onnx` | copy out of openWakeWord's `resources/models`, or silero-vad's own release |
+## Tests
 
-Whisper downloads itself into the huggingface cache the first time it runs.
+```
+./tests/run_all.sh
+```
 
-`./run.sh --input Fifine` picks a different input device by name. Run
-`./tests/run_all.sh` before trusting a change.
+Each file is a behaviour, not a unit: the audio pump, the wake phrase shapes,
+the sweep's browser checks, the reminder grammar, the model chain failing over,
+the dashboard's own security. They run without a microphone and without a model,
+except two that talk to `pi` on purpose.
+
+## Licence
+
+MIT. See `LICENSE`.

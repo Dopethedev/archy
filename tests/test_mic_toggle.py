@@ -5,9 +5,10 @@ saying so, and no path quietly treating it as a live microphone. The failure
 case matters too, because a device that will not reopen must not leave the
 assistant claiming it can hear you.
 """
+from pathlib import Path
 import sys
 
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from jarvis.assistant import Assistant  # noqa: E402
 
 failures = 0

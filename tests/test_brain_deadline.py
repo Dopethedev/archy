@@ -6,9 +6,10 @@ Without a deadline a hung model process leaves the assistant stuck in
 deadline a long tool run would be killed mid-sentence, so the deadline is on
 silence rather than on the total time.
 """
+from pathlib import Path
 import asyncio, json, os, sys, time
 
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import os, tempfile as _tf
 os.environ["JARVIS_SESSION_DIR"] = _tf.mkdtemp(prefix="jarvis-test-session-")
 os.environ.setdefault("JARVIS_MEMORY_FILE", "/tmp/jarvis-test-memory.json")

@@ -8,13 +8,14 @@ played over the reply they had asked for instead: the glitch.
 
 Nothing here touches an audio device.
 """
+from pathlib import Path
 import queue
 import re
 import sys
 import threading
 import time
 
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np  # noqa: E402
 from jarvis import config  # noqa: E402
 from jarvis.audio import Player  # noqa: E402

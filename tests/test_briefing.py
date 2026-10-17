@@ -43,6 +43,11 @@ class FakeResp:
     def __enter__(self): return self
     def __exit__(self, *a): return False
     def read(self): return json.dumps(fake).encode()
+# the code map is what is being tested, so this test brings its own location:
+# without one configured the briefing says the weather is unavailable on
+# purpose, which is correct behaviour and not what these checks are about
+briefing.config.LATITUDE = 51.5
+briefing.config.LONGITUDE = -0.12
 real_urlopen = briefing.urllib.request.urlopen
 briefing.urllib.request.urlopen = lambda url, timeout: FakeResp()
 try:
@@ -84,7 +89,10 @@ check("a clean sweep says so with its time",
 print("-- the whole block reads as one facts card --")
 facts = briefing.gather()
 check("time is in it", "Time:" in facts)
-check("weather is in it", "Kathmandu" in facts)
+# the city is the machine owner's business: with none configured the
+# briefing says so rather than naming a place
+check("weather is in it",
+      (config.CITY in facts) if config.CITY else ("your area" in facts))
 check("machine is in it", "load" in facts)
 check("security is in it", "sweep" in facts)
 check("it tells the model not to go looking",

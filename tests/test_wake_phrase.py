@@ -5,8 +5,9 @@ was said. That makes these cases the whole feature: the phrase with a request
 attached, the phrase alone, the recogniser's imperfect spellings of a name, and
 everything that must NOT wake it.
 """
+from pathlib import Path
 import asyncio, sys
-sys.path.insert(0, "/home/dope/jarvis/src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from jarvis import config
 from jarvis.assistant import Assistant, blip
 from jarvis.wake import SpeechWake
