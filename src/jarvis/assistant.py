@@ -235,6 +235,8 @@ class Assistant:
 
             if full and not cancel.is_set():
                 self.log("jarvis", full)
+            elif not full and not cancel.is_set():
+                self.log("sys", "the model returned nothing")
             await asyncio.to_thread(tts.join, 180)
             if cancel.is_set():
                 return                       # the interruption owns the state now

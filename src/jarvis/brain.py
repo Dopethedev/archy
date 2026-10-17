@@ -75,6 +75,8 @@ class PiBrain:
             "--thinking", config.PI_THINKING,
             "--append-system-prompt", self._system_prompt(),
         ]
+        if config.PI_MODEL:
+            args += ["--model", config.PI_MODEL]
         if config.PI_CONTINUE:
             args.append("--continue")          # pick the conversation back up
         if not config.PI_EXTENSIONS:
@@ -166,6 +168,13 @@ class PiBrain:
                 label = event.get("toolName", "tool")
                 yield ("tool", f"{label}: {detail}"[:160] if detail else label)
             elif kind == "agent_end":
+                yield ("done", text.strip())
+                return
+            elif kind == "turn_end":          # newer pi ends the turn with this
+                message = event.get("message") or {}
+                if message.get("stopReason") == "error":
+                    raise BrainError(
+                        str(message.get("errorMessage") or "the model failed"))
                 yield ("done", text.strip())
                 return
             elif kind == "auto_retry_start":

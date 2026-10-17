@@ -88,6 +88,7 @@ PIPER_VOICE = "en_GB-alan-medium"
 
 # ----------------------------------------------------------------- brain
 PI_BIN = "pi"
+PI_MODEL = "wandb/zai-org/GLM-5.3-Flash"   # pinned: a session can carry a model that has since died
 PI_THINKING = "off"          # voice wants speed, not deliberation
 PI_CONTINUE = True           # resume the previous conversation after a restart
 # The voice path needs no extension. donsetch spawns an MCP binary and does a
