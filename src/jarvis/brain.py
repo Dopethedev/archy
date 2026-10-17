@@ -32,6 +32,10 @@ class PiBrain:
         # bumped on every start, so a reader thread belonging to a previous
         # process cannot inject its "process ended" marker into the new queue
         self._generation = 0
+        # where we are in the model chain. The free relays die without warning
+        # (a model that answered at breakfast 404s by lunch), so the assistant
+        # moves down the chain and says so rather than failing
+        self.model_index = 0
 
     @staticmethod
     def _system_prompt() -> str:
@@ -75,8 +79,9 @@ class PiBrain:
             "--thinking", config.PI_THINKING,
             "--append-system-prompt", self._system_prompt(),
         ]
-        if config.PI_MODEL:
-            args += ["--model", config.PI_MODEL]
+        model = config.PI_MODELS[self.model_index % len(config.PI_MODELS)]
+        args += ["--model", model]
+        print(f"[brain] model {model}", flush=True)
         if config.PI_CONTINUE:
             args.append("--continue")          # pick the conversation back up
         if not config.PI_EXTENSIONS:
@@ -189,6 +194,14 @@ class PiBrain:
                 yield ("tool", "retrying")
             elif kind == "error":
                 raise BrainError(str(event))
+
+    def advance_model(self) -> str | None:
+        """Step to the next model in the chain, wrap around, and name it."""
+        self.model_index = (self.model_index + 1) % len(config.PI_MODELS)
+        return config.PI_MODELS[self.model_index]
+
+    def model_name(self) -> str:
+        return config.PI_MODELS[self.model_index % len(config.PI_MODELS)]
 
     async def new_session(self):
         self._send({"type": "new_session"})

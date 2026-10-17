@@ -88,7 +88,20 @@ PIPER_VOICE = "en_GB-alan-medium"
 
 # ----------------------------------------------------------------- brain
 PI_BIN = "pi"
-PI_MODEL = "wandb/zai-org/GLM-5.3-Flash"   # pinned: a session can carry a model that has since died
+# The brain as a chain: if the head dies (a free relay 404s, upstream fails),
+# the assistant moves to the next and says so. All four verified answering
+# through pi, and all four accept images, so screen vision survives a switch.
+PI_MODELS = (
+    "wandb/zai-org/GLM-5.3-Flash",        # current: fastest, sees images
+    "crusoe/zai-org/GLM-5.3-Flash",       # the same model on another relay
+    "wandb/moonshotai/Kimi-K2.6",
+    "wandb/Qwen/Qwen3.8-27B",
+)
+PI_MODEL = PI_MODELS[0]                   # kept for anything that reads one model
+
+# Small durable state: the last sweep's report, pending reminders. Lives under
+# the project, recreated if missing, never in the session.
+STATE_DIR = ROOT / ".state"
 PI_THINKING = "off"          # voice wants speed, not deliberation
 PI_CONTINUE = True           # resume the previous conversation after a restart
 # The voice path needs no extension. donsetch spawns an MCP binary and does a
@@ -119,6 +132,31 @@ SWEEP_WORDS = ("security sweep", "security scan", "security check", "virus scan"
                "am i infected", "is my computer", "audit my", "check my computer",
                "any viruses")
 SWEEP_CLAMAV_TIMEOUT_S = 120.0
+
+# Dashboard themes, switched by voice: "maki, combat mode". The name has to
+# ride along with the word mode or theme, so a passing mention of combat does
+# not repaint the screen.
+THEMES = {
+    "standard": ("standard", "normal", "default", "regular", "restore the theme",
+                 "reset the theme"),
+    "stealth":  ("stealth",),
+    "combat":   ("combat", "red alert", "battle mode"),
+}
+
+# The briefing: time, date, weather, machine health, the last sweep. Cheap
+# local facts, gathered before the model is ever asked.
+BRIEF_WORDS = ("brief me", "briefing", "good morning", "good afternoon",
+               "good evening", "the weather", "weather today",
+               "weather right now", "weather forecast", "today's date",
+               "todays date", "what day is it", "what time is it",
+               "how's the machine", "hows the machine", "system status",
+               "status report", "am i good")
+# Kathmandu, from the timezone this machine already keeps.
+LATITUDE, LONGITUDE = 27.7172, 85.3240
+WEATHER_CACHE_S = 1800.0
+
+# Reminders and timers: parsed locally, kept in a small file, spoken when due.
+REMINDER_CHECK_S = 5.0
 
 VOICE_RULES = (
     "Your words are spoken aloud through a speaker. You are talking to Bishesh. "

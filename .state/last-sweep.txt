@@ -1,0 +1,20 @@
+security sweep of Archy, 13:46:
+  ok: no process runs from /tmp, /dev/shm or a deleted file
+  ok: root is the only account with uid 0
+  ok: /etc/hosts holds only standard entries
+  ok: no world-writable executables in /tmp or /dev/shm
+  ok: nothing listening beyond loopback and discovery services
+  ok: no authorized ssh keys
+  ok: no user service launches from a scratch directory
+  ok: 4 extension(s) in Brave, all from the store or owned by a package, nothing dangerous
+  ok: the brave binary matches the checksums its package recorded
+  ok: no flash plugin is installed
+  info: davinci-convert.desktop (system applications) runs /usr/local/bin/davinci-convert, yours, no package owns it
+  info: davinci-uploadmp4.desktop (system applications) runs /usr/local/bin/davinci-convert, yours, no package owns it
+  info: locked-in.desktop (user applications) runs /home/dope/Applications/locked-in.AppImage, yours, no package owns it
+  warn: notex.desktop (user applications) runs /home/dope/notex-launch.sh, which no package owns and which appeared after the last install
+  ok: clamav scanned 3 launcher target(s) and found nothing
+  info: 0 package update(s) pending; old packages carry known holes
+  ok: virus definitions are 0.1 day(s) old
+  ok: clamav scanned /tmp, /dev/shm, /home/dope/Downloads in 14s and found nothing
+  summary: nothing needs action, 1 warning(s) worth reading

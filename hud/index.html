@@ -6,6 +6,12 @@
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+<div id="boot" aria-hidden="true">
+  <div class="boot-inner">
+    <div class="boot-title">J A R V I S</div>
+    <pre id="boot-lines"></pre>
+  </div>
+</div>
 <div id="app">
 
   <header>
@@ -31,6 +37,10 @@
     </section>
 
     <aside class="side">
+      <div class="panel radar-panel">
+        <h2>proximity</h2>
+        <canvas id="radar" width="264" height="150"></canvas>
+      </div>
       <div class="panel">
         <h2>system</h2>
         <div class="stat"><span>cpu</span><b id="cpu">--</b></div>

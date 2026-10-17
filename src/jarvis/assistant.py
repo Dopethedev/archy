@@ -23,6 +23,8 @@ import time
 import numpy as np
 
 from . import config
+from . import briefing
+from . import reminders as reminders_mod
 from . import sweep as sweep_mod
 from .audio import MicCapture, Player
 from .brain import BrainError, PiBrain
@@ -67,6 +69,19 @@ class Assistant:
         self.turn_latency = 0.0               # spoken delay of the last turn
         self.mic_enabled = True               # what the dashboard's toggle controls
         self._loop: asyncio.AbstractEventLoop | None = None
+
+    # --------------------------------------------------------- local intents
+    @staticmethod
+    def _theme_intent(text: str) -> str | None:
+        """A dashboard repaint by voice. The name must ride with mode or theme,
+        so a passing mention of combat does not turn the screen red."""
+        words = text.lower()
+        if not any(w in words for w in ("mode", "theme")):
+            return None
+        for theme, names in config.THEMES.items():
+            if any(name in words for name in names):
+                return theme
+        return None
 
     # ------------------------------------------------------------------- hud
     def set_state(self, state: str):
@@ -217,11 +232,30 @@ class Assistant:
             self.log("you", text)
             self._publish_heard(text)
 
+            # Local intents are answered without the model: a reminder, a
+            # timer, a theme. One breath, no relay in the way.
+            local_reply = None
+            action = reminders_mod.parse(text)
+            if action:
+                local_reply = reminders_mod.confirm(action)
+            else:
+                theme = self._theme_intent(text)
+                if theme:
+                    if self.hud:
+                        self.hud.publish({"type": "theme", "value": theme})
+                    local_reply = {
+                        "standard": "Back to standard.",
+                        "stealth": "Stealth mode engaged.",
+                        "combat": "Combat mode engaged.",
+                    }[theme]
+
             # A request about the screen gets the screen attached; a request
-            # for a security sweep gets fresh results to talk about. The sweep
-            # wins if both match: nobody screenshots while auditing.
+            # for a security sweep gets fresh results to talk about; a request
+            # for a briefing gets today's facts. The sweep wins if several
+            # match: nobody screenshots while auditing.
             images = None
             sweep_report = None
+            brief_facts = None
             if sweep_mod.wanted(text):
                 deltas.put("Running the sweep now, this takes a minute.")
                 try:
@@ -237,13 +271,19 @@ class Assistant:
                     self.log("sys", "looking at your screen")
                 except (ScreenError, OSError) as exc:
                     self.log("sys", f"could not capture the screen: {exc}")
+            elif briefing.wanted(text):
+                brief_facts = await asyncio.to_thread(briefing.gather)
 
             tts = threading.Thread(target=self.speaker.say_stream,
                                    args=(delta_iter(), on_first_audio, cancel), daemon=True)
             tts.start()
 
             full = ""
-            try:
+            if local_reply is not None:
+                deltas.put(local_reply)
+                deltas.put(None)
+                full = local_reply
+            else:
                 prompt = text
                 if sweep_report:
                     prompt = (f"{text}\n\nFRESH SECURITY SWEEP RESULTS, run just "
@@ -251,17 +291,21 @@ class Assistant:
                               "for speech: lead with anything that needs action, "
                               "then the clean parts in one breath. Be honest "
                               "about what the sweep does not cover.")
-                async for kind, payload in self.brain.ask(prompt, images):
-                    if cancel.is_set():
-                        break
-                    if kind == "delta":
-                        deltas.put(payload)
-                    elif kind == "tool":
-                        self.log("doing", payload)
-                    elif kind == "done":
-                        full = payload
-            finally:
-                deltas.put(None)
+                elif brief_facts:
+                    prompt = (f"{text}\n\n{brief_facts}Use these facts to answer. "
+                              "One or two sentences, plain prose.")
+                try:
+                    async for kind, payload in self.brain.ask(prompt, images):
+                        if cancel.is_set():
+                            break
+                        if kind == "delta":
+                            deltas.put(payload)
+                        elif kind == "tool":
+                            self.log("doing", payload)
+                        elif kind == "done":
+                            full = payload
+                finally:
+                    deltas.put(None)
 
             if full and not cancel.is_set():
                 self.log("jarvis", full)
@@ -274,8 +318,19 @@ class Assistant:
 
         except BrainError as exc:
             print(f"[brain] {exc}")
-            self.log("sys", "the model connection dropped, restarting it")
-            self.speaker.say("My connection to the model dropped. Ask me again.")
+            # A dead relay deserves the next one in the chain; a silent one is
+            # left as it is, because a hang is not proof the model itself died.
+            moved = None
+            if "said nothing for" not in str(exc):
+                moved = self.brain.advance_model()
+            if moved:
+                self.log("sys", f"the model failed, switching to "
+                                f"{moved.split('/')[-1]}")
+                self.speaker.say("My connection dropped, so I switched to a "
+                                 "backup model. Ask me again.")
+            else:
+                self.log("sys", "the model connection dropped, restarting it")
+                self.speaker.say("My connection to the model dropped. Ask me again.")
             self.player.wait_drained(timeout=60)
             await self._restart_brain()
         except Exception as exc:
@@ -316,6 +371,35 @@ class Assistant:
             self.mic.stop()
             self.log("sys", "microphone off")
             self.set_state("muted")
+
+    # ------------------------------------------------------------- reminders
+    async def _reminder_loop(self):
+        """Due reminders are spoken, out loud, whatever the dashboard shows.
+        The loop waits for a quiet moment rather than talking over a reply."""
+        while not self._stopping:
+            await asyncio.sleep(config.REMINDER_CHECK_S)
+            try:
+                ripe = reminders_mod.due_items()
+            except Exception as exc:
+                print(f"[reminders] {exc}")
+                continue
+            for label in ripe:
+                while (self.state in ("thinking", "speaking", "listening")
+                       and not self._stopping):
+                    await asyncio.sleep(1.0)
+                if self._stopping:
+                    return
+                self.set_state("speaking")
+                self.player.write(blip(660.0))
+                self.player.write(blip(990.0))
+                text = f"Reminder: {label}."
+                self.log("jarvis", text)
+                try:
+                    await asyncio.to_thread(self.speaker.say, text)
+                    await asyncio.to_thread(self.player.wait_drained, 60)
+                except Exception as exc:
+                    print(f"[reminders] could not speak: {exc}")
+                self._back_to_idle()
 
     async def _restart_brain(self):
         try:
@@ -586,6 +670,7 @@ class Assistant:
         if self.hud:
             self.hud.on_say = self._typed.put
             self.hud.on_mic = self._request_mic
+        asyncio.create_task(self._reminder_loop())
         await self.brain.start()
         self.player.start()
         if self.greet:

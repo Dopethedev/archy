@@ -8,14 +8,36 @@ const heardEl = document.getElementById("heard");
 const saidEl = document.getElementById("said");
 const hintEl = document.getElementById("hint");
 
-const COLORS = {
-  booting:   "#5d7d8f",
-  idle:      "#4fe3ff",
-  listening: "#46e6a0",
-  thinking:  "#ffb347",
-  speaking:  "#9d7bff",
-  muted:     "#ff6b7a",
+/* Themes, switched by voice on the server. The accent follows the state
+   within a palette; a theme changes which family that is, and the surfaces
+   around it through data-theme on the body. */
+const PALETTES = {
+  standard: {
+    booting:   "#5d7d8f",
+    idle:      "#4fe3ff",
+    listening: "#46e6a0",
+    thinking:  "#ffb347",
+    speaking:  "#9d7bff",
+    muted:     "#ff6b7a",
+  },
+  stealth: {
+    booting:   "#6f6a4f",
+    idle:      "#d6b760",
+    listening: "#9ab875",
+    thinking:  "#e0c25c",
+    speaking:  "#b3a06a",
+    muted:     "#c96b5e",
+  },
+  combat: {
+    booting:   "#8f5d5d",
+    idle:      "#ff5346",
+    listening: "#ff8c42",
+    thinking:  "#ffb84d",
+    speaking:  "#ff6f61",
+    muted:     "#ff2d2d",
+  },
 };
+let COLORS = PALETTES.standard;
 const LABELS = {
   booting:   "starting",
   idle:      "listening",
@@ -29,6 +51,8 @@ let state = "booting";
 let mic = 0, out = 0;        // raw levels from the server
 let shown = 0;               // smoothed level actually drawn
 let ripples = [];
+let wave = new Array(72).fill(0);   // recent levels, drawn around the orb
+let cpu = 0, mem = 0;               // telemetry arcs read these
 
 function rgba(hex, a) {
   const n = parseInt(hex.slice(1), 16);
@@ -57,9 +81,23 @@ source.onmessage = (event) => {
     dot.style.boxShadow = `0 0 12px ${colour}`;
     hintEl.classList.toggle("hidden", state !== "idle" && !heardEl.textContent);
     showMicState();
+    radarBlip(state === "thinking" ? "sys" : "mic");
   } else if (msg.type === "level") {
     mic = msg.mic || 0;
     out = msg.out || 0;
+    wave.push(Math.min(1, state === "speaking" ? out : mic));
+    wave.shift();
+  } else if (msg.type === "theme") {
+    const t = PALETTES[msg.value] ? msg.value : "standard";
+    document.body.dataset.theme = t;
+    COLORS = PALETTES[t];
+    const colour = COLORS[state] || COLORS.idle;
+    document.documentElement.style.setProperty("--accent", colour);
+    // one glitch at the moment it lands, like a display being re-tuned
+    document.body.classList.remove("theme-switch");
+    void document.body.offsetWidth;
+    document.body.classList.add("theme-switch");
+    radarBlip("sys");
   } else if (msg.type === "heard") {
     setLine(heardEl, msg.text);
     heardEl.classList.toggle("partial", !!msg.partial);
@@ -67,6 +105,8 @@ source.onmessage = (event) => {
   } else if (msg.type === "turn") {
     document.getElementById("delay").textContent = msg.latency.toFixed(1) + "s";
   } else if (msg.type === "stats") {
+    cpu = msg.cpu || 0;
+    mem = msg.mem || 0;
     setStat("cpu", msg.cpu, "%");
     setStat("mem", msg.mem, "%");
     document.getElementById("temp").textContent = msg.temp != null ? msg.temp + " C" : "--";
@@ -74,6 +114,7 @@ source.onmessage = (event) => {
     addLog(msg.who, msg.text);
     if (msg.who === "you") { setLine(heardEl, msg.text); heardEl.classList.remove("partial"); }
     if (msg.who === "jarvis") setLine(saidEl, msg.text);
+    radarBlip(msg.who === "doing" ? "warn" : msg.who === "jarvis" ? "out" : "mic");
   }
 };
 
@@ -161,6 +202,120 @@ input.addEventListener("keydown", (e) => {
   }).catch(() => {});
 });
 
+/* ------------------------------------------------------------- boot film */
+/* Typed kernel log, then the panels take over. Skipped with #noboot in the
+   address, which is how screenshots of the steady state are taken. */
+const BOOT_LINES = [
+  "initialising jarvis kernel 4.2 .............. <ok>OK</ok>",
+  "audio subsystem, pipewire .................... <ok>OK</ok>",
+  "speech recogniser, local ..................... <ok>OK</ok>",
+  "voice synthesiser, local ..................... <ok>OK</ok>",
+  "model link ................................... <ok>OK</ok>",
+  "security watch ................................ <ok>OK</ok>",
+  "all systems nominal. good day.",
+];
+
+async function bootSequence() {
+  const boot = document.getElementById("boot");
+  if (!boot || location.hash === "#noboot") { boot && boot.remove(); return; }
+  const out = document.getElementById("boot-lines");
+  let delay = 260;
+  for (const line of BOOT_LINES) {
+    await new Promise(r => setTimeout(r, delay));
+    delay = 300;
+    const row = document.createElement("div");
+    out.appendChild(row);
+    row.innerHTML = line.replace(/<ok>/g, '<span class="ok">').replace(/<\/ok>/g, "</span>");
+    row.style.opacity = "0";
+    row.style.transition = "opacity 160ms ease";
+    requestAnimationFrame(() => { row.style.opacity = "1"; });
+  }
+  await new Promise(r => setTimeout(r, 700));
+  boot.classList.add("done");
+  setTimeout(() => boot.remove(), 1000);
+}
+bootSequence();
+
+/* ------------------------------------------------------------------ radar */
+const radar = document.getElementById("radar");
+const rctx = radar ? radar.getContext("2d") : null;
+let sweepA = -Math.PI / 2;
+let sweepLast = 0;
+let blips = [];                            // { a, r, t, colour }
+const BLIP_LIFE = 6000;
+
+function radarBlip(kind) {
+  if (!rctx) return;
+  const colour = kind === "warn" ? "#ffb347"
+    : kind === "out" ? COLORS.speaking
+    : kind === "sys" ? "#8fa4b0" : COLORS.listening;
+  blips.push({
+    a: Math.random() * Math.PI * 2,
+    r: 0.3 + Math.random() * 0.62,
+    t: performance.now(),
+    colour,
+  });
+  if (blips.length > 14) blips = blips.slice(-14);
+}
+
+function radarDraw(now) {
+  if (!rctx) return;
+  const w = radar.width, h = radar.height;
+  const cx = w / 2, cy = h / 2 + 4;
+  const R = Math.min(w, h) * 0.44;
+  const dt = Math.min(100, now - sweepLast || 16);
+  sweepLast = now;
+  sweepA += dt * 0.0016;                   // one revolution in about four seconds
+  rctx.clearRect(0, 0, w, h);
+
+  rctx.strokeStyle = "rgba(120, 200, 230, 0.16)";
+  rctx.lineWidth = 1;
+  for (let k = 1; k <= 3; k++) {
+    rctx.beginPath();
+    rctx.arc(cx, cy, R * k / 3, 0, Math.PI * 2);
+    rctx.stroke();
+  }
+  rctx.beginPath();
+  rctx.moveTo(cx - R, cy); rctx.lineTo(cx + R, cy);
+  rctx.moveTo(cx, cy - R); rctx.lineTo(cx, cy + R);
+  rctx.globalAlpha = 0.35;
+  rctx.stroke();
+  rctx.globalAlpha = 1;
+
+  // the sweep: a wedge that fades behind the line, like a real scope
+  for (let k = 0; k < 22; k++) {
+    const a = sweepA - k * 0.035;
+    rctx.beginPath();
+    rctx.moveTo(cx, cy);
+    rctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+    const c = COLORS.idle;
+    rctx.strokeStyle = c;
+    rctx.globalAlpha = 0.28 * (1 - k / 22);
+    rctx.stroke();
+  }
+  rctx.globalAlpha = 1;
+
+  blips = blips.filter(b => now - b.t < BLIP_LIFE);
+  for (const b of blips) {
+    const age = (now - b.t) / BLIP_LIFE;
+    const x = cx + Math.cos(b.a) * R * b.r;
+    const y = cy + Math.sin(b.a) * R * b.r;
+    rctx.beginPath();
+    rctx.arc(x, y, 3 + age * 2, 0, Math.PI * 2);
+    rctx.fillStyle = b.colour;
+    rctx.globalAlpha = (1 - age) * 0.9;
+    rctx.fill();
+    rctx.globalAlpha = (1 - age) * 0.35;
+    rctx.beginPath();
+    rctx.arc(x, y, 5 + age * 9, 0, Math.PI * 2);
+    rctx.strokeStyle = b.colour;
+    rctx.stroke();
+  }
+  rctx.globalAlpha = 1;
+  requestAnimationFrame(radarDraw);
+}
+if (rctx) requestAnimationFrame(radarDraw);
+
 /* ------------------------------------------------------------------ visual */
 function fit() {
   const dpr = window.devicePixelRatio || 1;
@@ -224,6 +379,54 @@ function draw(now) {
     ctx.globalAlpha = 0.34 - k * 0.08;
     ctx.lineWidth = 1.3;
     ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  /* waveform ring: the last second and a half of sound, wrapped around the
+     orb as radial spokes, the way a suit's HUD would show a voice */
+  const spokes = wave.length;
+  const spin = now / 24000;
+  for (let i = 0; i < spokes; i++) {
+    const v = wave[(i + Math.floor(now / 50)) % spokes];
+    if (v < 0.015) continue;
+    const a = (i / spokes) * Math.PI * 2 - Math.PI / 2 + spin;
+    const r0 = R * 1.62;
+    const r1 = r0 + 4 + v * R * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+    ctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+    ctx.strokeStyle = colour;
+    ctx.globalAlpha = 0.12 + v * 0.5;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  /* telemetry arcs: cpu and memory as partial rings, the diagnostics readout
+     of a ship rather than numbers in a box */
+  const arcs = [[cpu, R * 2.42, 0.30], [mem, R * 2.66, 0.18]];
+  for (const [value, rr, alpha] of arcs) {
+    const span = Math.PI * 1.5;
+    const start = -Math.PI / 2 - span / 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rr, start, start + span);
+    ctx.strokeStyle = colour;
+    ctx.globalAlpha = 0.10;
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+    const end = start + span * Math.min(1, value / 100);
+    ctx.beginPath();
+    ctx.arc(cx, cy, rr, start, end);
+    ctx.strokeStyle = value > 85 ? COLORS.muted : colour;
+    ctx.globalAlpha = alpha + 0.35;
+    ctx.stroke();
+    if (value > 1) {
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(end) * rr, cy + Math.sin(end) * rr, 2.4, 0, Math.PI * 2);
+      ctx.fillStyle = colour;
+      ctx.globalAlpha = 0.8;
+      ctx.fill();
+    }
   }
   ctx.globalAlpha = 1;
 

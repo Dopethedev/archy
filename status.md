@@ -237,6 +237,37 @@ this project needs **139 MB** of it: whisper's base.en. The rest is from earlier
 experiments (a 4.3 GB Qwen TTS among them) and is not referenced by anything
 here.
 
+## The six upgrades (chain, briefing, reminders, themes, boot film, radar)
+The brain is a chain now, not a pin: wandb GLM-5.3-Flash, the same model on
+crusoe, Kimi-K2.6, Qwen3.8-27B, every one verified answering through pi with
+images. A model that errors (404, upstream dead, process ended) moves the
+assistant to the next entry and says so; a silence hang only restarts, because
+a hang is not proof the model died. This is the fix for the silent morning.
+
+Local intents answered without any model: reminders and timers ("remind me in
+20 minutes to check the oven", "set a timer for 5 minutes", "cancel my
+reminders", "what reminders do I have"), confirmed in 0.6 s, stored in
+.state/reminders.json so a restart does not eat them, and spoken by a
+background loop when due, two blips then the reminder, waiting for a quiet
+moment first. And dashboard themes: "stealth mode", "combat mode", "standard
+mode" (the name must ride with mode or theme, so a mention of combat in a
+sentence does not repaint the screen). Three palettes, verified in
+screenshots, broadcast to every open tab with a re-tune glitch on landing.
+
+The briefing: "brief me", "good morning", "what's the weather" gathers time,
+date, open-meteo weather for Kathmandu (no key, cached half an hour, honest
+"unavailable" on a dead network), machine load and memory, and the last
+sweep's verdict from .state/last-sweep.txt, and hands the facts to the model
+with instructions not to search the web for them.
+
+The dashboard grew the film: a typed kernel-log boot sequence (skippable with
+#noboot for screenshots), a waveform of the last second and a half wrapped
+around the orb as radial spokes, cpu and memory drawn as telemetry arcs
+around it, and a proximity radar panel whose sweep blips on real events:
+what was heard, replies, commands, state changes. Verified live: boot film,
+all three themes, a timer that fired and spoke 11 s after being set, a
+briefing with the real time in it. 24 test groups.
+
 ## The security sweep, extended to the browser and the launchers
 Two check families were added, both verified against planted copies and against
 the live machine.

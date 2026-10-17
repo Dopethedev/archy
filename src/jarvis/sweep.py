@@ -571,4 +571,11 @@ def run() -> str:
     verdict = "nothing needs action" if not alerts else f"{alerts} thing(s) need action"
     lines.append(f"  summary: {verdict}, {warns} warning(s) worth reading")
     report = "\n".join(lines)
+    # kept on disk so the briefing can say what the last sweep found without
+    # running another one
+    try:
+        config.STATE_DIR.mkdir(parents=True, exist_ok=True)
+        (config.STATE_DIR / "last-sweep.txt").write_text(report)
+    except OSError:
+        pass
     return report if len(report) < 3800 else report[:3700] + "\n  (report truncated)"

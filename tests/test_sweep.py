@@ -156,6 +156,9 @@ class SweepHarness:
     def say_stream(self, deltas, on_first, cancel):
         for item in deltas:
             self.spoken.append(item)
+    def say(self, text):
+        self.spoken.append(text)
+    _theme_intent = staticmethod(Assistant._theme_intent)
     def log(self, who, text):
         self.log_lines.append(text)
     def _publish_heard(self, text, partial=False):

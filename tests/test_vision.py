@@ -82,7 +82,10 @@ class ScreenHarness:
         self.capture_result = capture_result
         self.log_lines = []
         self.brain = FakeBrain()
-        self.speaker = type("S", (), {"say_stream": lambda s, it, cb, c: consume(it)})()
+        self.speaker = type("S", (), {
+            "say_stream": lambda s, it, cb, c: consume(it),
+            "say": lambda s, t: None})()
+        self._theme_intent = Assistant._theme_intent
         self.player = type("P", (), {"wait_drained": lambda s, t=None: None})()
         self.mic_enabled = True
         self.state = "thinking"
