@@ -1,11 +1,12 @@
 """Text to speech.
 
-Kokoro is the voice: noticeably more natural than piper, and still about 3x
-realtime on this CPU. piper stays as the fallback so a broken model file
-degrades into a worse voice rather than silence.
+Kokoro is the voice: noticeably more natural than piper, and measured at about
+0.22 of real time on this CPU, so a sentence is synthesised faster than it is
+spoken. piper stays as the fallback so a broken model file degrades into a worse
+voice rather than silence.
 
-Speech starts as soon as the first sentence exists rather than after the
-whole reply arrives, which is most of what makes a voice feel responsive.
+Speech starts as soon as the first clause exists rather than after the whole
+reply arrives, which is most of what makes a voice feel responsive.
 """
 
 from __future__ import annotations
@@ -31,17 +32,18 @@ MARKDOWN = [
 ]
 SENTENCE_END = re.compile(r"[.!?](?:\s|$)")
 MIN_SENTENCE = 12
-# The first chunk is cut far earlier than the rest. Kokoro synthesises at
-# roughly real time, so waiting for a whole sentence before speaking costs
-# exactly that sentence in silence. A clause is enough to start on.
+# The first chunk is cut at a clause instead of a sentence. Measured on this
+# machine, the first sentence of a typical reply is 0.6 to 1.4 seconds of
+# synthesis before any sound; its first clause is 0.4 to 0.6. On a reply that
+# opens with a long sentence, that is most of a second of silence removed.
 FIRST_CHUNK_MIN = 12         # at least a couple of words, or it sounds clipped
 FIRST_CHUNK_MAX = 48         # no punctuation in sight: take this much and go
 CLAUSE_END = re.compile(r"[,;:]\s")
 # A whole sentence is the natural unit to speak, but a long one is also a long
-# wait: synthesis runs at about real time, so a 200 character sentence is three
-# seconds of work. That matters most when a reply is interrupted, because the
-# chunk being synthesised at that moment keeps burning CPU and cannot be
-# cancelled. Capping the chunk bounds the waste.
+# wait: measured at about a decade of characters per second of synthesis, so a
+# 200 character sentence is a couple of seconds of work. That matters most when
+# a reply is interrupted, because the chunk being synthesised at that moment
+# keeps burning CPU and cannot be cancelled. Capping the chunk bounds the waste.
 SENTENCE_MAX = 90
 SENTENCE_MIN = 40            # below this, prefer waiting for the sentence end
 

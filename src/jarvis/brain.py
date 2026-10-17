@@ -36,6 +36,13 @@ class PiBrain:
         # names the prompt being asked, so its acceptance can be told apart from
         # anything left over by the run before it
         self._request = 0
+        # one turn at a time. Two turns reading one queue take each other's
+        # events: the new one eats the old one's end marker and then waits out
+        # its own silence deadline, which is what an interrupt used to do. The
+        # lock is taken for the whole of a turn, and abort sets the event so the
+        # turn holding it gives up within a loop iteration instead of waiting.
+        self._turn_lock: asyncio.Lock | None = None
+        self._aborted = threading.Event()
         # where we are in the model chain. The free relays die without warning
         # (a model that answered at breakfast 404s by lunch), so the assistant
         # moves down the chain and says so rather than failing
@@ -200,9 +207,21 @@ class PiBrain:
         behind every time, and the next question then read that leftover and
         came back empty in zero seconds, which is what a second question asked
         in quick succession used to do.
+
+        Only one turn reads this process at a time. An interrupting turn sets
+        the abort event, so the turn in flight leaves within a loop iteration
+        and the new one starts with a queue that only holds its own events.
         """
         if not self.alive():
             raise BrainError("pi process is not running")
+        if self._turn_lock is None:
+            self._turn_lock = asyncio.Lock()
+        async with self._turn_lock:
+            async for item in self._one_turn(message, images):
+                yield item
+
+    async def _one_turn(self, message: str, images: list[dict] | None = None):
+        self._aborted.clear()
         while not self._queue.empty():          # drop anything stale
             self._queue.get_nowait()
 
@@ -215,6 +234,8 @@ class PiBrain:
         started = False
         text = ""
         while True:
+            if self._aborted.is_set():
+                return                          # interrupted: the caller is done
             # A deadline on silence, not on the whole turn: a long tool run that
             # keeps talking is fine, a process that has stopped answering is not.
             try:
@@ -240,19 +261,21 @@ class PiBrain:
                     raise BrainError(str(event.get("error") or "pi refused the prompt"))
                 continue
             if not started:
-                # anything terminal before our run begins belongs to the run
-                # before this one, including its errors, which must not be
-                # reported as this turn's failure
-                if kind == "agent_start":
+                # anything before our run begins belongs to the run before this
+                # one. Its errors must not be reported as this turn's failure,
+                # and its trailing text must not be mistaken for this turn's
+                # answer, which is why the start marker is a marker and not
+                # "something happened": a delta left over from an interrupted
+                # run read as this run starting, and the new turn then ended on
+                # the old run's end marker with the old run's last word.
+                if kind in ("agent_start", "turn_start"):
                     started = True
                     continue
                 if kind in ("agent_end", "turn_end", "error"):
                     continue
-                if kind in ("message_start", "message_update", "message_end",
-                            "turn_start", "tool_execution_start"):
-                    started = True                # older pi without agent_start
-                else:
-                    continue
+                if kind == "extension_ui_request":
+                    self._answer_dialog(event)
+                continue
 
             if kind == "extension_ui_request":
                 self._answer_dialog(event)
@@ -295,11 +318,16 @@ class PiBrain:
         self._send({"type": "new_session"})
 
     def abort(self):
-        """Stop whatever the agent is doing, used when the user interrupts."""
+        """Stop whatever the agent is doing, used when the user interrupts.
+
+        The event ends the turn reading this process, so the next one does not
+        have to share a queue with it. The command tells pi to stop generating.
+        """
+        self._aborted.set()
         try:
             self._send({"type": "abort"})
-        except Exception:
-            pass
+        except BrainError:
+            pass                                # nothing running to interrupt
 
     def stop(self):
         if self._proc:

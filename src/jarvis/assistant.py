@@ -26,6 +26,7 @@ import numpy as np
 from . import config
 from . import briefing
 from . import reminders as reminders_mod
+from . import mic_state
 from . import sweep as sweep_mod
 from .audio import MicCapture, Player
 from .brain import BrainError, PiBrain
@@ -409,6 +410,7 @@ class Assistant:
         if on == self.mic_enabled:
             return
         self.mic_enabled = on
+        mic_state.save(on)
         if on:
             try:
                 self.mic.start()
@@ -745,10 +747,17 @@ class Assistant:
         # of start-up
         self.set_state("booting")
         await self._warm_up()
-        self.mic.start()
-        self.mic.drain()
-        self.log("sys", f"listening for \"{config.WAKE_PHRASE}\"")
-        self._back_to_idle()
+        # the switch is remembered: opening the microphone for someone who turned
+        # it off is a silent decision about the room he is in
+        if not mic_state.load():
+            self.mic_enabled = False
+            self.log("sys", "the microphone is still off from last time")
+            self.set_state("muted")
+        else:
+            self.mic.start()
+            self.mic.drain()
+            self.log("sys", f"listening for \"{config.WAKE_PHRASE}\"")
+            self._back_to_idle()
         try:
             await self._pump()
         finally:

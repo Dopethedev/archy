@@ -39,6 +39,10 @@ for line in sys.stdin:
 time.sleep(3600)
 """)
 
+# the fake models the events the real pi emits: a prompt is accepted with a
+# response carrying its id, and the run that follows is bracketed by agent_start
+# and agent_end. A turn is only recognised inside those brackets, so a fake
+# without them would be testing a protocol nothing speaks.
 CHATTY = fake_pi("chatty", """
 def send(obj):
     sys.stdout.write(json.dumps(obj) + "\\n"); sys.stdout.flush()
@@ -46,10 +50,14 @@ for line in sys.stdin:
     ev = json.loads(line)
     if ev.get("type") != "prompt":
         continue
+    send({"type": "response", "command": "prompt", "id": ev.get("id"), "success": True})
+    send({"type": "agent_start"})
+    send({"type": "turn_start"})
     for word in ["one", "two", "three", "four", "five"]:
         time.sleep(0.25)                       # slower than the deadline below
         send({"type": "message_update",
               "assistantMessageEvent": {"type": "text_delta", "delta": word + " "}})
+    send({"type": "turn_end", "message": {"stopReason": "stop"}})
     send({"type": "agent_end"})
 """)
 
