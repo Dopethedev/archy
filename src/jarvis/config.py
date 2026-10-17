@@ -124,6 +124,16 @@ MEMORY_FILE = Path(os.environ.get("JARVIS_MEMORY_FILE") or (ROOT / "memory.json"
 # process is restarted. Without a deadline a hung brain leaves the assistant
 # stuck in "thinking" forever, with no way back except a restart.
 BRAIN_SILENCE_TIMEOUT_S = 25.0   # waiting a minute in silence feels like deafness
+# A silent model gets this many tries before the chain moves on. One, because a
+# slow tool run looks exactly like a dead relay from here; not more, because a
+# relay that accepts a connection and then says nothing would otherwise be
+# retried forever while every answer is "my connection dropped".
+MODEL_HANG_LIMIT = 2
+# The conversation file grows for as long as the assistant lives, and every
+# start pays for it in load time. Past this, it is moved aside and a fresh
+# conversation begins; pi compacts the context itself, but not the file. Durable
+# facts live in the memory store and are untouched by this.
+SESSION_ARCHIVE_MB = 8.0
 
 # Screen vision. A request containing one of these gets a screenshot attached.
 # Deliberately eager: missing a "what am I looking at" is worse than one

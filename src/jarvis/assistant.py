@@ -69,6 +69,7 @@ class Assistant:
         self.last_heard = ""
         self.turn_latency = 0.0               # spoken delay of the last turn
         self.mic_enabled = True               # what the dashboard's toggle controls
+        self._hang_count = 0                  # silent turns in a row on this model
         self._loop: asyncio.AbstractEventLoop | None = None
         # the event loop keeps only weak references to tasks; a turn whose task
         # nobody holds could in principle be collected mid-flight, so every
@@ -235,6 +236,7 @@ class Assistant:
         def on_first_audio():
             if not spoken.is_set():
                 spoken.set()
+                self._hang_count = 0          # this model is answering after all
                 self._speaking_since = loop.time()
                 self.turn_latency = loop.time() - turn_started
                 self.log("sys", f"answered in {self.turn_latency:.1f}s")
@@ -268,6 +270,10 @@ class Assistant:
             action = reminders_mod.parse(text)
             if action:
                 local_reply = reminders_mod.confirm(action)
+            elif (hint := reminders_mod.cannot_do(text)):
+                # a reminder this cannot serve is one a model can only pretend
+                # to accept, so it is answered here instead of passed on
+                local_reply = hint
             else:
                 theme = self._theme_intent(text)
                 if theme:
@@ -349,23 +355,32 @@ class Assistant:
 
         except BrainError as exc:
             print(f"[brain] {exc}")
-            # A dead relay deserves the next one in the chain; a silent one is
-            # left as it is, because a hang is not proof the model itself died.
-            moved = None
-            if "said nothing for" not in str(exc):
+            # A dead relay deserves the next one in the chain. A silent model is
+            # not proof on its own that the model died, because a slow tool run
+            # looks the same from here, so it gets one retry before the chain
+            # moves on. Without the second half of that rule a relay that
+            # accepts a connection and then says nothing is retried forever, and
+            # every question is answered with "my connection dropped".
+            silent = "said nothing for" in str(exc)
+            self._hang_count = self._hang_count + 1 if silent else 0
+            if not silent or self._hang_count >= config.MODEL_HANG_LIMIT:
                 moved = self.brain.advance_model()
+                self._hang_count = 0
+            else:
+                moved = None
             if moved:
-                self.log("sys", f"the model failed, switching to "
+                reason = ("went quiet twice" if silent else "failed")
+                self.log("sys", f"the model {reason}, switching to "
                                 f"{moved.split('/')[-1]}")
                 message = ("My connection dropped, so I switched to a backup "
                            "model. Ask me again.")
             else:
                 self.log("sys", "the model connection dropped, restarting it")
                 message = "My connection to the model dropped. Ask me again."
-            # both of these block for seconds (synthesis runs at about real
-            # time), and blocking the loop here backs up the microphone queue:
-            # the pump then replays stale audio as if it were fresh, and the
-            # tail of his own voice can come back as a phantom second request
+            # both of these block for seconds while they synthesise, and
+            # blocking the loop here backs up the microphone queue: the pump then
+            # replays stale audio as if it were fresh, and the tail of his own
+            # voice can come back as a phantom second request
             await asyncio.to_thread(self.speaker.say, message)
             await asyncio.to_thread(self.player.wait_drained, 60)
             await self._restart_brain()
@@ -713,6 +728,11 @@ class Assistant:
             self.hud.on_say = self._typed.put
             self.hud.on_mic = self._request_mic
         self._spawn(self._reminder_loop())
+        # before the brain starts, because pi resumes the newest session it
+        # finds and a session past the budget would be loaded, then immediately
+        # stopped, which is a second of start-up spent on a conversation that
+        # was going to be set aside anyway
+        await asyncio.to_thread(self.brain.archive_sessions)
         await self.brain.start()
         self.player.start()
         if self.greet:

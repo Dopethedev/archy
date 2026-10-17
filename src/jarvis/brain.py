@@ -12,6 +12,7 @@ import json
 import subprocess
 import sys
 import threading
+import time
 
 from . import config
 from .memory_store import Memory
@@ -32,6 +33,9 @@ class PiBrain:
         # bumped on every start, so a reader thread belonging to a previous
         # process cannot inject its "process ended" marker into the new queue
         self._generation = 0
+        # names the prompt being asked, so its acceptance can be told apart from
+        # anything left over by the run before it
+        self._request = 0
         # where we are in the model chain. The free relays die without warning
         # (a model that answered at breakfast 404s by lunch), so the assistant
         # moves down the chain and says so rather than failing
@@ -66,6 +70,54 @@ class PiBrain:
         return config.VOICE_RULES + how
 
     # ------------------------------------------------------------------ setup
+    @staticmethod
+    def session_bytes() -> int:
+        """How much conversation is on disk, across every session file."""
+        total = 0
+        try:
+            for path in config.SESSION_DIR.glob("*.jsonl"):
+                try:
+                    total += path.stat().st_size
+                except OSError:
+                    continue
+        except OSError:
+            return 0
+        return total
+
+    @staticmethod
+    def archive_sessions(budget_mb: float = config.SESSION_ARCHIVE_MB) -> int:
+        """Move the conversation aside once it grows past the budget.
+
+        pi compacts the context by itself, so the model is never handed a
+        session too large for it; what grows without bound is the transcript on
+        disk, and every start pays for it in load time (about a second at a
+        megabyte on this machine). Facts worth keeping live in the memory store,
+        which is untouched, so what is lost here is the chat history.
+
+        The whole directory moves: pi resumes the newest file it finds in the
+        session directory, so leaving older ones behind would silently resume
+        the wrong conversation. The archive goes outside that directory for the
+        same reason. Returns the number of files archived.
+        """
+        if not config.SESSION_DIR.exists():
+            return 0
+        files = sorted(config.SESSION_DIR.glob("*.jsonl"))
+        if not files or PiBrain.session_bytes() <= budget_mb * 1024 * 1024:
+            return 0
+        stamp = time.strftime("%Y%m%dT%H%M%S")
+        target = config.STATE_DIR / "session-archive" / stamp
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            moved = 0
+            for path in files:
+                path.replace(target / path.name)
+                moved += 1
+            print(f"[brain] archived {moved} session file(s) into {target}", flush=True)
+            return moved
+        except OSError as exc:
+            print(f"[brain] could not archive the session: {exc}", flush=True)
+            return 0
+
     async def start(self):
         config.SESSION_DIR.mkdir(exist_ok=True)
         self._generation += 1
@@ -139,13 +191,28 @@ class PiBrain:
     async def ask(self, message: str, images: list[dict] | None = None):
         """Yield ('delta', text) as tokens arrive, ('tool', name) on tool use,
         then ('done', full_text). Images are pi rpc ImageContent dicts and need
-        a model that can see; a blind model just answers from the text."""
+        a model that can see; a blind model just answers from the text.
+
+        A turn is bracketed by its own run. pi emits both `turn_end` (one model
+        response, plus its tool results) and `agent_end` (the whole run), and a
+        run can hold several turns when tools are involved, so `agent_end` is
+        the only honest terminator. Returning at `turn_end` left one event
+        behind every time, and the next question then read that leftover and
+        came back empty in zero seconds, which is what a second question asked
+        in quick succession used to do.
+        """
         if not self.alive():
             raise BrainError("pi process is not running")
         while not self._queue.empty():          # drop anything stale
             self._queue.get_nowait()
 
-        self._send(self._prompt_payload(message, images))
+        self._request += 1
+        request = f"turn-{self._request}"
+        payload = self._prompt_payload(message, images)
+        payload["id"] = request
+        self._send(payload)
+
+        started = False
         text = ""
         while True:
             # A deadline on silence, not on the whole turn: a long tool run that
@@ -166,6 +233,27 @@ class PiBrain:
                 continue
 
             kind = event.get("type")
+            # the acceptance of this prompt, which is the other place a turn can
+            # fail before it starts: a model the relay refuses, a bad command
+            if kind == "response" and event.get("id") == request:
+                if not event.get("success", True):
+                    raise BrainError(str(event.get("error") or "pi refused the prompt"))
+                continue
+            if not started:
+                # anything terminal before our run begins belongs to the run
+                # before this one, including its errors, which must not be
+                # reported as this turn's failure
+                if kind == "agent_start":
+                    started = True
+                    continue
+                if kind in ("agent_end", "turn_end", "error"):
+                    continue
+                if kind in ("message_start", "message_update", "message_end",
+                            "turn_start", "tool_execution_start"):
+                    started = True                # older pi without agent_start
+                else:
+                    continue
+
             if kind == "extension_ui_request":
                 self._answer_dialog(event)
             elif kind == "message_update":
@@ -180,14 +268,14 @@ class PiBrain:
                     (str(v) for v in args.values() if isinstance(v, str)), "")
                 label = event.get("toolName", "tool")
                 yield ("tool", f"{label}: {detail}"[:160] if detail else label)
-            elif kind == "agent_end":
-                yield ("done", text.strip())
-                return
-            elif kind == "turn_end":          # newer pi ends the turn with this
-                message = event.get("message") or {}
-                if message.get("stopReason") == "error":
+            elif kind == "turn_end":
+                # not the end of the run, only of this response. An error here is
+                # still worth stopping for: the run will not produce more text.
+                message_ev = event.get("message") or {}
+                if message_ev.get("stopReason") == "error":
                     raise BrainError(
-                        str(message.get("errorMessage") or "the model failed"))
+                        str(message_ev.get("errorMessage") or "the model failed"))
+            elif kind == "agent_end":
                 yield ("done", text.strip())
                 return
             elif kind == "auto_retry_start":
