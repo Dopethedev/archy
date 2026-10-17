@@ -173,6 +173,19 @@ resp = raw(f"POST /say HTTP/1.1\r\nHost: {HOST}:{PORT}\r\n"
 check("an oversized body is refused instead of blocking a thread",
       resp.startswith("HTTP/1.1 413"), resp.splitlines()[0] if resp else "no response")
 
+# valid JSON that is not an object used to reach .get() and raise, which the
+# client sees as a server fault rather than a refusal
+for body in ('["a", "list"]', '"a bare string"', "42"):
+    resp = post(body, token=hud.token)
+    check(f"a body that is not an object is refused: {body[:14]}",
+          resp.startswith("HTTP/1.1 400"), resp.splitlines()[0])
+
+# a control request still works with the token, so the refusals above are not
+# just a broken endpoint
+resp = post('{"text": "hello"}', token=hud.token)
+check("a well formed request is accepted", resp.startswith("HTTP/1.1 200"),
+      resp.splitlines()[0] if resp else "no response")
+
 hud.stop()
 (sibling / "secret.txt").unlink(missing_ok=True)
 sibling.rmdir()

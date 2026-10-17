@@ -15,14 +15,36 @@ PATH = config.STATE_DIR / "reminders.json"
 _lock = threading.Lock()
 
 # relative durations only; an alarm clock it is not
-_UNIT = r"(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?)"
+_UNIT = r"(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)"
+# whisper writes small numbers as words about half the time, and "remind me in
+# twenty minutes" used to fall through to the model, which has no reminder tool
+# and would either ask again or agree to something it cannot do
+_ONES = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+         "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+         "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+         "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+         "seventy": 70, "eighty": 80, "ninety": 90}
+# the lookahead keeps the alternation from matching a prefix of a longer word:
+# without it "forty" would match inside "forty-five" and then fail on the
+# remainder, and "ten" inside "tennis"
+_WORD = rf"(?:{'|'.join(list(_ONES) + list(_TENS))})(?![a-z])"
+_COMPOUND = rf"(?:{_WORD})(?:[\s-]{_WORD})?"
+_AMOUNT = rf"(?:an?|half\s+an?|{_COMPOUND}|\d+)"
 _RE_IN = re.compile(
-    r"\bin\s+(an?\s+|half\s+an?\s+|\d+)\s*" + _UNIT, re.I)
+    rf"\bin\s+({_AMOUNT})\s*{_UNIT}", re.I)
 _TO = re.compile(r"\bto\s+(?:remember\s+)?(.+?)[.?!]?\s*$", re.I)
-_TIMER = re.compile(r"(?:set\s+)?(?:a\s+)?timer\s+for\s+(an?\s+|half\s+an?\s+|\d+)\s*"
+_TIMER = re.compile(rf"(?:set\s+)?(?:a\s+)?timer\s+for\s+({_AMOUNT})\s*"
                     + _UNIT, re.I)
 _MINUTE_WORDS = ("minute", "minutes", "mins", "min", "m")
 _HOUR_WORDS = ("hour", "hours", "hrs", "hr", "h")
+_DAY_WORDS = ("day", "days", "d")
+# an absolute time is the one reminder shape this cannot serve, and the shape a
+# model will happily agree to out loud. Better to say so plainly
+_ABSOLUTE = re.compile(
+    r"\b(at|by|around|before)\s+\d|\d\s*(am|pm)\b|\b(tomorrow|tonight|"
+    r"noon|midnight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+    r"\b|\bnext\s+(week|month|monday|tuesday|wednesday|thursday|friday)", re.I)
 
 
 def wanted(text: str) -> bool:
@@ -37,12 +59,54 @@ def wanted(text: str) -> bool:
     return False
 
 
+def cannot_do(text: str) -> str | None:
+    """A reminder request this cannot serve, said plainly instead of passed on.
+
+    Only when the request names an absolute time or day. The model has no
+    reminder tool, so a request it cannot serve is a request it can only appear
+    to accept: "remind me at five" would come back as a confident yes and then
+    never fire. Asking for a delay instead is honest, and short.
+    """
+    words = text.lower()
+    if not any(w in words for w in ("remind", "reminder", "timer", "alarm")):
+        return None
+    if not _ABSOLUTE.search(words):
+        return None
+    return ("I can only set that from a delay, like in twenty minutes. "
+            "Tell me how long and I will hold it.")
+
+
+def _number(amount: str) -> float | None:
+    """A count that may have been written as digits or as words."""
+    text = amount.strip().lower()
+    if text.startswith("half"):
+        return 0.5
+    if text in ("a", "an"):
+        return 1.0
+    digits = re.sub(r"[^0-9.]", "", text)
+    if digits:
+        try:
+            return float(digits)
+        except ValueError:
+            return None
+    total = 0
+    for word in re.split(r"[-\s]+", text):
+        if word in _ONES:
+            total += _ONES[word]
+        elif word in _TENS:
+            total += _TENS[word]
+        else:
+            return None
+    return float(total) if total else None
+
+
 def _seconds(amount: str, unit: str) -> float | None:
+    n = _number(amount)
+    if n is None:
+        return None
     unit = unit.lower()
-    if amount.startswith("half"):
-        n = 0.5
-    else:
-        n = 1.0 if amount in ("a", "an") else float(amount)
+    if unit in _DAY_WORDS:
+        return n * 86400.0
     if unit in _HOUR_WORDS:
         return n * 3600.0
     if unit in _MINUTE_WORDS:
@@ -78,6 +142,8 @@ def parse(text: str) -> dict | None:
     if not pair:
         return None
     delay = _seconds(pair[0].strip(), pair[1])
+    if delay is None:
+        return None
     if not delay or delay <= 0 or delay > 7 * 86400:
         return None
     label_m = _TO.search(text)
@@ -132,6 +198,35 @@ def due_items(now: float | None = None) -> list[str]:
     return [i["label"] for i in ripe]
 
 
+def _spoken_gap(seconds: float) -> str:
+    """A duration as something a person would say out loud.
+
+    3600 seconds is an hour, not sixty minutes, and a half hour is a half hour
+    rather than thirty minutes. Both the confirmation and the list of pending
+    reminders read this, so they cannot drift apart.
+    """
+    if seconds <= 90:
+        return f"{seconds:.0f} seconds"
+    minutes = seconds / 60
+    if abs(minutes - 30) <= 2:
+        return "half an hour"
+    if abs(minutes - 60) <= 4:
+        return "an hour"
+    if minutes < 90:
+        return f"{minutes:.0f} minutes"
+    hours = minutes / 60
+    if hours >= 20:
+        days = hours / 24
+        if abs(days - round(days)) < 0.05:
+            days = round(days)
+            return "a day" if days == 1 else f"{days} days"
+        return f"{days:.1f} days"
+    if abs(hours - round(hours)) < 0.1:
+        hours = round(hours)
+        return "an hour" if hours == 1 else f"{hours:.0f} hours"
+    return f"{hours:.1f} hours"
+
+
 def pending() -> list[str]:
     """The not-yet-due, soonest first, with a human gap."""
     now = time.time()
@@ -139,11 +234,7 @@ def pending() -> list[str]:
     out = []
     for i in items:
         left = max(0, i.get("due", 0) - now)
-        mins = left / 60
-        gap = (f"{left:.0f} seconds" if left < 90
-               else f"{mins:.0f} minutes" if mins < 120
-               else f"{mins / 60:.1f} hours")
-        out.append(f"{i['label']} in {gap}")
+        out.append(f"{i['label']} in {_spoken_gap(left)}")
     return out
 
 
@@ -151,8 +242,10 @@ def confirm(action: dict) -> str:
     """What to say when the action is taken, before any model is involved."""
     if action["action"] == "cancel":
         n = cancel()
-        return (f"Done, {n} reminder(s) cleared." if n
-                else "There was nothing to cancel.")
+        if not n:
+            return "There was nothing to cancel."
+        return ("Done, that reminder is cleared." if n == 1
+                else f"Done, {n} reminders cleared.")
     if action["action"] == "list":
         items = pending()
         if not items:
@@ -160,9 +253,5 @@ def confirm(action: dict) -> str:
         return "Pending: " + "; ".join(items[:4]) + "."
     if action["action"] == "set":
         add(action["label"], action["delay"])
-        mins = action["delay"] / 60
-        gap = (f"{action['delay']:.0f} seconds" if action["delay"] < 90
-               else f"{mins:.0f} minutes" if mins < 120
-               else f"{mins / 60:.1f} hours")
-        return f"Done, in {gap}: {action['label']}."
+        return f"Done, in {_spoken_gap(action['delay'])}: {action['label']}."
     return ""

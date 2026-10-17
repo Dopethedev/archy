@@ -186,10 +186,16 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(413, b"bad length", "text/plain")
             return None
         try:
-            return json.loads(self.rfile.read(length) or b"{}")
+            payload = json.loads(self.rfile.read(length) or b"{}")
         except Exception:
             self._send(400, b"bad request", "text/plain")
             return None
+        if not isinstance(payload, dict):
+            # a bare list or string is valid JSON and would turn into an
+            # AttributeError on the next .get(), which reads as a server fault
+            self._send(400, b"an object, please", "text/plain")
+            return None
+        return payload
 
 
 class Hud:

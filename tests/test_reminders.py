@@ -57,9 +57,31 @@ a = reminders.parse("cancel my reminders")
 check("a cancel is a cancel", a and a["action"] == "cancel")
 a = reminders.parse("what reminders do i have")
 check("a query is a query", a and a["action"] == "list")
-for text in ("remind me", "in 20 minutes", "remind me in twenty minutes",
-             "remind me in 999 hours to never"):
+for text in ("remind me", "in 20 minutes", "remind me in 999 hours to never"):
     check(f"unparseable stays with the model: {text!r}", reminders.parse(text) is None)
+
+# whisper writes small numbers as words about half the time, so a spoken
+# "twenty minutes" has to mean the same as a written "20 minutes"
+for text, want in (("remind me in twenty minutes", 1200.0),
+                   ("remind me in twenty-five minutes to stretch", 1500.0),
+                   ("remind me in twenty five minutes to stretch", 1500.0),
+                   ("remind me in ninety seconds", 90.0),
+                   ("remind me in two days to renew the thing", 172800.0),
+                   ("remind me in three hours", 10800.0),
+                   ("set a timer for ninety seconds", 90.0),
+                   ("remind me in 90 s", 90.0)):
+    a = reminders.parse(text)
+    check(f"spoken numbers work: {text!r}",
+          a and a["action"] == "set" and abs(a["delay"] - want) < 0.01, str(a))
+
+# a request this cannot serve is one a model can only pretend to accept
+for text in ("remind me at 5pm to call mum", "remind me tomorrow morning to call",
+             "set an alarm for 7am", "remind me on friday to send the email"):
+    check(f"an absolute time is refused here: {text!r}",
+          reminders.parse(text) is None and reminders.cannot_do(text) is not None)
+for text in ("remind me to buy milk", "what reminders do i have", "open the timer app"):
+    check(f"no refusal where none is needed: {text!r}",
+          reminders.cannot_do(text) is None)
 
 print("-- the store survives a restart --")
 reminders.add("Check the oven", 1.0)
@@ -70,7 +92,7 @@ check("a due one comes back and leaves the file",
       reminders.due_items(now=time.time() + 2) == ["Check the oven"]
       and len(json.loads(reminders.PATH.read_text())) == 1)
 check("the far one is still pending with a gap",
-      "Stand up" in reminders.pending()[0] and "minutes" in reminders.pending()[0])
+      "Stand up" in reminders.pending()[0] and "an hour" in reminders.pending()[0])
 check("nothing due returns nothing", reminders.due_items() == [])
 
 print("-- confirmations speak like a person --")
