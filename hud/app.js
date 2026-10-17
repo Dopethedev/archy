@@ -173,7 +173,9 @@ function showMicState() {
   const off = state === "muted";
   micBtn.classList.toggle("off", off);
   micText.textContent = off ? "mic off" : "mic on";
-  hintEl.textContent = off ? "microphone is off, press M or click mic" : 'say \u201chey maki\u201d';
+  hintEl.textContent = off
+      ? "microphone is off, press M or click mic"
+      : `say \u201c${hintEl.dataset.wake || "hey jarvis"}\u201d`;
   hintEl.classList.toggle("hidden", !off && state !== "idle" && !heardEl.textContent);
 }
 

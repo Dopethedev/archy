@@ -21,52 +21,52 @@ def check(label, ok, detail=""):
 
 # this test is about the shapes a call takes, so it brings its own
 # phrase and aliases rather than inheriting the owner's
-PHRASE = "hey maki"
-ALIASES = ("maki", "macki", "macky", "makki", "maky", "machi", "magi")
+PHRASE = "hey jarvis"
+ALIASES = ("jarvis", "jervis", "jarvas")
 w = SpeechWake(PHRASE, ALIASES)
 
 print("-- what should wake it --")
 for text, want in [
-    ("Hey Maki, open Sober", "open Sober"),
-    ("hey maki", ""),
-    ("Hey, Maki. what is my cpu usage", "what is my cpu usage"),
-    ("Maki what is the time", "what is the time"),
-    ("Hey Macki open brave", "open brave"),
-    ("Hey Maki take a screenshot", "take a screenshot"),
+    ("Hey Jarvis, open Sober", "open Sober"),
+    ("hey jarvis", ""),
+    ("Hey, Jarvis. what is my cpu usage", "what is my cpu usage"),
+    ("Jarvis what is the time", "what is the time"),
+    ("Hey Jervis open brave", "open brave"),
+    ("Hey Jarvis take a screenshot", "take a screenshot"),
 ]:
     heard, rest = w.match(text)
     check(f"{text!r}", heard and rest == want, f"-> {rest!r}")
 
 print("-- recogniser spellings of the name --")
-for text in ("Hey Maki", "Hey Macki", "Hey Macky", "Hey Makki", "Hey Maky"):
+for text in ("Hey Jarvis", "Hey Jervis", "Hey Jarvas"):
     heard, _ = w.match(text)
     check(f"accepted {text!r}", heard)
 
 print("-- what must stay quiet --")
-for text in ("Hey Jarvis open sober", "how are you today", "open brave",
-             "what is the weather", "", "   ", "the mackintosh is nice",
-             "Maggie played music"):
+for text in ("Hey Computer open sober", "how are you today", "open brave",
+             "what is the weather", "", "   ", "the jar is empty",
+             "Java is a slow language"):
     heard, _ = w.match(text)
     check(f"ignored {text!r}", not heard)
 
 print("-- the name only counts when it comes first --")
 # a video on the desk saying the name mid-sentence must not call the assistant
-for text in ("Good idea, Maki, Maki, Maki.",
-             "and then Maki asked him a question",
-             "I'm going to ask Maki to fix it",
-             "tell Maki I said hello"):
+for text in ("Good idea, Jarvis, Jarvis, Jarvis.",
+             "and then Jarvis asked a question",
+             "I'm going to ask Jarvis to fix it",
+             "tell Jarvis I said hello"):
     heard, _ = w.match(text)
     check(f"ignored {text!r}", not heard)
 # one stray word of filler in front is still a call
-for text, want in [("uh hey Maki open sober", "open sober"),
-                   ("so hey Maki, what time is it", "what time is it")]:
+for text, want in [("uh hey Jarvis open sober", "open sober"),
+                   ("so hey Jarvis, what time is it", "what time is it")]:
     heard, rest = w.match(text)
     check(f"{text!r}", heard and rest == want, f"-> {rest!r}")
 
 print("-- tidying what follows the phrase --")
-for text, want in [("hey maki, so please open sober", "open sober"),
-                   ("hey maki, open brave", "open brave"),
-                   ("hey maki , what time is it", "what time is it")]:
+for text, want in [("hey jarvis, so please open sober", "open sober"),
+                   ("hey jarvis, open brave", "open brave"),
+                   ("hey jarvis , what time is it", "what time is it")]:
     heard, rest = w.match(text)
     tidied = w.strip_greeting(rest)
     check(f"{text!r}", heard and tidied == want, f"-> {tidied!r}")
@@ -103,12 +103,12 @@ async def behaviour():
     import numpy as np
     audio = np.zeros(16000, dtype=np.float32)
 
-    h = Harness("Hey Maki, open Sober")
+    h = Harness("Hey Jarvis, open Sober")
     await h._check_wake(audio, None)
     check("phrase plus a request -> handled at once",
           h.processed == ["open Sober"], f"processed={h.processed}")
 
-    h = Harness("hey maki")
+    h = Harness("hey jarvis")
     await h._check_wake(audio, None)
     check("phrase alone -> armed and listening",
           h.state == "listening" and not h.processed, f"state={h.state}")
@@ -118,29 +118,29 @@ async def behaviour():
     check("ordinary speech -> back to idle",
           h.state == "idle" and not h.processed, f"state={h.state}")
 
-    h = Harness("hey maki")
-    await h._check_wake(audio, "hey maki")           # ready transcript path
+    h = Harness("hey jarvis")
+    await h._check_wake(audio, "hey jarvis")         # ready transcript path
     check("a ready transcript is used, not re-transcribed",
           h.state == "listening", f"state={h.state}")
 
-    h = Harness("Hey Maki, open Brave")
+    h = Harness("Hey Jarvis, open Brave")
     await h._check_wake(audio, None)
     check("it acknowledges before handling", len(h.wrote) == 1 and h.wrote[0] > 0, f"blips={h.wrote}")
 
     # the request must survive intact: the phrase is a prefix, not a rewrite
     for spoken, want in [
-        ("Hey Maki, open Sober", "open Sober"),
-        ("hey maki open github.com/Foo", "open github.com/Foo"),
-        ("Hey Maki, what's the time?", "what's the time?"),
-        ("Macki, open Sober", "open Sober"),        # alias spelling, not the phrase
-        ("maki whats the weather in Kathmandu", "whats the weather in Kathmandu"),
+        ("Hey Jarvis, open Sober", "open Sober"),
+        ("hey jarvis open github.com/Foo", "open github.com/Foo"),
+        ("Hey Jarvis, what's the time?", "what's the time?"),
+        ("Jervis, open Sober", "open Sober"),       # alias spelling, not the phrase
+        ("jarvis whats the weather in Berlin", "whats the weather in Berlin"),
     ]:
         h = Harness(spoken)
         await h._check_wake(audio, None)
         check(f"{spoken!r} -> {want!r}", h.processed == [want], f"processed={h.processed}")
 
     # and it must not wake on ordinary words that merely resemble the name
-    for innocent in ["I am making dinner", "the market is closed", "make it stop"]:
+    for innocent in ["I put the jars away", "Java is a slow language", "the jar lid is stuck"]:
         h = Harness(innocent)
         await h._check_wake(audio, None)
         check(f"{innocent!r} does not wake it",

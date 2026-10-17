@@ -60,7 +60,7 @@ the rings, the radar and every panel:
 ## Install
 
 ```
-git clone <this repo> jarvis && cd jarvis
+git clone https://github.com/Dopethedev/jarvis jarvis && cd jarvis
 uv sync
 ```
 

@@ -15,6 +15,7 @@ written to disk.
 from __future__ import annotations
 
 import hmac
+import html
 import json
 import queue
 import secrets
@@ -28,6 +29,9 @@ MIME = {".html": "text/html", ".js": "text/javascript", ".css": "text/css",
         ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
 
 TOKEN_PLACEHOLDER = "__JARVIS_TOKEN__"
+# the wake phrase is yours, so the page is told it rather than carrying a copy of
+# whatever was on the machine it was written on
+PHRASE_PLACEHOLDER = "__JARVIS_WAKE__"
 MAX_BODY = 8192                          # a typed instruction, not a file upload
 LOOPBACK_NAMES = ("127.0.0.1", "localhost", "[::1]")
 
@@ -140,6 +144,8 @@ class _Handler(BaseHTTPRequestHandler):
         body = target.read_bytes()
         if target.name == "index.html":
             body = body.replace(TOKEN_PLACEHOLDER.encode(), hud.token.encode())
+            body = body.replace(PHRASE_PLACEHOLDER.encode(),
+                                html.escape(config.WAKE_PHRASE).encode())
         self._send(200, body, MIME.get(target.suffix, "application/octet-stream"))
 
     # ------------------------------------------------------------------- post

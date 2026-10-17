@@ -25,7 +25,7 @@ def check(label, ok, detail=""):
 
 
 print("-- what triggers a briefing --")
-for text in ("brief me", "hey maki give me my morning briefing",
+for text in ("brief me", "hey jarvis give me my morning briefing",
              "good morning", "what's the weather", "what day is it",
              "what time is it", "system status", "hows the machine"):
     check(f"wanted {text!r}", briefing.wanted(text))

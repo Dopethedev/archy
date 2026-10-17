@@ -1,6 +1,6 @@
 """Entry point.
 
-  python -m jarvis                 talk to it (wake phrase: "hey maki")
+  python -m jarvis                 talk to it (wake phrase: "hey jarvis")
   python -m jarvis --open          the same, and open the dashboard
   python -m jarvis --say "hello"   no mic: send one message straight to the brain
   python -m jarvis --mic-test      live microphone check

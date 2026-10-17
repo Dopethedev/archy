@@ -166,6 +166,18 @@ check("the served page carries the live token",
       f'"{hud.token}"' in page and "__JARVIS_TOKEN__" not in page,
       "placeholder replaced" if hud.token in page else "TOKEN MISSING FROM PAGE")
 
+# and it says your wake phrase, not the one the repository was written with
+real_phrase = config.WAKE_PHRASE
+try:
+    config.WAKE_PHRASE = "hey tesla"
+    page = raw(f"GET / HTTP/1.1\r\nHost: {HOST}:{PORT}\r\nConnection: close\r\n\r\n")
+    check("the page shows the configured wake phrase",
+          "hey tesla" in page and "__JARVIS_WAKE__" not in page
+          and page.count("hey tesla") >= 2,
+          f"placeholder left in: {'__JARVIS_WAKE__' in page}")
+finally:
+    config.WAKE_PHRASE = real_phrase
+
 # ------------------------------------------------------------ a bad body is refused quickly
 resp = raw(f"POST /say HTTP/1.1\r\nHost: {HOST}:{PORT}\r\n"
            f"X-Jarvis-Token: {hud.token}\r\nContent-Type: application/json\r\n"

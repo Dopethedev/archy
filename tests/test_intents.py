@@ -173,12 +173,12 @@ async def main():
 
     real_gather = briefing.gather
     briefing.gather = lambda include_weather=True: ("LOCAL FACTS.\nTime: 09:00.\nWeather in "
-                               "Kathmandu: 24 degrees, clear.\n")
+                               "Berlin: 24 degrees, clear.\n")
     try:
         h = await run_turn("brief me")
         check("the briefing carries the facts to the model",
               h.brain.seen and "LOCAL FACTS" in h.brain.seen[0][0]
-              and "Kathmandu" in h.brain.seen[0][0])
+              and "Berlin" in h.brain.seen[0][0])
     finally:
         briefing.gather = real_gather
 

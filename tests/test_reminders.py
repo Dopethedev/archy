@@ -30,7 +30,7 @@ reminders.PATH = tmp / "reminders.json"
 
 print("-- what counts as a reminder request --")
 for text in ("remind me in 20 minutes to check the oven", "set a timer for 5 minutes",
-             "hey maki, set a timer for ten minutes", "cancel my reminders",
+             "hey jarvis, set a timer for ten minutes", "cancel my reminders",
              "what reminders do i have", "how long left on the timer"):
     check(f"wanted {text!r}", reminders.wanted(text))
 for text in ("open the timer app", "remember my birthday", "what time is it"):
@@ -41,7 +41,7 @@ a = reminders.parse("remind me in 20 minutes to check the oven")
 check("twenty minutes, with the label",
       a and a["action"] == "set" and abs(a["delay"] - 1200) < 0.01
       and a["label"] == "Check the oven", str(a))
-a = reminders.parse("hey maki remind me in an hour to stand up")
+a = reminders.parse("hey jarvis remind me in an hour to stand up")
 check("'an hour' is an hour",
       a and a["action"] == "set" and abs(a["delay"] - 3600) < 0.01
       and a["label"] == "Stand up", str(a))

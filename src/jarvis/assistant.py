@@ -208,7 +208,7 @@ class Assistant:
     async def _check_wake(self, audio: np.ndarray, transcript: str | None):
         """Speech mode: was that the wake phrase, and did a request arrive with it?
 
-        This is what replaces a trained detector. It also means "hey maki, open
+        This is what replaces a trained detector. It also means "hey jarvis, open
         sober" works in one breath, since anything after the phrase is the
         request.
         """
@@ -787,7 +787,7 @@ class Assistant:
                 if state == "listening":
                     if speech_ms < config.MIN_SPEECH_MS:
                         # A blip is not a request. Keep waiting for a real one
-                        # rather than making him say the wake phrase again; the
+                        # rather than making you say the wake phrase again; the
                         # deadline still runs, so silence still ends it.
                         self.log("sys", "too short, ignoring")
                         reset_buffers()

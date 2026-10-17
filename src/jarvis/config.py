@@ -200,7 +200,7 @@ SWEEP_CLAMAV_TIMEOUT_S = 45.0
 SWEEP_CLAMAV_MAX_FILES = 400
 SWEEP_CLAMAV_ENUMERATE = 20000      # stop listing after this many, pathological dirs
 
-# Dashboard themes, switched by voice: "maki, combat mode". The name has to
+# Dashboard themes, switched by voice: "jarvis, combat mode". The name has to
 # ride along with the word mode or theme, so a passing mention of combat does
 # not repaint the screen.
 # What you say to reach a theme, and the phrases that mean "put it back". The
@@ -287,7 +287,7 @@ HUD_HOST = "127.0.0.1"
 HUD_PORT = 8731
 
 # ------------------------------------------------------------ interaction
-BARGE_IN = True              # saying "hey maki" while it talks cuts it off
+BARGE_IN = True              # saying "hey jarvis" while it talks cuts it off
 BARGE_ON_SPEECH = True       # so does simply starting to talk over it
 BARGE_ON_THINKING = True     # and the same while it is still thinking, so a long
                              # tool call can be redirected instead of waited out
