@@ -148,6 +148,20 @@ served as static files: no build step, no external assets, no framework.
 stream, so they need no live assistant. The start-up reset of the activity log,
 the mic switch and the boot film are all in `hud/app.js`.
 
+## What is deliberately not here
+
+Email is the obvious one. It is not included because reading someone's mail
+means shipping their credentials somewhere and sending their messages to a model,
+and that is a decision each person should make for themselves rather than inherit
+from a repository. It is also about eighty lines: an IMAP fetch, a local intent
+beside the ones in `assistant.py`, and the password in `config.local.json`.
+
+The same goes for anything that needs an account, a key you pay for, or a
+service that can change its mind: calendar, home automation, music control. The
+seams for all of them already exist, because a request is either answered
+locally, where `reminders` and the theme switch live, or handed to the model with
+its tools. Bring your own account and keep it in `config.local.json`.
+
 ## Tests
 
 ```
