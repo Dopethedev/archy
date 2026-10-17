@@ -1,15 +1,16 @@
 {
   "_comment": "Copy to config.local.json and fill in. Anything set here overrides the same upper-case name in config.py. Unknown keys are reported and ignored.",
   "_comment2": "This file is gitignored. Nothing personal should ever be in config.py.",
-
   "USER_NAME": "your name, spoken in the system prompt and confirmations",
   "CITY": "your city, for the briefing's weather line",
   "LATITUDE": 0.0,
   "LONGITUDE": 0.0,
-
-  "_comment3": "Words the recogniser is biased towards. Put your name, your town, the programs you launch by voice. Without these whisper guesses at proper nouns.",
-  "WHISPER_HINT": "Jarvis, Maki, Linux, cpu, gpu, ram, terminal, wifi, bluetooth, screenshot",
-
-  "_comment4": "The phrase that wakes it. Understood by the recogniser, not matched by a trained model, so any phrase works. Changing it means WAKE_ALIASES in config.py should follow, or the transcript has to match it exactly.",
-  "WAKE_PHRASE": "hey jarvis"
+  "_comment3": "Words the recogniser is biased towards. Your name, your town, the programs you launch by voice. Without these, whisper guesses at proper nouns, and words like the app you open every day come back wrong.",
+  "WHISPER_HINT": "Jarvis, Linux, cpu, gpu, ram, terminal, wifi, bluetooth, screenshot",
+  "_comment4": "The phrase that wakes it, and the variants the recogniser may produce for its last word. The phrase is understood, not matched against a trained model, so any phrase works. The aliases matter when the name is unusual: whisper will not spell it the same way twice.",
+  "WAKE_PHRASE": "hey jarvis",
+  "WAKE_ALIASES": [
+    "jarvis",
+    "jervis"
+  ]
 }

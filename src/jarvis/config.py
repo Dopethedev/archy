@@ -42,11 +42,13 @@ SPEECH_ON_FOCUSED = 0.22     # softer speech counts as speech while waiting
 # training is needed. "model" uses openWakeWord's pretrained detector, which
 # only exists for hey_jarvis, hey_mycroft, hey_marvin, alexa, timer, weather.
 WAKE_MODE = "speech"
-WAKE_PHRASE = "hey maki"
-# Whisper will not spell an unfamiliar name the same way twice, so accept the
-# shapes it actually produces rather than requiring one exact spelling.
-WAKE_ALIASES = ("maki", "macki", "macky", "makki", "maky", "maki,",
-                "machi", "magi", "maggi", "moki", "makahi", "maki?")
+WAKE_PHRASE = "hey jarvis"
+# Extra spellings the recogniser may produce for the distinctive word, which is
+# the last word of the phrase. The phrase itself and that word are always
+# honoured; this is only for the variants a name collects, and it is worth
+# filling in, because a name whisper has never seen is not spelled the same way
+# twice. Set it in config.local.json.
+WAKE_ALIASES = ()
 WAKE_IDLE_SILENCE_MS = 500   # silence that ends a wake-phrase utterance
 WAKE_MAX_UTTERANCE_S = 10    # a wake phrase is short. Without this, continuous
                              # room noise becomes endless long recordings that all

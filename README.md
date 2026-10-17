@@ -103,13 +103,19 @@ cp config.local.example.json config.local.json
   "LATITUDE": 0.0,
   "LONGITUDE": 0.0,
   "WHISPER_HINT": "your name, your town, the programs you launch by voice",
-  "WAKE_PHRASE": "hey jarvis"
+  "WAKE_PHRASE": "hey jarvis",
+  "WAKE_ALIASES": ["jarvis", "jervis"]
 }
 ```
 
+`WAKE_ALIASES` is worth filling in when you pick an unusual name: the phrase is
+recognised, not matched against a trained model, and whisper will not spell a
+name it has never seen the same way twice. The phrase itself and its last word
+are always honoured; the aliases are the variants it invents on top of those.
+
 That file is gitignored. Anything you leave out falls back to a sane default: no
 location means the briefing says the weather is unavailable rather than guessing,
-and the default wake phrase is `hey jarvis`.
+and the wake phrase stays `hey jarvis`.
 
 ## Layout
 

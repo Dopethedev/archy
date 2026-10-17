@@ -19,7 +19,11 @@ def check(label, ok, detail=""):
         failures += 1
     print(f"  [{'OK  ' if ok else 'FAIL'}] {label:52s} {detail}")
 
-w = SpeechWake()
+# this test is about the shapes a call takes, so it brings its own
+# phrase and aliases rather than inheriting the owner's
+PHRASE = "hey maki"
+ALIASES = ("maki", "macki", "macky", "makki", "maky", "machi", "magi")
+w = SpeechWake(PHRASE, ALIASES)
 
 print("-- what should wake it --")
 for text, want in [
@@ -73,7 +77,7 @@ class Harness(Assistant):
     """_check_wake with the microphone and voice replaced."""
     def __init__(self, transcript):
         self.hud = None                     # the real assistant always has one
-        self.speech_wake = SpeechWake()
+        self.speech_wake = SpeechWake(PHRASE, ALIASES)
         self.transcriber = type("T", (), {"transcribe": staticmethod(lambda a: transcript)})()
         self.state = "booting"
         self.trace = []
