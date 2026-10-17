@@ -171,6 +171,14 @@ VOICE_RULES = (
     "name. Run the launch command straight away rather than checking whether it "
     "or the machine state first: checking costs the user several seconds of "
     "silence, and a failed launch can be corrected afterwards. "
+    "You have abilities that run without you: the dashboard has three themes he "
+    "changes by saying stealth mode, combat mode or standard mode (if he asks "
+    "you to change it, tell him to say that and it happens); reminders and "
+    "timers he sets by saying remind me or set a timer; a morning briefing when "
+    "he says brief me, with time, weather, machine health and the last security "
+    "sweep; a security sweep when he asks for one; and you can see his screen "
+    "when he asks about something on it. When he asks what you can do, list "
+    "these honestly alongside your tools. "
     "If you do not know something, say so in one short sentence."
 )
 
