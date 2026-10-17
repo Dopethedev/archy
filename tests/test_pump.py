@@ -499,11 +499,14 @@ async def scenario_endless_noise(name, seconds, expect_max_s):
 
     longest = max(h.wake_audio) / config.SAMPLE_RATE if h.wake_audio else 0.0
     dropped = sum("dropping it" in line for line in h.trace)
-    # nothing that long should ever reach a transcription, and the rule that
-    # stops it has to be what stopped it
-    ok = longest == 0.0 and not h.wake_audio and 0 < dropped <= 6
+    # the bound is the cap: a recording may end at it and be transcribed (that is
+    # how a wake phrase inside continuous room speech gets heard), but it must
+    # never grow past it, and the number of transcriptions must track the time,
+    # not the frame count
+    capped = seconds / config.WAKE_MAX_UTTERANCE_S + 1
+    ok = longest <= expect_max_s and len(h.wake_audio) <= capped and dropped == 0
     print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: {len(h.wake_audio)} recordings, "
-          f"dropped {dropped} times, longest {longest:.1f}s (limit {expect_max_s}s)")
+          f"longest {longest:.1f}s (limit {expect_max_s}s, at most {capped:.0f})")
     config.WAKE_MODE = "model"
     return ok
 

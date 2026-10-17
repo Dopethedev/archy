@@ -101,7 +101,7 @@ MEMORY_FILE = Path(os.environ.get("JARVIS_MEMORY_FILE") or (ROOT / "memory.json"
 # If pi says nothing at all for this long the turn is abandoned and the model
 # process is restarted. Without a deadline a hung brain leaves the assistant
 # stuck in "thinking" forever, with no way back except a restart.
-BRAIN_SILENCE_TIMEOUT_S = 45.0
+BRAIN_SILENCE_TIMEOUT_S = 25.0   # waiting a minute in silence feels like deafness
 
 VOICE_RULES = (
     "Your words are spoken aloud through a speaker. You are talking to Bishesh. "
