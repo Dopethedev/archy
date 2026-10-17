@@ -42,7 +42,8 @@ the rings, the radar and every panel:
   the model on every turn so remembering costs no round trip.
 - **A model chain.** Free relays die without warning. If the first one stops
   answering, the next takes over and it says so.
-- **A microphone switch.** Off means off, from the dashboard or a key.
+- **A microphone switch.** Off means off, from the dashboard or a key, and it
+  stays off across a restart.
 
 ## Requirements
 

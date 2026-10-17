@@ -190,7 +190,11 @@ LONGITUDE = None
 WEATHER_CACHE_S = 1800.0
 
 # Reminders and timers: parsed locally, kept in a small file, spoken when due.
-REMINDER_CHECK_S = 5.0
+# The check itself is a read of a small JSON file, measured in microseconds, so
+# it runs often enough that "in twelve seconds" means twelve: at five seconds a
+# twelve second timer was spoken sixteen seconds later, which is a promise the
+# assistant visibly fails to keep.
+REMINDER_CHECK_S = 1.0
 
 def _voice_rules() -> str:
     """The spoken-conversation rules. A function so it is built after the local
