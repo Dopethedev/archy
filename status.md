@@ -237,6 +237,35 @@ this project needs **139 MB** of it: whisper's base.en. The rest is from earlier
 experiments (a 4.3 GB Qwen TTS among them) and is not referenced by anything
 here.
 
+## The security sweep, extended to the browser and the launchers
+Two check families were added, both verified against planted copies and against
+the live machine.
+
+The browser check reads each Brave profile's Preferences, classifies every
+loaded extension (store, unpacked, component), demands manifest-level
+justification for dangerous permissions (all_urls, tabs, webRequest, cookies,
+history, debugger, nativeMessaging, and friends, each with a spoken reason),
+warns on installs younger than two days, and alerts on a component whose
+payload no package owns. Brave's component payload lives in root-level
+<id>/<version> dirs under the browser folder, and that is where ownership is
+verified, one batched pacman call: the Preferences paths for bundled components
+are often resource dirs with no manifest of their own. The binary and any flash
+plugin are verified with pacman -Qkk against the checksums recorded at install
+time. The live machine: 4 extensions accounted for, binary clean, no flash.
+
+The launcher check walks /usr/share/applications, /etc/xdg/autostart,
+~/.local/share/applications, ~/.config/autostart and ~/.config/systemd/user,
+resolves every Exec/ExecStart through field codes, env wrappers and PATH, and
+judges each target three ways: scratch directory (alert), no package owner
+(alert in /usr, recency-based elsewhere), and newer than the last pacman
+transaction without an owner (warn). Unowned targets go to clamav as well,
+capped at 40. /usr/local/bin is judged by age, not alerted: it is where local
+admin scripts live by design, and davinci-convert lives there.
+
+Method: every bad condition is simulated on a copy in tests/sim (never /tmp,
+because the scratch-path rule would fire on the test's own fixtures, which it
+did until the ground moved), never on the live system. 22 test groups.
+
 ## The security sweep
 "run a security sweep", "am i infected", "virus scan" and friends trigger a
 local sweep (sweep.py), whose report is handed to the model to summarise for
