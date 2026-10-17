@@ -26,6 +26,14 @@ MARKDOWN = [
     (re.compile(r"```.*?```", re.S), " "),
     (re.compile(r"`([^`]*)`"), r"\1"),
     (re.compile(r"\[([^\]]*)\]\([^)]*\)"), r"\1"),
+    # A URL read out in full is noise: "https://github.com/Dopethedev/jarvis"
+    # comes out of the speakers as "https slash slash github dot com..." and
+    # whatever the listener wanted from it is gone. The host is the part a person
+    # says, so that is what survives, with the dots spoken.
+    (re.compile(r"https?://(?:www\.)?([^\s/]+)(?:/\S*)?"),
+     lambda m: m.group(1).replace(".", " dot ")),
+    (re.compile(r"\bwww\.([^\s/]+)(?:/\S*)?"),
+     lambda m: m.group(1).replace(".", " dot ")),
     (re.compile(r"[*_#>]+"), ""),
     (re.compile(r"^\s*[-•]\s*", re.M), ""),
     (re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]"), ""),

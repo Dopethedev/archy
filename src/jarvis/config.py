@@ -79,13 +79,32 @@ WHISPER_BEAM = 5             # beam search instead of greedy: slower, clearly be
 # 0.0 disables the temperature fallback entirely. The retry chain is what makes
 # transcribing noise cost several times a successful transcription.
 WHISPER_TEMPERATURE = 0.0
-# Biases the recogniser towards words it would otherwise guess at. Whisper uses
-# this as context, so proper nouns and jargon stop coming out as lookalikes.
-# Add your own names and programs through WHISPER_HINT in config.local.json.
+# Biases the recogniser towards words it would otherwise guess at, which is not
+# a small effect. Whisper reads this as context for what it is about to hear, so
+# its own command words belong here: "brief me", spoken at headset level,
+# comes out as "brief man" or "breathe me" most of the time without it, and
+# exactly right with it, measured over the phrase list at three levels. It also
+# recovers "never mind", which arrives as "nevermind".
+#
+# Two words added to this list can remove others from the transcript, because
+# the model treats the prompt as text that came before: "remind me" in the hint
+# cost "remind me" from the front of a spoken reminder. So additions are priced
+# by measuring the whole phrase list, not just the phrase being fixed.
+#
+# A machine's own names and programs go in WHISPER_HINT_EXTRA through
+# config.local.json, which keeps this list the same on every install.
 WHISPER_HINT = (
-    "Jarvis, Maki, Linux, cpu, gpu, ram, terminal, wifi, bluetooth, "
-    "screenshot, rootkit, malware"
+    "Jarvis, brief me, briefing, security sweep, stealth mode, combat mode, "
+    "standard mode, screenshot, timer, reminder, microphone, weather, notice, "
+    "Linux, cpu, gpu, ram, terminal, wifi, bluetooth, malware, rootkit"
 )
+WHISPER_HINT_EXTRA = ""      # a machine's own words: names, apps, place names
+
+
+def whisper_hint() -> str:
+    """What the recogniser is told to expect: the project's words, then yours."""
+    extra = WHISPER_HINT_EXTRA.strip(" ,")
+    return f"{WHISPER_HINT}, {extra}" if extra else WHISPER_HINT
 
 # ------------------------------------------------------- text to speech
 TTS_ENGINE = "kokoro"        # "kokoro" (natural) or "piper" (faster)
@@ -163,12 +182,16 @@ SWEEP_CLAMAV_ENUMERATE = 20000      # stop listing after this many, pathological
 # Dashboard themes, switched by voice: "maki, combat mode". The name has to
 # ride along with the word mode or theme, so a passing mention of combat does
 # not repaint the screen.
+# What you say to reach a theme, and the phrases that mean "put it back". The
+# names are the vocabulary the voice matcher listens for; the palettes live in
+# the dashboard.
 THEMES = {
-    "standard": ("standard", "normal", "default", "regular", "restore the theme",
-                 "reset the theme"),
+    "standard": ("standard", "normal", "default", "regular"),
     "stealth":  ("stealth",),
-    "combat":   ("combat", "red alert", "battle mode"),
+    "combat":   ("combat", "red alert", "battle"),
 }
+THEME_RESET_PHRASES = ("restore the theme", "reset the theme", "restore theme",
+                       "reset theme")
 
 # The briefing: time, date, weather, machine health, the last sweep. Cheap
 # local facts, gathered before the model is ever asked.
@@ -188,6 +211,11 @@ CITY = ""
 LATITUDE = None
 LONGITUDE = None
 WEATHER_CACHE_S = 1800.0
+
+# A microphone delivering exact zeros, every sample, is switched off, has its
+# boom up, or has stalled. This many seconds of it and the assistant says so:
+# otherwise it waits to be spoken to forever and looks like it is ignoring you.
+MIC_DEAF_S = 20.0
 
 # Reminders and timers: parsed locally, kept in a small file, spoken when due.
 # The check itself is a read of a small JSON file, measured in microseconds, so

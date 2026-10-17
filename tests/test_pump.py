@@ -54,7 +54,9 @@ class Harness(Assistant):
         self.hud = None
         self.state = "booting"
         self.mic = type("M", (), {"frames": queue.Queue(), "level": 0.0, "drain": lambda s: None, "set_focus": lambda s, on: None,
-                                    "start": lambda s: None, "stop": lambda s: None})()
+                                    "start": lambda s: None, "stop": lambda s: None,
+                                    # a microphone with signal, unless a case says otherwise
+                                    "silent_seconds": lambda s: 0.0})()
         self.flushed = 0
         self.aborted = 0
         player = type("P", (), {"level": 0.0, "write": lambda s, a: None, "playing": lambda s: False,
@@ -512,6 +514,34 @@ async def scenario_endless_noise(name, seconds, expect_max_s):
     return ok
 
 
+async def scenario_deaf_mic(label, expect_notice, silent=30.0, mic_enabled=True):
+    """A microphone of exact zeros must not be listened to in silence forever."""
+    h = Harness()
+    h.mic_enabled = mic_enabled
+    h.state = "idle"                      # the pump is only at rest when idle
+    h.mic.silent_seconds = lambda: silent
+    announced = []
+    h._announce = lambda text: announced.append(text) or _noop()
+    for _ in range(6):
+        h.mic.frames.put_nowait(np.zeros(config.INPUT_BLOCK, dtype=np.int16))
+    task = asyncio.create_task(h._pump())
+    await asyncio.sleep(0.15)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    told = any("delivering silence" in t for t in h.trace)
+    ok = bool(announced) == expect_notice and told == expect_notice
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {label}"
+          f"  (announced {len(announced)}, logged {told})")
+    return ok
+
+
+async def _noop():
+    return None
+
+
 async def main():
     results = []
     results.append(await scenario(
@@ -569,6 +599,10 @@ async def main():
         "a blip while listening -> keeps waiting instead of giving up"))
     results.append(await scenario_typed_while_replying(
         "typing while it talks -> still one turn at a time"))
+    results.append(await scenario_deaf_mic(
+        "a microphone delivering nothing at all -> said out loud, once", True))
+    results.append(await scenario_deaf_mic(
+        "and not while it is switched off", False, mic_enabled=False))
     results.append(await scenario_speech_while_thinking(
         "talking over it while it thinks -> redirects it", True, frames=16))
     results.append(await scenario_speech_while_thinking(

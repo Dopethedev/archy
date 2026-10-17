@@ -70,6 +70,7 @@ class Assistant:
         self.last_heard = ""
         self.turn_latency = 0.0               # spoken delay of the last turn
         self.mic_enabled = True               # what the dashboard's toggle controls
+        self._deaf_warned = False             # said once, not every twenty seconds
         self._hang_count = 0                  # silent turns in a row on this model
         self._loop: asyncio.AbstractEventLoop | None = None
         # the event loop keeps only weak references to tasks; a turn whose task
@@ -89,30 +90,72 @@ class Assistant:
         return task
 
     # --------------------------------------------------------- local intents
-    _THEME_LEAD = re.compile(
-        r"^(?:please\s+|can you\s+|could you\s+|switch to\s+|switch\s+|go\s+|"
-        r"go back to\s+|back to\s+|change to\s+|change the\s+|set\s+|give me\s+)+")
-    _THEME_HEAD = re.compile(
-        r"^(stealth|combat|standard|normal|default|regular|red alert|battle)\s+(mode|theme)\b")
-    _THEME_TO = re.compile(
-        r"(?:mode|theme)\s+(?:to|is)\s+(stealth|combat|standard|normal|default|regular|red alert|battle)\b")
+    # A theme command is the name of a theme, optionally followed by the word
+    # mode or theme, with nothing around it that turns the sentence into a
+    # question about themes or an opinion of one. Refusing is the hard half: a
+    # sentence about a game contains exactly the same words as a command, and a
+    # matcher that only ever fires repaints the screen in the middle of someone
+    # talking about Elden Ring. What separates them is what surrounds the name,
+    # so both halves are tested with the same phrases.
+    _THEME_NOUNS = frozenset(("mode", "theme", "profile", "palette"))
+    # right after the name, these mean the sentence is describing a theme
+    _THEME_DESCRIBES = frozenset((
+        "is", "was", "are", "were", "isn't", "aren't", "has", "have", "be",
+        "been", "does", "do", "did", "in", "for", "of", "with", "on", "at",
+        "when", "that", "which", "because", "than", "if", "so", "then",
+        "while", "and", "or", "but", "vs", "versus", "good", "better", "best",
+        "great", "bad", "worse", "worst", "useful", "worth", "fun", "cool",
+        "nice", "awesome", "work", "works", "working", "help", "helps",
+        "matter", "matters", "one", "ones", "my", "your", "the", "a", "an",
+        "game", "games", "any",
+    ))
+    # right before the name, these make it a question or an opinion
+    _THEME_ASKS = frozenset((
+        "is", "are", "was", "were", "does", "do", "did", "what", "what's",
+        "how", "why", "which", "when", "who", "whether", "about", "like",
+        "love", "hate", "prefer", "enjoy", "think", "that's", "it's", "that",
+        "this", "everything",
+    ))
+    # a bare "stealth" is only a command when something is asking for it
+    _THEME_VERBS = frozenset((
+        "go", "switch", "change", "set", "put", "make", "turn", "use", "enable",
+        "activate", "enter", "engage", "give", "take", "restore", "reset",
+        "return", "back", "want", "let", "please", "prefer", "keep", "to",
+    ))
 
     @classmethod
     def _theme_intent(cls, text: str) -> str | None:
-        """A dashboard repaint by voice. Two command shapes count: the name
-        leading the sentence, optionally behind a command lead-in ("combat
-        mode", "back to standard mode"), and the theme-to-name shape ("switch
-        theme to stealth"). "What is the best combat mode in this game" passes
-        neither, so a question about a game does not repaint the screen."""
-        words = cls._THEME_LEAD.sub("", text.lower().strip())
-        if "restore the theme" in words or "reset the theme" in words:
-            return "standard"
-        m = cls._THEME_HEAD.match(words) or cls._THEME_TO.search(words)
-        if not m:
+        """A dashboard repaint by voice, or nothing at all."""
+        words = re.findall(r"[a-z0-9']+", text.lower())
+        if not words:
             return None
+        joined = " ".join(words)
+        if any(phrase in joined for phrase in config.THEME_RESET_PHRASES):
+            return "standard"
+
+        # the last name in the sentence: a command ends on the name it wants
+        found = None
         for theme, names in config.THEMES.items():
-            if any(name in m.group(0) for name in names):
-                return theme
+            for name in names:
+                parts = name.split()
+                for i in range(len(words) - len(parts) + 1):
+                    if words[i:i + len(parts)] == parts and (found is None or i > found[0]):
+                        found = (i, len(parts), theme)
+        if found is None:
+            return None
+
+        i, n, theme = found
+        head, rest = words[:i], words[i + n:]
+        named = bool(rest) and rest[0] in cls._THEME_NOUNS
+        tail = rest[1:] if named else rest
+        if tail and tail[0] in cls._THEME_DESCRIBES:
+            return None                    # describing it, not asking for it
+        if head and head[-1] in cls._THEME_ASKS:
+            return None                    # "is stealth mode ...", "about combat mode"
+        # a name with mode after it, or two words long, or with a verb before it,
+        # is a command; a bare one-word name on its own is not
+        if named or n > 1 or (head and head[-1] in cls._THEME_VERBS):
+            return theme
         return None
 
     # ------------------------------------------------------------------- hud
@@ -294,7 +337,7 @@ class Assistant:
             sweep_report = None
             brief_facts = None
             if sweep_mod.wanted(text):
-                deltas.put("Running the sweep now, this takes a minute.")
+                deltas.put("Running the sweep now, this takes a few seconds.")
                 try:
                     sweep_report = await asyncio.wait_for(
                         asyncio.to_thread(sweep_mod.run), timeout=180.0)
@@ -426,6 +469,26 @@ class Assistant:
             self.set_state("muted")
 
     # ------------------------------------------------------------- reminders
+    async def _announce(self, text: str):
+        """Say something with no request behind it, out loud.
+
+        Used for the microphone that is delivering nothing: a notice in the
+        dashboard is no use to someone who is waiting to be answered.
+        """
+        if self._stopping or self.state != "idle":
+            return
+        self.set_state("speaking")
+        try:
+            await asyncio.to_thread(self.speaker.say, text)
+            self.log("jarvis", text)
+            await asyncio.to_thread(self.player.wait_drained, 30)
+        except Exception as exc:
+            print(f"[announce] {exc}")
+        finally:
+            if self._stopping:
+                return
+            self._back_to_idle()
+
     async def _reminder_loop(self):
         """Due reminders are spoken, out loud, whatever the dashboard shows.
         The loop waits for a quiet moment rather than talking over a reply."""
@@ -445,7 +508,7 @@ class Assistant:
                 self.set_state("speaking")
                 self.player.write(blip(660.0))
                 self.player.write(blip(990.0))
-                text = f"Reminder: {label}."
+                text = reminders_mod.spoken(label)
                 self.log("jarvis", text)
                 try:
                     ok = await asyncio.to_thread(self.speaker.say, text)
@@ -543,6 +606,24 @@ class Assistant:
                     self._interrupt()
                 self.set_state("thinking")
                 self._spawn(self._process(text=typed))
+
+            # A microphone that has delivered nothing at all for twenty seconds
+            # while it is sitting there listening is either switched off or
+            # broken, and it will never hear a word. Saying so once is the
+            # difference between an assistant that can be fixed and one that
+            # looks like it is ignoring you.
+            # tests build this object without __init__, so the flag may be absent
+            # self.state, not the local copy: this runs before the loop reads the
+            # current frame, so the local would be one iteration behind
+            if (not getattr(self, "_deaf_warned", False)
+                    and getattr(self, "mic_enabled", True) and self.state == "idle"
+                    and self.mic.silent_seconds() > config.MIC_DEAF_S):
+                self._deaf_warned = True
+                self.log("sys", "the microphone is delivering silence: no "
+                                "signal at all for twenty seconds")
+                self._spawn(self._announce(
+                    "I am not hearing anything from the microphone. "
+                    "It may be switched off."))
 
             try:
                 frame = self.mic.frames.get_nowait()

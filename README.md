@@ -103,7 +103,7 @@ cp config.local.example.json config.local.json
   "CITY": "your city",
   "LATITUDE": 0.0,
   "LONGITUDE": 0.0,
-  "WHISPER_HINT": "your name, your town, the programs you launch by voice",
+  "WHISPER_HINT_EXTRA": "your name, your town, the programs you launch by voice",
   "WAKE_PHRASE": "hey jarvis",
   "WAKE_ALIASES": ["jarvis", "jervis"]
 }

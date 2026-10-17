@@ -11,6 +11,7 @@ from __future__ import annotations
 import collections
 import queue
 import threading
+import time
 
 import numpy as np
 import sounddevice as sd
@@ -92,6 +93,11 @@ class MicCapture:
         self._env = 0.0                      # slow running RMS, drives the AGC
         self._noise = 0.0                    # noise floor estimate, drives the gate
         self._focus = False                  # true while waiting for a request
+        # when signal was last seen, so a microphone delivering nothing at all
+        # can be told apart from a room that is merely quiet. Any live input has
+        # a noise floor and its samples are not all zero, so exact zeros are the
+        # one thing a working microphone never produces.
+        self._signal_at = time.monotonic()
         self._stream: sd.InputStream | None = None
 
     def set_focus(self, on: bool):
@@ -162,6 +168,14 @@ class MicCapture:
     def _callback(self, indata, frames, time_info, status):
         mono = self._apply_gain(indata[:, 0])
         self.level = float(np.sqrt(np.mean((mono.astype(np.float64) / 32768.0) ** 2)) * 4.0)
+        # A frame of exact zeros, every sample, is not a quiet room: it is a
+        # microphone that is switched off, one whose boom is up, or a USB input
+        # that has stalled. Keeping the time signal was last seen is what lets
+        # the assistant say it cannot hear anything instead of waiting to be
+        # spoken to forever. getattr because tests drive this callback on an
+        # object built with __new__.
+        if mono.any():
+            self._signal_at = time.monotonic()
         try:
             self.frames.put_nowait(mono)
         except queue.Full:
@@ -203,6 +217,10 @@ class MicCapture:
             self._stream.stop()
             self._stream.close()
             self._stream = None
+
+    def silent_seconds(self) -> float:
+        """How long the microphone has delivered nothing at all, in seconds."""
+        return time.monotonic() - getattr(self, "_signal_at", time.monotonic())
 
     def drain(self):
         """Throw away anything buffered, so a new turn starts clean."""

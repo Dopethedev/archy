@@ -55,7 +55,7 @@ class Transcriber:
                 beam_size=config.WHISPER_BEAM,
                 language="en",
                 condition_on_previous_text=False,
-                initial_prompt=config.WHISPER_HINT,   # bias towards his real vocabulary
+                initial_prompt=config.whisper_hint(),  # see config: the project's words, then yours
                 no_speech_threshold=0.6,
                 log_prob_threshold=-1.0,
                 # No temperature fallback. Whisper retries a decode at a higher

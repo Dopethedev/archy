@@ -6,6 +6,7 @@ from open-meteo, which needs no key and costs nothing; everything else is read
 off this machine.
 """
 import json
+import re
 import time
 import urllib.request
 
@@ -31,7 +32,16 @@ WMO = (
 
 def wanted(text: str) -> bool:
     words = text.lower()
-    return any(w in words for w in config.BRIEF_WORDS)
+    if any(w in words for w in config.BRIEF_WORDS):
+        return True
+    # Two words this microphone turns this into, measured rather than guessed:
+    # spoken at headset level, "brief me" comes back as "brief main", "brief man"
+    # or "breathe me" often enough to matter, and a briefing that silently never
+    # happens is worse than one asked for with odd words. A bare "brief" counts
+    # too, so "a brief summary" works, which is a reasonable thing to want.
+    if re.search(r"\bbrief(ing|ly)?\b", words):
+        return True
+    return bool(re.search(r"\bbr(?:ief|eath|eathe)\s+(?:me|main|man|may)\b", words))
 
 
 # questions answerable without the sky: fetching weather for "what time is it"

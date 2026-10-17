@@ -28,6 +28,7 @@ print(f"phrase: {PHRASE!r}\n")
 # coarse audio legible, and that has to hold on a fresh checkout
 config.WHISPER_HINT = ("Jarvis, Sober, cpu, usage, Hyprland, terminal, "
                        "wifi, bluetooth, screenshot")
+config.WHISPER_HINT_EXTRA = ""      # and not the machine's own words either
 
 def degrade(a, peak_counts, noise_rms):
     """Bring it down to the microphone's real level, then add its noise floor."""
@@ -53,7 +54,7 @@ for label, audio in variants.items():
     t = time.monotonic()
     segs, _ = model.transcribe(f, beam_size=config.WHISPER_BEAM, language="en",
                                condition_on_previous_text=False,
-                               initial_prompt=config.WHISPER_HINT,
+                               initial_prompt=config.whisper_hint(),
                                no_speech_threshold=0.6, log_prob_threshold=-1.0,
                                temperature=[0.0, 0.2, 0.4])
     text = " ".join(s.text.strip() for s in segs).strip()

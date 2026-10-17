@@ -30,10 +30,19 @@ _TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
 # remainder, and "ten" inside "tennis"
 _WORD = rf"(?:{'|'.join(list(_ONES) + list(_TENS))})(?![a-z])"
 _COMPOUND = rf"(?:{_WORD})(?:[\s-]{_WORD})?"
-_AMOUNT = rf"(?:an?|half\s+an?|{_COMPOUND}|\d+)"
+_AND_HALF = r"(?:\s+and\s+a\s+(?:half|quarter))"
+_AMOUNT = (rf"(?:an?|half\s+an?|a\s+quarter(?:\s+of\s+an?)?"
+           rf"|{_COMPOUND}{_AND_HALF}?|\d+)")
 _RE_IN = re.compile(
     rf"\bin\s+({_AMOUNT})\s*{_UNIT}", re.I)
 _TO = re.compile(r"\bto\s+(?:remember\s+)?(.+?)[.?!]?\s*$", re.I)
+_NAMED = re.compile(r"\b(?:called|named)\s+(.+?)[.?!]?\s*$", re.I)
+# "remind me to call mum in twenty minutes" is a sentence, and the twenty
+# minutes belongs to the reminder rather than to its name: without this the
+# timer is called "call mum in twenty minutes" and the confirmation says
+# "Done, in 20 minutes: Call mum in twenty minutes."
+_DURATION_IN_LABEL = re.compile(
+    rf"\s+(?:in|at|after|for)\s+{_AMOUNT}\s*{_UNIT}\b.*$", re.I)
 _TIMER = re.compile(rf"(?:set\s+)?(?:a\s+)?timer\s+for\s+({_AMOUNT})\s*"
                     + _UNIT, re.I)
 _MINUTE_WORDS = ("minute", "minutes", "mins", "min", "m")
@@ -81,6 +90,16 @@ def _number(amount: str) -> float | None:
     text = amount.strip().lower()
     if text.startswith("half"):
         return 0.5
+    if text.startswith("a quarter") or text.startswith("quarter"):
+        return 0.25
+    # "two and a half hours": the half belongs to this count
+    frac = 0.0
+    m = re.search(r"and\s+a\s+(half|quarter)", text)
+    if m:
+        frac = 0.25 if m.group(1) == "quarter" else 0.5
+        text = text[:m.start()].strip()
+        if not text:
+            return None
     if text in ("a", "an"):
         return 1.0
     digits = re.sub(r"[^0-9.]", "", text)
@@ -97,7 +116,7 @@ def _number(amount: str) -> float | None:
             total += _TENS[word]
         else:
             return None
-    return float(total) if total else None
+    return (float(total) + frac) if total else None
 
 
 def _seconds(amount: str, unit: str) -> float | None:
@@ -114,11 +133,9 @@ def _seconds(amount: str, unit: str) -> float | None:
     return n                                    # seconds
 
 
-def _first_match(text: str, pattern: re.Pattern) -> tuple[str, str] | None:
-    m = pattern.search(text)
-    if not m:
-        return None
-    return m.group(1), m.group(2)
+def _first_match(text: str, pattern: re.Pattern):
+    """The match, so the caller can look at what follows the duration too."""
+    return pattern.search(text)
 
 
 def parse(text: str) -> dict | None:
@@ -134,25 +151,32 @@ def parse(text: str) -> dict | None:
     if re.search(r"\b(what|show|list|any|how long)\b", words) and \
             any(w in words for w in ("reminder", "reminders", "timer", "left")):
         return {"action": "list"}
-    pair = _first_match(words, _RE_IN)
-    if not pair:
-        m = _TIMER.search(words)
-        if m:
-            pair = (m.group(1), m.group(2))
-    if not pair:
+    m = _first_match(words, _RE_IN) or _TIMER.search(words)
+    if not m:
         return None
+    pair = (m.group(1), m.group(2))
+    _match_end = m.end()
     delay = _seconds(pair[0].strip(), pair[1])
     if delay is None:
         return None
+    # the other way round: "an hour and a half" puts the half after the unit, and
+    # reading only the hour fires it half an hour early, which is worse than not
+    # understanding it at all
+    m_after = re.match(rf"\s*{_AND_HALF}", text[_match_end:])
+    if m_after:
+        delay += (0.25 if "quarter" in m_after.group(0) else 0.5) * (_seconds("1", pair[1]) or 0.0)
     if not delay or delay <= 0 or delay > 7 * 86400:
         return None
-    label_m = _TO.search(text)
+    # A timer nobody named still has to be spoken about, and "Your timer" as a
+    # label reads like a machine in a list and in a sentence. The general ones
+    # are named for what they are, and the sentences are phrased around them.
+    label_m = _NAMED.search(text) or _TO.search(text)
     if label_m:
-        label = label_m.group(1).strip()
+        label = _DURATION_IN_LABEL.sub("", label_m.group(1).strip()).strip(" ,.-")
     elif re.search(r"timer", words):
-        label = "your timer"
+        label = "Timer"
     else:
-        label = "reminder"
+        label = "Reminder"
     label = label[0].upper() + label[1:] if label and label[0].isalpha() else label
     return {"action": "set", "delay": delay, "label": label[:120]}
 
@@ -221,6 +245,10 @@ def _spoken_gap(seconds: float) -> str:
             days = round(days)
             return "a day" if days == 1 else f"{days} days"
         return f"{days:.1f} days"
+    if abs(hours * 2 - round(hours * 2)) < 0.05 and hours >= 1.5:
+        half = round(hours * 2) // 2
+        return ("an hour and a half" if half == 1
+                else f"{half} and a half hours")
     if abs(hours - round(hours)) < 0.1:
         hours = round(hours)
         return "an hour" if hours == 1 else f"{hours:.0f} hours"
@@ -238,6 +266,9 @@ def pending() -> list[str]:
     return out
 
 
+GENERIC = ("Timer", "Reminder")       # labels that stand for nothing named
+
+
 def confirm(action: dict) -> str:
     """What to say when the action is taken, before any model is involved."""
     if action["action"] == "cancel":
@@ -253,5 +284,20 @@ def confirm(action: dict) -> str:
         return "Pending: " + "; ".join(items[:4]) + "."
     if action["action"] == "set":
         add(action["label"], action["delay"])
-        return f"Done, in {_spoken_gap(action['delay'])}: {action['label']}."
+        gap = _spoken_gap(action["delay"])
+        if action["label"] in GENERIC:
+            # nothing was named, so say the time and stop: "Done, in twenty
+            # minutes: Timer." is the kind of sentence that gives it away
+            return f"Done, in {gap}." if action["label"] == "Reminder" \
+                else f"Done, a timer for {gap}."
+        return f"Done, in {gap}: {action['label']}."
     return ""
+
+
+def spoken(label: str) -> str:
+    """How a due item is announced. General ones are a sentence, not a label."""
+    if label == "Timer":
+        return "Your timer is up."
+    if label == "Reminder":
+        return "A reminder is due."
+    return f"Reminder: {label}."

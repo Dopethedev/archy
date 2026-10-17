@@ -50,7 +50,33 @@ check("half an hour with no task is still a reminder",
       a and abs(a["delay"] - 1800) < 0.01 and a["label"] == "Reminder", str(a))
 a = reminders.parse("set a timer for 90 seconds")
 check("a timer in seconds", a and abs(a["delay"] - 90) < 0.01
-      and a["label"] == "Your timer", str(a))
+      and a["label"] == "Timer", str(a))
+
+# halves and quarters, which are how people give a delay they have not counted
+a = reminders.parse("remind me in an hour and a half")
+check("an hour and a half is ninety minutes",
+      a and abs(a["delay"] - 5400) < 0.01, str(a))
+a = reminders.parse("remind me in two and a half hours")
+check("two and a half hours is measured too",
+      a and abs(a["delay"] - 9000) < 0.01, str(a))
+a = reminders.parse("remind me in a quarter of an hour")
+check("a quarter of an hour is fifteen minutes",
+      a and abs(a["delay"] - 900) < 0.01, str(a))
+
+# a name, and a sentence that must not become one
+a = reminders.parse("set a timer for ten minutes called pasta")
+check("a timer can be named", a and a["label"] == "Pasta", str(a))
+a = reminders.parse("remind me to call mum in twenty minutes")
+check("the time does not end up in the name",
+      a and a["label"] == "Call mum", str(a))
+# confirm() is the thing that takes the action, so it puts the reminder on disk:
+# put the store back exactly as it was, or the checks below find an extra item
+import json as _json
+_before = _json.dumps(reminders.load())
+_say = reminders.confirm(a) if a else ""
+check("and the confirmation does not say it twice",
+      _say and "Call mum in twenty minutes" not in _say, _say)
+reminders.PATH.write_text(_before)
 a = reminders.parse("remind me in 2 hours to check the download")
 check("hours plural", a and abs(a["delay"] - 7200) < 0.01, str(a))
 a = reminders.parse("cancel my reminders")
@@ -104,6 +130,14 @@ say = reminders.confirm({"action": "cancel"})
 check("an empty cancel says so", "nothing to cancel" in say)
 say = reminders.confirm({"action": "list"})
 check("an empty list says so", "Nothing pending" in say)
+
+print("-- a due item is announced as a sentence --")
+check("a nameless timer is a sentence",
+      reminders.spoken("Timer") == "Your timer is up.", reminders.spoken("Timer"))
+check("a nameless reminder is a sentence",
+      reminders.spoken("Reminder") == "A reminder is due.")
+check("a named one keeps its name",
+      reminders.spoken("Check the oven") == "Reminder: Check the oven.")
 
 print()
 print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)")
