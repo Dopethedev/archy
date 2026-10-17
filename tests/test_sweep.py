@@ -193,6 +193,65 @@ async def main():
     h = await run_turn("what time is it", "should not run")
     check("an ordinary question runs no sweep", h.brain.seen and "SWEEP" not in h.brain.seen[0][0])
 
+
+    # A security check must never read as clean because it did not run. These drive
+    # the result parsing directly, since the point is the claim the report makes.
+
+    import subprocess as _sp
+
+
+    def _fake(returncode, stderr="", stdout=""):
+        return _sp.CompletedProcess(["clamscan"], returncode, stdout.encode(),
+                                    stderr.encode())
+
+
+    hits, error, skipped = sweep._clamav_result(
+        _fake(1, stdout="/tmp/x.bin: Eicar-Test-Signature FOUND\n"))
+    check("a finding is a finding", hits and not error, str(hits))
+
+    hits, error, skipped = sweep._clamav_result(_fake(0))
+    check("a clean exit is clean", not hits and not error and not skipped)
+
+    # the daemon being down: this is the case that used to read as clean
+    hits, error, skipped = sweep._clamav_result(
+        _fake(2, stderr="ERROR: Could not connect to clamd on LocalSocket ...\n"))
+    check("a scan that could not run is not reported as clean",
+          not hits and "Could not connect" in error, error[:60])
+
+    # ...and the case that must not cry wolf: warnings only, scan ran fine
+    hits, error, skipped = sweep._clamav_result(
+        _fake(2, stderr="WARNING: /tmp/sock: Not supported file type\n"
+                        "WARNING: /tmp/locked: Permission denied\n"))
+    check("skipped files are not a failed scan", not hits and not error and skipped == 2,
+          f"skipped {skipped}")
+
+    print("-- only real files are offered to the scanner --")
+    work = Path(tempfile.mkdtemp(prefix="jarvis-clam-"))
+    (work / "a_regular_file").write_text("hello\n")
+    os.symlink("/etc/hosts", work / "a_symlink")
+    import socket as _socket
+    sock = _socket.socket(_socket.AF_UNIX)
+    sock.bind(str(work / "a_socket"))
+    try:
+        files, seen, total = sweep._newest_files([str(work)], limit=50)
+        names = [Path(f).name for f in files]
+        check("a regular file is included", "a_regular_file" in names, str(names))
+        check("a socket is not", "a_socket" not in names, str(names))
+        check("counted, though: the report says how many it saw", seen >= 3, str(seen))
+    finally:
+        sock.close()
+
+    print("-- and the cap is a cap, with the arithmetic stated --")
+    for i in range(30):
+        (work / f"f{i:02d}").write_text("x")
+    files, seen, total = sweep._newest_files([str(work)], limit=10)
+    check("the limit is honoured", len(files) == 10, str(len(files)))
+    check("everything seen is counted", seen >= 33, str(seen))
+    check("the newest are chosen", Path(files[0]).name == "f29", Path(files[0]).name)
+    (work / "f29").unlink()
+    check("a missing file never breaks the walk",
+          sweep._newest_files([str(work / "does-not-exist")], limit=5)[0] == [])
+
     print()
     print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)")
     return 0 if not failed else 1
@@ -200,3 +259,4 @@ async def main():
 
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))
+

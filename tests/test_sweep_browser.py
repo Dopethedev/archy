@@ -207,8 +207,36 @@ with temp_ground() as raw:
         check("an unowned /usr/local script is judged by age, not alerted",
               not any("local.desktop" in f and f.startswith("alert") for f in out)
               and any("local.desktop" in f and f.startswith("info") for f in out))
-        check("unowned targets went to the scanner",
-              any("fake scan" in f and "launcher target" in f for f in out))
+        # the unowned targets are handed to the virus check rather than scanned
+        # here, so one clamav invocation covers both and pays the signature
+        # database load once instead of twice
+        check("unowned targets are handed to the virus check",
+              any("go to the virus check" in f for f in out)
+              and sweep._scan_extra, str(sweep._scan_extra[:2]))
+        handed = list(sweep._scan_extra)
+        sweep._scan_extra.clear()
+
+        # and the virus check really does put them in front of the scanner
+        class FakeProc:
+            returncode = 0
+            stdout = b""
+            stderr = b""
+
+        scanned: list[list[str]] = []
+        real_run = sweep.subprocess.run
+        real_engine = sweep._clamav_engine
+        sweep._clamav_engine = lambda: ["fake-clam"]
+        sweep.subprocess.run = lambda argv, **kw: (scanned.append(argv), FakeProc())[1]
+        try:
+            sweep._scan_extra.extend(handed)
+            sweep.check_clamav()
+        finally:
+            sweep._clamav_engine = real_engine
+            sweep.subprocess.run = real_run
+            sweep._scan_extra.clear()
+        check("the handed over targets are scanned first",
+              bool(scanned) and [a for a in scanned[0] if a in handed] == handed,
+              str([a for a in scanned[0] if a in handed][:2]) if scanned else "no scan ran")
     finally:
         sweep._pacman_owners, sweep._last_pacman_change = real_owners, real_last
         sweep._clamav_files = real_scan

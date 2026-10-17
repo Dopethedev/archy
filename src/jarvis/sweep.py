@@ -28,7 +28,9 @@ import pwd
 import re
 import shlex
 import shutil
+import stat
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -476,28 +478,44 @@ def check_launchers(dirs: tuple = None, unit_dir: Path = None) -> list[str]:
     elif not findings:
         findings.append(f"ok: {len(entries)} launcher target(s) across desktop "
                         "entries, autostart and user services, all accounted for")
-    # what nobody owns is what a scanner should meet, bounded as everywhere else
-    to_scan = [t for t in targets if owners.get(t) is None and Path(t).exists()]
+    # what nobody owns is what a scanner should meet. The paths are handed to
+    # the virus check rather than scanned here, because every clamav invocation
+    # reloads 168 MB of signatures (six seconds measured) and two invocations is
+    # twice that for no reason. The check runs after this one, and a launcher
+    # target is worth more attention than a scratch file, so it goes in front.
+    to_scan = [t for t in targets if owners.get(t) is None and Path(t).exists()][:40]
     if to_scan:
-        findings += _clamav_files(to_scan[:40], "launcher target")
+        _scan_extra.extend(to_scan)
+        findings.append(f"info: {len(to_scan)} unowned launcher target(s) go to the "
+                        "virus check below")
     return findings
+
+
+# Paths that the virus check should scan first, put there by the launcher check.
+# Module state rather than a parameter because the checks in CHECKS take no
+# arguments, and this is one sweep in one thread by design. A second sweep
+# running at the same time would at worst scan a target twice.
+_scan_extra: list[str] = []
 
 
 def _clamav_files(paths: list[str], what: str) -> list[str]:
     """Scan explicit files, under the same cap as the directory sweep."""
+    engine = _clamav_engine()
     try:
-        proc = subprocess.run(["clamscan", "--no-summary", "--infected", *paths],
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        proc = subprocess.run([*engine, *paths], stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE,
                               timeout=config.SWEEP_CLAMAV_TIMEOUT_S)
-        out = proc.stdout.decode(errors="replace")
     except subprocess.TimeoutExpired:
         return [f"warn: the scan of {len(paths)} {what}(s) hit the "
                 f"{config.SWEEP_CLAMAV_TIMEOUT_S:.0f}s limit partway"]
     except FileNotFoundError:
         return [f"warn: clamscan is not installed, {what}s went unscanned"]
-    hits = [ln for ln in out.splitlines() if "FOUND" in ln]
+    hits, error, _skipped = _clamav_result(proc)
     if hits:
-        return [f"alert: clamav flagged {ln.strip()[:120]}" for ln in hits[:8]]
+        return [f"alert: clamav flagged {ln[:120]}" for ln in hits[:8]]
+    if error:
+        return [f"warn: the scan of {len(paths)} {what}(s) did not run "
+                f"({engine[0]}: {error})"]
     return [f"ok: clamav scanned {len(paths)} {what}(s) and found nothing"]
 
 
@@ -508,6 +526,113 @@ def check_updates() -> list[str]:
         return ["info: could not count pending updates"]
     n = len([ln for ln in out.splitlines() if ln.strip()])
     return [f"info: {n} package update(s) pending; old packages carry known holes"]
+
+
+_engine_choice: list[str] | None = None
+
+
+def _clamav_engine() -> list[str]:
+    """Which clamav binary to run, checked by using it rather than asking it.
+
+    clamdscan talks to a running daemon and so skips loading the signature
+    database, measured at six seconds for a single file here, because clamscan
+    reloads 168 MB of signatures on every invocation. But clamdscan --version
+    succeeds with no daemon running: it printed its own version, exited zero, and
+    then every scan failed with "could not connect to clamd". Probing by version
+    therefore chose a broken engine and the failure read as clean, which is the
+    one outcome a security check must never produce. The probe scans a real file.
+
+    Decided once per process: the probe itself costs a database load with
+    clamscan, so probing per scan would pay that twice and give back most of
+    what the daemon path was for.
+    """
+    global _engine_choice
+    if _engine_choice is not None:
+        return _engine_choice
+    chosen = ["clamscan", "--no-summary", "--infected"]
+    if shutil.which("clamdscan"):
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".probe", delete=False) as fh:
+                fh.write("clamd probe\n")
+                probe_path = fh.name
+            try:
+                probe = subprocess.run(["clamdscan", "--no-summary", "--infected",
+                                        probe_path], stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, timeout=20)
+                if probe.returncode == 0:
+                    chosen = ["clamdscan", "--no-summary", "--infected", "--fdpass"]
+            finally:
+                Path(probe_path).unlink(missing_ok=True)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+    _engine_choice = chosen
+    return chosen
+
+
+def _clamav_result(proc: subprocess.CompletedProcess) -> tuple[list[str], str, int]:
+    """(hits, fatal error). clamav exits 0 clean, 1 with findings, 2 on trouble.
+
+    The exit code is the point: a scan that could not run at all must not be
+    reported as a scan that found nothing, whatever it printed to stdout. The
+    other half is not crying wolf: clamscan also exits 2 for things it merely
+    skipped, a socket or an unreadable file, and reporting that as "the scan did
+    not run" over a scan that covered four hundred files teaches the reader to
+    ignore the line, which is worse than the line never appearing. Warnings are
+    returned separately from fatal errors.
+    """
+    out = proc.stdout.decode(errors="replace")
+    hits = [ln.strip() for ln in out.splitlines() if "FOUND" in ln]
+    if hits:
+        return hits, "", 0
+    if proc.returncode and proc.returncode != 1:
+        lines = [ln.strip() for ln in proc.stderr.decode(errors="replace").splitlines()
+                 if ln.strip()]
+        fatal = [ln for ln in lines if not ln.startswith("WARNING")]
+        if fatal:
+            return [], "; ".join(ln[:120] for ln in fatal[-2:]), 0
+        # nothing fatal: the scan ran, and some files were skipped
+        skipped = len([ln for ln in lines if ln.startswith("WARNING")])
+        return [], "", skipped
+    return [], "", 0
+
+
+def _newest_files(dirs: list[str], limit: int) -> tuple[list[str], int, int]:
+    """The newest files under these directories, with the totals.
+
+    Newest first, because a fresh dropper is a recent file, and bounded, because
+    a scratch directory is mostly build litter: this machine's /tmp held 9,859
+    files and 1.2 GB, which is two minutes of scanning that never finished.
+    Returns (files, seen, bytes of the chosen files).
+    """
+    found: list[tuple[float, str]] = []
+    seen = 0
+    for root in dirs:
+        for base, _dirs, names in os.walk(root, onerror=lambda e: None):
+            for name in names:
+                seen += 1
+                if seen > config.SWEEP_CLAMAV_ENUMERATE:
+                    break
+                path = os.path.join(base, name)
+                try:
+                    info = os.lstat(path)
+                except OSError:
+                    continue
+                if not stat.S_ISREG(info.st_mode):
+                    continue        # a socket or fifo is not a file to scan, and
+                                    # clamscan exits 2 on one, which used to make
+                                    # the whole scan look like it had failed
+                found.append((info.st_mtime, path))
+            if seen > config.SWEEP_CLAMAV_ENUMERATE:
+                break
+    found.sort(reverse=True)
+    chosen = [path for _when, path in found[:limit]]
+    total = 0
+    for path in chosen:
+        try:
+            total += os.lstat(path).st_size
+        except OSError:
+            pass
+    return chosen, seen, total
 
 
 def check_clamav() -> list[str]:
@@ -525,26 +650,60 @@ def check_clamav() -> list[str]:
     findings.append(f"{tag}: virus definitions are {age:.1f} day(s) old")
     targets = ["/tmp", "/dev/shm", str(HOME / "Downloads")]
     existing = [t for t in targets if Path(t).exists()]
-    argv = ["clamscan", "--no-summary", "--infected", "--recursive",
-            "--max-filesize=100M", "--max-scansize=400M", *existing]
+    if not existing:
+        return findings + ["warn: none of the usual staging directories exist"]
+
+    files, seen, chosen_bytes = _newest_files(existing, config.SWEEP_CLAMAV_MAX_FILES)
+    # the launcher targets first: they are the files nothing accounts for
+    preferred = [p for p in _scan_extra if os.path.isfile(p)]
+    _scan_extra.clear()
+    if preferred:
+        files = preferred + [f for f in files if f not in preferred]
+        files = files[:config.SWEEP_CLAMAV_MAX_FILES]
+    if not files:
+        findings.append(f"ok: nothing to scan under {', '.join(existing)}")
+        return findings
+
+    engine = _clamav_engine()
+    argv = [*engine, "--max-filesize=100M", "--max-scansize=400M", *files]
+    started = time.time()
     try:
-        started = time.time()
         proc = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               timeout=config.SWEEP_CLAMAV_TIMEOUT_S)
-        out = proc.stdout.decode(errors="replace")
     except subprocess.TimeoutExpired:
-        return findings + [f"warn: the scan of {', '.join(existing)} hit the "
-                           f"{config.SWEEP_CLAMAV_TIMEOUT_S:.0f}s limit partway; partial sweep only"]
+        return findings + [
+            f"warn: the scan was cut off after "
+            f"{config.SWEEP_CLAMAV_TIMEOUT_S:.0f}s partway through "
+            f"{len(files)} file(s) under {', '.join(existing)}: partial coverage"]
     except FileNotFoundError:
         return findings + ["warn: clamscan is not installed"]
-    hits = [ln for ln in out.splitlines() if "FOUND" in ln]
-    if hits:
-        findings += [f"alert: clamav flagged {ln.strip()[:120]}" for ln in hits[:8]]
-    else:
-        findings.append(f"ok: clamav scanned {', '.join(existing)} in "
-                        f"{time.time()-started:.0f}s and found nothing")
-    return findings
 
+    took = time.time() - started
+    hits, error, skipped = _clamav_result(proc)
+    if hits:
+        findings += [f"alert: clamav flagged {ln[:120]}" for ln in hits[:8]]
+        return findings
+    if error:
+        # an unscannable directory is not a clean directory
+        return findings + [f"warn: the scan of {', '.join(existing)} did not run "
+                           f"({engine[0]}: {error})"]
+    # coverage is stated, not implied: "found nothing" over an unbounded pile of
+    # files is not the same claim as "found nothing in the newest four hundred"
+    covered = (f"the newest {len(files)} of {seen} file(s)" if seen > len(files)
+               else f"all {seen} file(s)")
+    if preferred:
+        findings.append(f"ok: clamav checked the {len(preferred)} unowned launcher "
+                        f"target(s) and {covered} under {', '.join(existing)} "
+                        f"({chosen_bytes / 1e6:.0f} MB) in {took:.0f}s and found nothing"
+                        + (f", skipping {skipped} it could not read" if skipped else ""))
+    else:
+        findings.append(f"ok: clamav checked {covered} under {', '.join(existing)} "
+                        f"({chosen_bytes / 1e6:.0f} MB) in {took:.0f}s and found nothing"
+                        + (f", skipping {skipped} it could not read" if skipped else ""))
+    if seen > len(files):
+        findings.append(f"info: {seen - len(files)} older file(s) were not checked, "
+                        f"by choice: the cap is {config.SWEEP_CLAMAV_MAX_FILES}")
+    return findings
 
 CHECKS = (check_processes, check_uid_zero, check_hosts, check_world_writable,
           check_listeners, check_ssh, check_user_units, check_browser,

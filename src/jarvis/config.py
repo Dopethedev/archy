@@ -150,7 +150,15 @@ SWEEP_WORDS = ("security sweep", "security scan", "security check", "virus scan"
                "virus check", "malware", "rootkit", "scan my", "sweep",
                "am i infected", "is my computer", "audit my", "check my computer",
                "any viruses")
-SWEEP_CLAMAV_TIMEOUT_S = 120.0
+# The scan is bounded twice over, because a scratch directory on a working
+# machine is gigabytes of build litter: measured here, /tmp held 9,859 files and
+# 1.2 GB, so scanning "everything" spent two minutes of CPU and was cut off part
+# way every single sweep, which reads as clean without having covered much. The
+# newest files are the ones that matter, a fresh dropper is a recent file, and
+# the report says exactly what was and was not covered.
+SWEEP_CLAMAV_TIMEOUT_S = 45.0
+SWEEP_CLAMAV_MAX_FILES = 400
+SWEEP_CLAMAV_ENUMERATE = 20000      # stop listing after this many, pathological dirs
 
 # Dashboard themes, switched by voice: "maki, combat mode". The name has to
 # ride along with the word mode or theme, so a passing mention of combat does
