@@ -67,12 +67,15 @@ source.onmessage = (event) => {
   try { msg = JSON.parse(event.data); } catch { return; }
 
   if (msg.type === "state") {
-    if (msg.value === state) return;
-    if (msg.value === "listening") {
+    const changed = msg.value !== state;
+    // the label and colour update even when the value is unchanged: after a
+    // reconnect the replayed state used to be swallowed by an early return and
+    // the header stayed on "reconnecting" while everything actually worked
+    state = msg.value;
+    if (changed && msg.value === "listening") {
       ripples.push(performance.now());
       clearExchange();                      // a new turn: wipe the last one
     }
-    state = msg.value;
     const colour = COLORS[state] || COLORS.idle;
     document.documentElement.style.setProperty("--accent", colour);
     stateText.textContent = LABELS[state] || state;
@@ -190,7 +193,9 @@ input.addEventListener("keydown", (e) => {
   if (e.key !== "Enter" || !input.value.trim()) return;
   const text = input.value.trim();
   input.value = "";
-  addLog("you", text);
+  // No local log row here: the server logs "you" when the turn starts, and
+  // drawing our own made every typed message appear twice. The caption below
+  // is the instant feedback; the activity line follows from the server.
   clearExchange();
   setLine(heardEl, text);
   // the token is minted per run and only ever handed to the page the server

@@ -100,6 +100,7 @@ class Harness:
             self.spoken.append(item)
     def say(self, text):
         self.spoken.append(text)
+        return True
     _theme_intent = staticmethod(Assistant._theme_intent)
     def publish(self, event):
         self.published.append(event)
@@ -155,13 +156,23 @@ async def main():
           not any(e.get("type") == "theme" for e in h.published)
           and h.brain.seen != [])
 
+    h = await run_turn("what is the best combat mode in this game")
+    check("a question about a game's combat mode changes nothing",
+          not any(e.get("type") == "theme" for e in h.published)
+          and h.brain.seen != [])
+
+    h = await run_turn("switch theme to stealth")
+    check("theme-to-name shape works",
+          any(e.get("type") == "theme" and e.get("value") == "stealth"
+              for e in h.published))
+
     h = await run_turn("switch back to standard mode")
     check("standard is reachable by voice",
           any(e.get("type") == "theme" and e.get("value") == "standard"
               for e in h.published))
 
     real_gather = briefing.gather
-    briefing.gather = lambda: ("LOCAL FACTS.\nTime: 09:00.\nWeather in "
+    briefing.gather = lambda include_weather=True: ("LOCAL FACTS.\nTime: 09:00.\nWeather in "
                                "Kathmandu: 24 degrees, clear.\n")
     try:
         h = await run_turn("brief me")

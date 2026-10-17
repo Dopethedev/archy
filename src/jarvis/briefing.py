@@ -34,6 +34,19 @@ def wanted(text: str) -> bool:
     return any(w in words for w in config.BRIEF_WORDS)
 
 
+# questions answerable without the sky: fetching weather for "what time is it"
+# turned a 1.4 s answer into a 9 s one on a cold cache
+_LIGHT_ONLY = ("what time is it", "what day is it", "today's date", "todays date")
+
+
+def wants_light(text: str) -> bool:
+    """A time or date ask: facts from this machine only, no network."""
+    words = text.lower()
+    return any(w in words for w in _LIGHT_ONLY) \
+        and not any(w in words for w in
+                    ("weather", "rain", "forecast", "temperature", "brief"))
+
+
 def _weather() -> str:
     """One line of sky. Cached for half an hour; the sky does not move faster."""
     global _weather_cache
@@ -86,21 +99,24 @@ def os_loadavg():
 
 
 def _last_sweep() -> str:
+    path = config.STATE_DIR / "last-sweep.txt"
     try:
-        text = (config.STATE_DIR / "last-sweep.txt").read_text(errors="replace")
+        text = path.read_text(errors="replace")
+        when = time.strftime("%H:%M", time.localtime(path.stat().st_mtime))
     except OSError:
         return "no sweep has run yet on my watch"
-    stamp = text.splitlines()[0] if text else ""
     alerts = text.count("alert:")
     if alerts:
-        return f"the last sweep, {stamp}, raised {alerts} alert(s): look into it"
-    return f"the last sweep, {stamp}, came back clean"
+        return f"the last sweep, at {when}, raised {alerts} alert(s): look into it"
+    return f"the last sweep, at {when}, came back clean"
 
 
-def gather() -> str:
+def gather(weather: bool = True) -> str:
     """The facts block, in plain sentences a model can read aloud from."""
-    return (f"LOCAL FACTS, gathered just now. Do not search the web for these.\n"
-            f"Time: {time.strftime('%H:%M on %A, %d %B %Y')}.\n"
-            f"Weather in Kathmandu: {_weather()}.\n"
-            f"This machine: {_machine()}.\n"
-            f"Security: {_last_sweep()}.\n")
+    lines = [f"Time: {time.strftime('%H:%M on %A, %d %B %Y')}."]
+    if weather:
+        lines.append(f"Weather in Kathmandu: {_weather()}.")
+    lines.append(f"This machine: {_machine()}.")
+    lines.append(f"Security: {_last_sweep()}.")
+    return ("LOCAL FACTS, gathered just now. Do not search the web for these.\n"
+            + "\n".join(lines) + "\n")

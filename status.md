@@ -237,6 +237,41 @@ this project needs **139 MB** of it: whisper's base.en. The rest is from earlier
 experiments (a 4.3 GB Qwen TTS among them) and is not referenced by anything
 here.
 
+## The bug hunt (what a full read of the code found)
+A pass over every file found and fixed nine, several of them the kind that
+only show up on a bad day:
+
+- The error paths spoke with `speaker.say` directly on the event loop. Synthesis
+  runs at about real time, so a failed turn stalled the pump for seconds, the
+  microphone queue backed up, and on resume the pump replayed stale audio as if
+  fresh: the tail of his own voice could return as a phantom second request.
+  Both handlers and the start-up greeting now synthesise off the loop.
+- Turn tasks were spawned with `create_task` and the reference dropped. The
+  event loop holds tasks only weakly, so a turn could in principle be collected
+  mid-flight. Every task is pinned in a set now, and `_spawn` creates its set
+  lazily so the `__new__`-built test objects keep working.
+- Tests shared the live session directory. Every brain test appended its own
+  chatter (search "purple lantern") into his real conversation, which had grown
+  to 596 KB and made `--continue` slow enough to trip the deadline.
+  `JARVIS_SESSION_DIR` now isolates them, and the three brain tests use it.
+- `.state/` (sweep reports, reminders, personal text) was committed to the
+  repository. Removed from the index and ignored.
+- "What time is it" paid a weather fetch on a cold cache: 9 s for a 1.4 s
+  question. Time-and-date-only asks now gather local facts only.
+- A failed synthesis silently swallowed a due reminder: it was removed from the
+  store, then never spoken. `Speaker.say` now reports whether anything was
+  spoken, and an undelivered reminder returns to the store for a 60 s retry.
+- The dashboard header stayed on "reconnecting" forever after a brief SSE
+  drop, because the replayed state event was swallowed by an unchanged-value
+  early return. The label updates on every state event now.
+- Theme matching matched the bigram anywhere: "what is the best combat mode in
+  this game" repainted the screen. Only command shapes count now: the name
+  leading the sentence behind a small set of lead-ins, the theme-to-name form,
+  and reset/restore. Verified live against the game question.
+- The briefing read the whole sweep header aloud ("the last sweep, security
+  sweep of Archy, 12:50:"). It reads the file's own timestamp instead.
+Dead config removed (PI_MODEL had no readers left), two unused imports dropped.
+
 ## The six upgrades (chain, briefing, reminders, themes, boot film, radar)
 The brain is a chain now, not a pin: wandb GLM-5.3-Flash, the same model on
 crusoe, Kimi-K2.6, Qwen3.8-27B, every one verified answering through pi with

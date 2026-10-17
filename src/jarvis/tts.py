@@ -170,16 +170,22 @@ class Speaker:
         return self._synth_kokoro(text) if self.engine == "kokoro" else self._synth_piper(text)
 
     # ------------------------------------------------------------------- api
-    def say(self, text: str):
-        """Speak a complete string. Returns once the audio is queued."""
+    def say(self, text: str) -> bool:
+        """Speak a complete string. Returns once the audio is queued.
+
+        False means nothing was spoken (synthesis failed): a caller such as the
+        reminder loop treats that as undelivered and tries again later, rather
+        than a reminder disappearing into a caught exception."""
         text = clean(text)
         if not text:
-            return
+            return True
         generation = self.player.start_reply()
         try:
             self.player.write(self.synth(text), generation)
         except Exception as exc:
             print(f"[tts] synthesis failed: {exc}")
+            return False
+        return True
 
     def say_stream(self, deltas, on_spoken=None, stop=None):
         """Speak text as it arrives, one sentence at a time.

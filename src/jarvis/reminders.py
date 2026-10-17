@@ -8,7 +8,6 @@ import json
 import re
 import threading
 import time
-from pathlib import Path
 
 from . import config
 

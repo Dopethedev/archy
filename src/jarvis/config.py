@@ -97,7 +97,6 @@ PI_MODELS = (
     "wandb/moonshotai/Kimi-K2.6",
     "wandb/Qwen/Qwen3.8-27B",
 )
-PI_MODEL = PI_MODELS[0]                   # kept for anything that reads one model
 
 # Small durable state: the last sweep's report, pending reminders. Lives under
 # the project, recreated if missing, never in the session.
@@ -108,7 +107,9 @@ PI_CONTINUE = True           # resume the previous conversation after a restart
 # handshake at session start, which costs a few hundred ms on the first turn
 # and slightly more on every turn after it.
 PI_EXTENSIONS = False
-SESSION_DIR = ROOT / ".sessions"
+# overridable so tests cannot write into the live conversation: a test brain
+# that shares this directory appends its own chatter to the real session
+SESSION_DIR = Path(os.environ.get("JARVIS_SESSION_DIR") or (ROOT / ".sessions"))
 # overridable so the store can live elsewhere, and so tests can use their own
 MEMORY_FILE = Path(os.environ.get("JARVIS_MEMORY_FILE") or (ROOT / "memory.json"))
 # If pi says nothing at all for this long the turn is abandoned and the model

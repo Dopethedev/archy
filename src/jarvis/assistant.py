@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import queue
+import re
 import threading
 import time
 
@@ -69,17 +70,46 @@ class Assistant:
         self.turn_latency = 0.0               # spoken delay of the last turn
         self.mic_enabled = True               # what the dashboard's toggle controls
         self._loop: asyncio.AbstractEventLoop | None = None
+        # the event loop keeps only weak references to tasks; a turn whose task
+        # nobody holds could in principle be collected mid-flight, so every
+        # spawned task is pinned here until it finishes
+        self._tasks: set[asyncio.Task] = set()
+
+    def _spawn(self, coro) -> asyncio.Task:
+        """create_task with a held reference, so a turn cannot vanish."""
+        # tests build this object with __new__ and no __init__, so the set may
+        # not exist yet; create it lazily rather than sharing one at class level
+        if getattr(self, "_tasks", None) is None:
+            self._tasks = set()
+        task = asyncio.get_running_loop().create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
 
     # --------------------------------------------------------- local intents
-    @staticmethod
-    def _theme_intent(text: str) -> str | None:
-        """A dashboard repaint by voice. The name must ride with mode or theme,
-        so a passing mention of combat does not turn the screen red."""
-        words = text.lower()
-        if not any(w in words for w in ("mode", "theme")):
+    _THEME_LEAD = re.compile(
+        r"^(?:please\s+|can you\s+|could you\s+|switch to\s+|switch\s+|go\s+|"
+        r"go back to\s+|back to\s+|change to\s+|change the\s+|set\s+|give me\s+)+")
+    _THEME_HEAD = re.compile(
+        r"^(stealth|combat|standard|normal|default|regular|red alert|battle)\s+(mode|theme)\b")
+    _THEME_TO = re.compile(
+        r"(?:mode|theme)\s+(?:to|is)\s+(stealth|combat|standard|normal|default|regular|red alert|battle)\b")
+
+    @classmethod
+    def _theme_intent(cls, text: str) -> str | None:
+        """A dashboard repaint by voice. Two command shapes count: the name
+        leading the sentence, optionally behind a command lead-in ("combat
+        mode", "back to standard mode"), and the theme-to-name shape ("switch
+        theme to stealth"). "What is the best combat mode in this game" passes
+        neither, so a question about a game does not repaint the screen."""
+        words = cls._THEME_LEAD.sub("", text.lower().strip())
+        if "restore the theme" in words or "reset the theme" in words:
+            return "standard"
+        m = cls._THEME_HEAD.match(words) or cls._THEME_TO.search(words)
+        if not m:
             return None
         for theme, names in config.THEMES.items():
-            if any(name in words for name in names):
+            if any(name in m.group(0) for name in names):
                 return theme
         return None
 
@@ -179,7 +209,7 @@ class Assistant:
             self._back_to_idle()
             return
         self.set_state("thinking")                      # claim the state before yielding
-        asyncio.create_task(self._process(audio=audio, text=transcript))
+        self._spawn(self._process(audio=audio, text=transcript))
 
     async def _speculate(self, audio: np.ndarray) -> str | None:
         """Transcribe while the user is still pausing, off the critical path."""
@@ -272,7 +302,8 @@ class Assistant:
                 except (ScreenError, OSError) as exc:
                     self.log("sys", f"could not capture the screen: {exc}")
             elif briefing.wanted(text):
-                brief_facts = await asyncio.to_thread(briefing.gather)
+                brief_facts = await asyncio.to_thread(
+                    briefing.gather, not briefing.wants_light(text))
 
             tts = threading.Thread(target=self.speaker.say_stream,
                                    args=(delta_iter(), on_first_audio, cancel), daemon=True)
@@ -326,17 +357,22 @@ class Assistant:
             if moved:
                 self.log("sys", f"the model failed, switching to "
                                 f"{moved.split('/')[-1]}")
-                self.speaker.say("My connection dropped, so I switched to a "
-                                 "backup model. Ask me again.")
+                message = ("My connection dropped, so I switched to a backup "
+                           "model. Ask me again.")
             else:
                 self.log("sys", "the model connection dropped, restarting it")
-                self.speaker.say("My connection to the model dropped. Ask me again.")
-            self.player.wait_drained(timeout=60)
+                message = "My connection to the model dropped. Ask me again."
+            # both of these block for seconds (synthesis runs at about real
+            # time), and blocking the loop here backs up the microphone queue:
+            # the pump then replays stale audio as if it were fresh, and the
+            # tail of his own voice can come back as a phantom second request
+            await asyncio.to_thread(self.speaker.say, message)
+            await asyncio.to_thread(self.player.wait_drained, 60)
             await self._restart_brain()
         except Exception as exc:
             print(f"[assistant] {type(exc).__name__}: {exc}")
-            self.speaker.say("Something went wrong there.")
-            self.player.wait_drained(timeout=60)
+            await asyncio.to_thread(self.speaker.say, "Something went wrong there.")
+            await asyncio.to_thread(self.player.wait_drained, 60)
         finally:
             if not cancel.is_set():
                 self._back_to_idle()
@@ -395,10 +431,16 @@ class Assistant:
                 text = f"Reminder: {label}."
                 self.log("jarvis", text)
                 try:
-                    await asyncio.to_thread(self.speaker.say, text)
+                    ok = await asyncio.to_thread(self.speaker.say, text)
                     await asyncio.to_thread(self.player.wait_drained, 60)
                 except Exception as exc:
+                    ok = False
                     print(f"[reminders] could not speak: {exc}")
+                if not ok:
+                    # the label was already removed from the store; a reminder
+                    # that could not be spoken must come back, not vanish
+                    print("[reminders] will retry in 60s")
+                    reminders_mod.add(label, 60.0)
                 self._back_to_idle()
 
     async def _restart_brain(self):
@@ -483,7 +525,7 @@ class Assistant:
                 if self.state in ("thinking", "speaking") and config.BARGE_IN:
                     self._interrupt()
                 self.set_state("thinking")
-                asyncio.create_task(self._process(text=typed))
+                self._spawn(self._process(text=typed))
 
             try:
                 frame = self.mic.frames.get_nowait()
@@ -647,7 +689,7 @@ class Assistant:
                     # idle in speech mode: this utterance may be the wake phrase.
                     # A cough or a click is not worth transcribing.
                     self.set_state("thinking")
-                    asyncio.create_task(self._check_wake(audio, transcript))
+                    self._spawn(self._check_wake(audio, transcript))
                 else:
                     self._back_to_idle()
 
@@ -670,13 +712,13 @@ class Assistant:
         if self.hud:
             self.hud.on_say = self._typed.put
             self.hud.on_mic = self._request_mic
-        asyncio.create_task(self._reminder_loop())
+        self._spawn(self._reminder_loop())
         await self.brain.start()
         self.player.start()
         if self.greet:
             self.set_state("speaking")
-            self.speaker.say(self.greet)
-            self.player.wait_drained(timeout=30)
+            await asyncio.to_thread(self.speaker.say, self.greet)
+            await asyncio.to_thread(self.player.wait_drained, 30)
             self.log("jarvis", self.greet)
         # warming up and opening the microphone is not speech: leaving the state
         # on "speaking" made the dashboard claim it was talking for the whole

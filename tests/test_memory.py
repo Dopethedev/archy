@@ -6,6 +6,10 @@ actually resuming anything.
 """
 import asyncio, sys
 sys.path.insert(0, "/home/dope/jarvis/src")
+import os, tempfile as _tf
+os.environ["JARVIS_SESSION_DIR"] = _tf.mkdtemp(prefix="jarvis-test-session-")
+os.environ.setdefault("JARVIS_MEMORY_FILE", "/tmp/jarvis-test-memory.json")
+
 from jarvis import config
 from jarvis.brain import PiBrain
 

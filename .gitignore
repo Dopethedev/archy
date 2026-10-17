@@ -19,3 +19,6 @@ memory.json
 .*.lock
 .*.tmp
 __pycache__/
+
+# local state: sweep reports, reminders, sessions
+.state/
