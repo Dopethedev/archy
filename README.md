@@ -45,6 +45,9 @@ the rings, the radar and every panel:
 - **A microphone switch.** Off means off, from the dashboard or a key, and it
   stays off across a restart.
 
+The full list, including what is limited and what is deliberately not here, is
+in [FEATURES.md](FEATURES.md).
+
 ## Requirements
 
 - Linux with PipeWire, a microphone and headphones. Written and used on Arch and

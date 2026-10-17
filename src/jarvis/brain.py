@@ -61,7 +61,7 @@ class PiBrain:
             f" You keep durable facts about {config.USER_NAME} in {config.MEMORY_FILE}. "
             f"Read them with `{python} -m jarvis.memory_store list`, add one with "
             f"`{python} -m jarvis.memory_store set NAME \"VALUE\"`, and remove one "
-            "with `forget NAME`. Whenever he asks you to remember, note, or keep "
+            "with `forget NAME`. Whenever you are asked to remember, note, or keep "
             "something, store it there, because the conversation alone will not "
             "survive. Do it quietly without announcing the mechanism.\n"
         )
