@@ -684,6 +684,14 @@ class Assistant:
                         speech_ms = len(barge_history) * frame_ms
                         utterance.extend(barge_history)
                         barge_history = []
+                    # Entering listening here is our own state change, and the
+                    # loop resets its buffers when it sees one. Left to be seen,
+                    # that second reset threw away the audio kept on the line
+                    # above, so the first word of an interruption survived only
+                    # when enough of it arrived afterwards to clear the minimum
+                    # on its own: a short "stop" was discarded as too short and
+                    # the answer was lost with it. Marking it seen keeps it.
+                    prev_state = self.state
                     barge_run = 0
                 continue
 

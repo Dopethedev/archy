@@ -394,11 +394,15 @@ async def scenario_barge(name, speaking_ago, expect_interrupt, wake_score=0.99,
     detail = (f"state={h.state} flushed={h.player.flushed} aborted={h.brain.aborted} "
               f"interrupted={interrupted} expected={expect_interrupt}")
     if then_silence:
-        # if the triggering audio was kept, the utterance can now end on silence;
-        # if it was dropped, nothing was ever recorded and this stays None
-        kept = h.ended is not None
+        # if the triggering audio was kept, the utterance can now end on silence,
+        # and what was kept has to be long enough to be a request on its own: a
+        # dropped history would leave only the frames after the barge, which is
+        # under the minimum. Stated as a duration because the audio is the thing
+        # that matters, not how many frames the harness had room to push.
+        kept = h.ended is not None and h.ended[1] >= config.MIN_SPEECH_MS
         ok = ok and kept
-        detail += f" utterance_kept={kept}"
+        detail += f" utterance_kept={kept}" + (
+            f" ({h.ended[1]:.0f}ms of speech)" if h.ended else "")
     print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: {detail}")
     return ok
 
@@ -569,10 +573,17 @@ async def main():
         "weak wake match below the strict threshold -> ignored", 1.5, False, wake_score=0.4))
     results.append(await scenario_barge(
         "just talking over it -> cuts it off, and keeps the first word",
-        1.5, True, frame_value=900, frames=14, then_silence=25, wake_fires=False))
+        1.5, True, frame_value=900, frames=14, then_silence=45, wake_fires=False))
     results.append(await scenario_barge(
         "a brief blip of speech -> not enough to interrupt",
         1.5, False, frame_value=900, frames=2, wake_fires=False))
+    results.append(await scenario_barge(
+        "a quarter second of room noise -> not enough either",
+        1.5, False, frame_value=900, frames=8, wake_fires=False))
+    results.append(await scenario_barge(
+        "one short word over it -> still a request",
+        1.5, True, frame_value=900,
+        frames=config.BARGE_FRAMES + 1, then_silence=45, wake_fires=False))
 
     print("  -- transcription during the pause --")
     results.append(await scenario_speculation(

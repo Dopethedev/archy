@@ -91,6 +91,41 @@ for line in sys.stdin:
 
 config.BRAIN_SILENCE_TIMEOUT_S = 1.5           # keep the test quick
 config.BRAIN_TOOL_TIMEOUT_S = 6.0              # a working tool gets longer
+config.BRAIN_MAX_TOOLS = 3                     # the cap under test
+config.BRAIN_TURN_LOOKUP_S = 0.35              # and the time cap
+
+
+RUNAWAY = fake_pi("runaway", """
+import threading
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\\n"); sys.stdout.flush()
+stop = threading.Event()
+
+def keep_looking():
+    # tools run while the process still reads its input, as pi's do
+    while not stop.is_set():
+        send({"type": "tool_execution_start", "toolName": "bash",
+              "args": {"command": "curl example.com"}})
+        send({"type": "tool_execution_end"})
+        time.sleep(0.05)
+
+for line in sys.stdin:
+    ev = json.loads(line)
+    if ev.get("type") == "steer":
+        # the steer is what ends the search and produces an answer; a model that
+        # never gets one keeps looking until the test gives up on it
+        stop.set()
+        send({"type": "message_update",
+              "assistantMessageEvent": {"type": "text_delta", "delta": "it spiked"}})
+        send({"type": "turn_end", "message": {"stopReason": "stop"}})
+        send({"type": "agent_end"})
+        continue
+    if ev.get("type") != "prompt":
+        continue
+    stop.clear()
+    send({"type": "response", "command": "prompt", "id": ev.get("id"), "success": True})
+    send({"type": "agent_start"})
+    threading.Thread(target=keep_looking, daemon=True).start()""")
 
 
 async def drive(binary: str, timeout: float = 12.0):
@@ -146,6 +181,21 @@ async def main():
     check("without a tool, silence still ends the turn",
           outcome == "brainerror" and "nothing" in detail, f"{outcome}: {detail}")
     config.BRAIN_TOOL_TIMEOUT_S = 6.0
+
+    # a turn that keeps looking things up gets told to answer: the prompt asked
+    # for this already and the model ignored it, so it is enforced here
+    outcome, detail, text = await drive(RUNAWAY, timeout=14)
+    check("a turn that keeps looking things up is steered to answer",
+          outcome == "answered" and "spiked" in text, f"{outcome}: {detail!r}")
+
+    # the count is not the only way a turn runs long: two slow fetches cost more
+    # than eight quick ones, so time alone must be enough to trigger the steer
+    config.BRAIN_MAX_TOOLS = 999
+    config.BRAIN_TURN_LOOKUP_S = 0.35
+    outcome, detail, text = await drive(RUNAWAY, timeout=14)
+    check("a turn whose lookups are slow is steered on time alone",
+          outcome == "answered" and "spiked" in text, f"{outcome}: {detail!r}")
+    config.BRAIN_MAX_TOOLS = 3
 
 
 asyncio.run(main())

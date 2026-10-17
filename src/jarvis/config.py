@@ -148,6 +148,19 @@ MEMORY_FILE = Path(os.environ.get("JARVIS_MEMORY_FILE") or (ROOT / "memory.json"
 # dropped connection and threw the lookup away. A turn with no tools keeps the
 # short deadline, so a genuine hang is still noticed quickly.
 BRAIN_TOOL_TIMEOUT_S = 90.0
+# How many lookups a spoken turn may make before it is told to answer with what
+# it has. Measured on a real request, "search the web for the newest RAM prices"
+# spent fifty four seconds over about twenty curl calls fighting Amazon's bot
+# wall, when the answer only needed the news it already had. The instruction to
+# answer after one or two lookups was already in the voice rules and was ignored,
+# so this is enforced rather than asked for: at this many tool calls the turn is
+# steered, which pi delivers after the running tool finishes.
+BRAIN_MAX_TOOLS = 8
+# And a limit on how long a turn may spend looking things up. The count alone was
+# not enough: measured on the same question, two lookups took fifty three seconds
+# because each one ran to its own twenty five second timeout, so a turn is also
+# steered to answer once it has been in tools this long.
+BRAIN_TURN_LOOKUP_S = 20.0
 # process is restarted. Without a deadline a hung brain leaves the assistant
 # stuck in "thinking" forever, with no way back except a restart.
 BRAIN_SILENCE_TIMEOUT_S = 25.0   # waiting a minute in silence feels like deafness
@@ -259,7 +272,12 @@ def _voice_rules() -> str:
         "Looking something up costs the user silence, so do it in one or two "
         "lookups and then answer: a price question that kept trying for five "
         "lookups and thirty five seconds ended with no answer at all, and an "
-        "answer with only the part you know beats that. "
+        "answer with only the part you know beats that. When you fetch a page, "
+        "give it eight seconds at most, because one slow shop page that runs to "
+        "its twenty five second timeout is most of a minute of silence on its "
+        "own: never wait longer than that for a page. Shop sites block this "
+        "kind of request and will keep blocking it, so if one refuses, answer "
+        "from what you have rather than trying another shop. "
         "If you do not know something, say so in one short sentence."
     )
 
@@ -273,7 +291,12 @@ BARGE_IN = True              # saying "hey maki" while it talks cuts it off
 BARGE_ON_SPEECH = True       # so does simply starting to talk over it
 BARGE_ON_THINKING = True     # and the same while it is still thinking, so a long
                              # tool call can be redirected instead of waited out
-BARGE_FRAMES = 5             # 150 ms of sustained speech counts as talking
+# 300 ms of sustained speech counts as talking over it. It was 150 ms, and on a
+# machine where a video often plays aloud that is short enough for a single blip
+# to cut off an answer: one did, at 31 seconds into a lookup answer, and the
+# utterance that caused it was then discarded as too short to be a request, so
+# the answer was simply lost. A person talking over it still says whole words.
+BARGE_FRAMES = 10
 BARGE_FRAMES_THINKING = 13   # while thinking, nothing is playing, so a stray
                              # 150 ms would silently swallow the answer. About
                              # 400 ms of deliberate speech instead.

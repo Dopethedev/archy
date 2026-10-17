@@ -235,6 +235,9 @@ class PiBrain:
         text = ""
         tool_running = False      # a tool is executing right now
         tool_used = False         # this turn has used one at all
+        tool_calls = 0            # lookups this turn, against the cap below
+        turn_started = time.monotonic()
+        steered = False
         while True:
             if self._aborted.is_set():
                 return                          # interrupted: the caller is done
@@ -260,6 +263,18 @@ class PiBrain:
                 ) from None
             if line is None:
                 raise BrainError("pi process ended unexpectedly")
+            # Time as well as count: one slow fetch can cost more than several
+            # quick ones. Checked per event, which is exactly when a tool has
+            # just finished and the model is about to decide what to do next.
+            if (not steered and tool_used
+                    and time.monotonic() - turn_started > config.BRAIN_TURN_LOOKUP_S):
+                steered = True
+                self._send({
+                    "type": "steer",
+                    "message": ("That has taken long enough. Answer now, in one or "
+                                "two sentences, with what you already have. Do not "
+                                "run any more commands."),
+                })
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
@@ -301,6 +316,18 @@ class PiBrain:
             elif kind == "tool_execution_start":
                 tool_running = True
                 tool_used = True
+                tool_calls += 1
+                if tool_calls == config.BRAIN_MAX_TOOLS and not steered:
+                    steered = True
+                    # asking nicely in the prompt did not hold, so say it here:
+                    # pi delivers a steer message after the running tool finishes,
+                    # before the next model call
+                    self._send({
+                        "type": "steer",
+                        "message": ("That is enough looking up. Answer now, in one "
+                                    "or two sentences, with what you already have. "
+                                    "Do not run any more commands."),
+                    })
                 args = event.get("args") or {}
                 detail = args.get("command") or args.get("path") or next(
                     (str(v) for v in args.values() if isinstance(v, str)), "")
