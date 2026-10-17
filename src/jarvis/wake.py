@@ -21,6 +21,9 @@ import numpy as np
 from . import config
 
 EDGES = re.compile(r"^[^\w]+|[^\w]+$")        # punctuation stuck to a word
+HEAD_WORDS = 3   # how far into the utterance the full phrase may sit
+GREETINGS = {"hey", "hi", "yo", "ok", "okay", "uh", "um", "ah", "eh", "so",
+             "well", "alright"}   # a stray word in front of the name
 
 
 class WakeWord:
@@ -97,24 +100,40 @@ class SpeechWake:
         The part that follows is taken from the original text, so a request
         keeps its capitalisation and its punctuation: "open github.com/Foo"
         stays itself rather than coming back lowercased.
+
+        The phrase is only honoured near the beginning of the utterance. You
+        address the assistant first, so "hey maki, open sober" is a call, but
+        "good idea, maki" spoken by a video on the desk is not, and without
+        this rule the room answers itself.
         """
         if not text:
             return False, ""
         cleaned = text.strip()
-
         # the whole phrase, said plainly. matched on the original string so the
-        # rest can be sliced out of it directly.
-        found = re.search(re.escape(self.phrase), cleaned, re.IGNORECASE)
+        # rest can be sliced out of it directly. it may sit a filler word deep:
+        # "uh hey maki" is still a call.
+        words = cleaned.split()
+        head = " ".join(words[:HEAD_WORDS])
+        found = re.search(re.escape(self.phrase), head, re.IGNORECASE)
         if found:
             # lstrip, not strip: only the separator after the name is ours to
             # remove, the request keeps its own punctuation
             return True, cleaned[found.end():].lstrip(" ,.!?-")
 
-        # any spelling the recogniser produced for the distinctive word
-        words = cleaned.split()
-        for i, word in enumerate(words):
-            if EDGES.sub("", word).lower() in self.aliases or EDGES.sub("", word).lower() == self.key:
-                return True, " ".join(words[i + 1:]).lstrip(" ,.!?-")
+        # any spelling the recogniser produced for the distinctive word, but
+        # only right at the front: the name is spoken first when you mean it.
+        # "tell maki i said hello" is talk about the assistant, not to it.
+        def stem(word: str) -> str:
+            return EDGES.sub("", word).lower()
+
+        if words:
+            first = stem(words[0])
+            if first in self.aliases or first == self.key:
+                return True, " ".join(words[1:]).lstrip(" ,.!?-")
+            if len(words) > 1 and first in GREETINGS:
+                second = stem(words[1])
+                if second in self.aliases or second == self.key:
+                    return True, " ".join(words[2:]).lstrip(" ,.!?-")
         return False, ""
 
     def strip_greeting(self, text: str) -> str:

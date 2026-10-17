@@ -44,6 +44,20 @@ for text in ("Hey Jarvis open sober", "how are you today", "open brave",
     heard, _ = w.match(text)
     check(f"ignored {text!r}", not heard)
 
+print("-- the name only counts when it comes first --")
+# a video on the desk saying the name mid-sentence must not call the assistant
+for text in ("Good idea, Maki, Maki, Maki.",
+             "and then Maki asked him a question",
+             "I'm going to ask Maki to fix it",
+             "tell Maki I said hello"):
+    heard, _ = w.match(text)
+    check(f"ignored {text!r}", not heard)
+# one stray word of filler in front is still a call
+for text, want in [("uh hey Maki open sober", "open sober"),
+                   ("so hey Maki, what time is it", "what time is it")]:
+    heard, rest = w.match(text)
+    check(f"{text!r}", heard and rest == want, f"-> {rest!r}")
+
 print("-- tidying what follows the phrase --")
 for text, want in [("hey maki, so please open sober", "open sober"),
                    ("hey maki, open brave", "open brave"),
