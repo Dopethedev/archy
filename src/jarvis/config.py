@@ -103,6 +103,15 @@ MEMORY_FILE = Path(os.environ.get("JARVIS_MEMORY_FILE") or (ROOT / "memory.json"
 # stuck in "thinking" forever, with no way back except a restart.
 BRAIN_SILENCE_TIMEOUT_S = 25.0   # waiting a minute in silence feels like deafness
 
+# Screen vision. A request containing one of these gets a screenshot attached.
+# Deliberately eager: missing a "what am I looking at" is worse than one
+# unnecessary capture. "window" is excluded on purpose, it belongs to too many
+# ordinary requests.
+SCREEN_WORDS = ("screen", "screenshot", "display", "monitor", "look at",
+                "looking at", "see this", "what am i", "this page",
+                "this game", "this app", "this website", "this video",
+                "this tab", "this error", "this screen", "my desktop")
+
 VOICE_RULES = (
     "Your words are spoken aloud through a speaker. You are talking to Bishesh. "
     "Answer in one or two short sentences of plain prose. Never use markdown, "

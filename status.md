@@ -237,8 +237,19 @@ this project needs **139 MB** of it: whisper's base.en. The rest is from earlier
 experiments (a 4.3 GB Qwen TTS among them) and is not referenced by anything
 here.
 
+## Screen vision
+Ask about the screen and it looks: "what's on my screen", "look at this",
+"what is this error". The trigger list is `SCREEN_WORDS` in config, deliberately
+eager, because a missed look means a blind answer and an unneeded capture only
+costs a screenshot. grim pipes a full-resolution frame through ffmpeg to a
+quality-85 JPEG (about 85 kB) and the turn carries it to the model as an image;
+nothing touches disk. Resolution matters: at 1280 px the model misread the
+dashboard's small text, at full size it reads it. The pinned GLM-5.3-Flash sees
+(2.8 s probe on the raw PNG, 4.2 s on the jpeg), a failed capture falls back to
+answering blind and says so. 20 groups, the new one being test_vision.
+
 ## Testing
-`./tests/run_all.sh` runs 19 groups, all green, none needing a microphone:
+`./tests/run_all.sh` runs 20 groups, all green, none needing a microphone:
 stt, tts, tts streaming latency, tts interruption, wake model, wake phrase, the
 pi bridge, the brain deadline, the pump state machine, the software AGC, the
 listening focus, the microphone toggle, frame ownership, weak-mic accuracy,

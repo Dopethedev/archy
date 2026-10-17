@@ -29,6 +29,7 @@ from .hud import Hud
 from .stt import Transcriber
 from .tts import Speaker
 from .vad import SpeechVAD
+from .vision import ScreenError, as_image, capture, wanted
 from .wake import SpeechWake, WakeWord
 
 
@@ -215,13 +216,26 @@ class Assistant:
             self.log("you", text)
             self._publish_heard(text)
 
+            # A request about what is on the screen gets the screen attached.
+            # Captured here, before the model is asked, so the answer costs one
+            # turn rather than a first turn to request the image and a second
+            # turn to use it.
+            images = None
+            if wanted(text):
+                try:
+                    jpeg = await asyncio.to_thread(capture)
+                    images = [as_image(jpeg)]
+                    self.log("sys", "looking at your screen")
+                except (ScreenError, OSError) as exc:
+                    self.log("sys", f"could not capture the screen: {exc}")
+
             tts = threading.Thread(target=self.speaker.say_stream,
                                    args=(delta_iter(), on_first_audio, cancel), daemon=True)
             tts.start()
 
             full = ""
             try:
-                async for kind, payload in self.brain.ask(text):
+                async for kind, payload in self.brain.ask(text, images):
                     if cancel.is_set():
                         break
                     if kind == "delta":

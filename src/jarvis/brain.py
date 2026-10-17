@@ -112,6 +112,13 @@ class PiBrain:
         return self._proc is not None and self._proc.poll() is None
 
     # -------------------------------------------------------------------- rpc
+    @staticmethod
+    def _prompt_payload(message: str, images: list[dict] | None = None) -> dict:
+        prompt = {"type": "prompt", "message": message}
+        if images:
+            prompt["images"] = images
+        return prompt
+
     def _send(self, obj: dict):
         if not self.alive():
             raise BrainError("pi process is not running")
@@ -124,15 +131,16 @@ class PiBrain:
         if event.get("method") in DIALOG_METHODS:
             self._send({"type": "extension_ui_response", "id": event.get("id"), "cancelled": True})
 
-    async def ask(self, message: str):
+    async def ask(self, message: str, images: list[dict] | None = None):
         """Yield ('delta', text) as tokens arrive, ('tool', name) on tool use,
-        then ('done', full_text)."""
+        then ('done', full_text). Images are pi rpc ImageContent dicts and need
+        a model that can see; a blind model just answers from the text."""
         if not self.alive():
             raise BrainError("pi process is not running")
         while not self._queue.empty():          # drop anything stale
             self._queue.get_nowait()
 
-        self._send({"type": "prompt", "message": message})
+        self._send(self._prompt_payload(message, images))
         text = ""
         while True:
             # A deadline on silence, not on the whole turn: a long tool run that
