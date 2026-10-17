@@ -228,10 +228,18 @@ class Hud:
                 pass                          # a slow tab misses a frame, nothing more
 
     def catch_up(self) -> list[dict]:
-        """What a page that just connected needs: the truth, then recent history."""
+        """What a page that just connected needs.
+
+        The state, the latest stats, the last heard caption and the theme: the
+        things that describe right now. The activity log is deliberately left
+        out, so a freshly opened window starts clean instead of replaying the
+        whole afternoon."""
         with self._lock:
+            keep = {"state", "stats", "heard", "mic", "theme", "turn"}
             head = [self.last_state] if self.last_state else []
-            return head + [e for e in self.replay if e is not self.last_state]
+            rest = [e for e in self.replay
+                    if e is not self.last_state and e.get("type") in keep]
+            return head + rest[-12:]
 
     def subscribe(self, chan: queue.Queue):
         with self._lock:
