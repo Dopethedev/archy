@@ -66,7 +66,31 @@ for line in sys.stdin:
     sys.exit(1)                                # dies mid conversation
 """)
 
+# a tool that runs long: it starts a tool, goes quiet for longer than the silence
+# deadline while the tool works, and then answers. A twenty second curl looks
+# exactly like this, and it used to be reported as a dropped connection.
+SLOW_TOOL = fake_pi("slow_tool", """
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\\n"); sys.stdout.flush()
+for line in sys.stdin:
+    ev = json.loads(line)
+    if ev.get("type") != "prompt":
+        continue
+    send({"type": "response", "command": "prompt", "id": ev.get("id"), "success": True})
+    send({"type": "agent_start"})
+    send({"type": "turn_start"})
+    send({"type": "tool_execution_start", "toolName": "bash",
+          "args": {"command": "curl -s --max-time 20 example.com"}})
+    time.sleep(2.2)                            # longer than the silence deadline
+    send({"type": "tool_execution_end"})
+    send({"type": "message_update",
+          "assistantMessageEvent": {"type": "text_delta", "delta": "it costs 60 dollars"}})
+    send({"type": "turn_end", "message": {"stopReason": "stop"}})
+    send({"type": "agent_end"})
+""")
+
 config.BRAIN_SILENCE_TIMEOUT_S = 1.5           # keep the test quick
+config.BRAIN_TOOL_TIMEOUT_S = 6.0              # a working tool gets longer
 
 
 async def drive(binary: str, timeout: float = 12.0):
@@ -107,6 +131,21 @@ async def main():
     outcome, detail, _ = await drive(DYING, timeout=8)
     check("a process that dies is reported, not hung",
           outcome in ("brainerror", "answered"), f"{outcome}: {detail}")
+
+    # a tool that takes longer than the silence deadline is a working process,
+    # not a dead one: killing it here is what turned a slow lookup into "my
+    # connection to the model dropped"
+    outcome, detail, text = await drive(SLOW_TOOL, timeout=14)
+    check("a tool that outruns the silence deadline is not cut off",
+          outcome == "answered" and "60 dollars" in text, f"{outcome}: {detail!r}")
+
+    # and the longer leash must not make a silent process invisible: with no
+    # tool running, the old deadline still applies
+    config.BRAIN_TOOL_TIMEOUT_S = 1.5
+    outcome, detail, _ = await drive(SILENT, timeout=14)
+    check("without a tool, silence still ends the turn",
+          outcome == "brainerror" and "nothing" in detail, f"{outcome}: {detail}")
+    config.BRAIN_TOOL_TIMEOUT_S = 6.0
 
 
 asyncio.run(main())

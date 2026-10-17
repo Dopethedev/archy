@@ -233,18 +233,30 @@ class PiBrain:
 
         started = False
         text = ""
+        tool_running = False      # a tool is executing right now
+        tool_used = False         # this turn has used one at all
         while True:
             if self._aborted.is_set():
                 return                          # interrupted: the caller is done
             # A deadline on silence, not on the whole turn: a long tool run that
             # keeps talking is fine, a process that has stopped answering is not.
+            # While a tool is in flight the process is demonstrably working, so
+            # it gets the longer deadline: a curl that takes twenty seconds is a
+            # slow lookup, not a dead model, and killing it at the silence
+            # deadline reported a healthy model as a dropped connection and threw
+            # the lookup away. The longer deadline stays for the rest of the turn
+            # once a tool has run, because the answer after a tool is a second
+            # pass over results that are now in the context, and the first token
+            # of that pass is measured in tens of seconds rather than two.
+            limit = (config.BRAIN_TOOL_TIMEOUT_S if (tool_running or tool_used)
+                     else config.BRAIN_SILENCE_TIMEOUT_S)
             try:
-                line = await asyncio.wait_for(self._queue.get(),
-                                              timeout=config.BRAIN_SILENCE_TIMEOUT_S)
+                line = await asyncio.wait_for(self._queue.get(), timeout=limit)
             except asyncio.TimeoutError:
                 self.abort()
                 raise BrainError(
-                    f"pi said nothing for {config.BRAIN_SILENCE_TIMEOUT_S:.0f}s"
+                    f"pi said nothing for {limit:.0f}s"
+                    f"{' while a tool was running' if tool_running else ''}"
                 ) from None
             if line is None:
                 raise BrainError("pi process ended unexpectedly")
@@ -270,6 +282,7 @@ class PiBrain:
                 # the old run's end marker with the old run's last word.
                 if kind in ("agent_start", "turn_start"):
                     started = True
+                    tool_running = False
                     continue
                 if kind in ("agent_end", "turn_end", "error"):
                     continue
@@ -286,6 +299,8 @@ class PiBrain:
                     text += chunk
                     yield ("delta", chunk)
             elif kind == "tool_execution_start":
+                tool_running = True
+                tool_used = True
                 args = event.get("args") or {}
                 detail = args.get("command") or args.get("path") or next(
                     (str(v) for v in args.values() if isinstance(v, str)), "")
@@ -298,6 +313,8 @@ class PiBrain:
                 if message_ev.get("stopReason") == "error":
                     raise BrainError(
                         str(message_ev.get("errorMessage") or "the model failed"))
+            elif kind == "tool_execution_end":
+                tool_running = False
             elif kind == "agent_end":
                 yield ("done", text.strip())
                 return

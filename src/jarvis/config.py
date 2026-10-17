@@ -140,6 +140,14 @@ SESSION_DIR = Path(os.environ.get("JARVIS_SESSION_DIR") or (ROOT / ".sessions"))
 # overridable so the store can live elsewhere, and so tests can use their own
 MEMORY_FILE = Path(os.environ.get("JARVIS_MEMORY_FILE") or (ROOT / "memory.json"))
 # If pi says nothing at all for this long the turn is abandoned and the model
+# While a tool call is running, and for the rest of that turn, the process is
+# doing more work than an ordinary question: a twenty second curl is a slow
+# lookup rather than a dead model, and the answer after it is a second pass with
+# the results in the context, whose first token is measured in tens of seconds.
+# Killing either at the plain silence deadline reported a healthy model as a
+# dropped connection and threw the lookup away. A turn with no tools keeps the
+# short deadline, so a genuine hang is still noticed quickly.
+BRAIN_TOOL_TIMEOUT_S = 90.0
 # process is restarted. Without a deadline a hung brain leaves the assistant
 # stuck in "thinking" forever, with no way back except a restart.
 BRAIN_SILENCE_TIMEOUT_S = 25.0   # waiting a minute in silence feels like deafness
@@ -248,6 +256,10 @@ def _voice_rules() -> str:
         "and the last security sweep; a security sweep when one is asked for; and "
         "you can see the screen when the user asks about something on it. When "
         "asked what you can do, list these honestly alongside your tools. "
+        "Looking something up costs the user silence, so do it in one or two "
+        "lookups and then answer: a price question that kept trying for five "
+        "lookups and thirty five seconds ended with no answer at all, and an "
+        "answer with only the part you know beats that. "
         "If you do not know something, say so in one short sentence."
     )
 

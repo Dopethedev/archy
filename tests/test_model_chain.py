@@ -126,7 +126,9 @@ async def main():
     h._hang_count = 0
     await turn(h)
     check("the model advanced", h.brain.index == 1, h.brain.model_name())
-    check("and it says so", "switching to" in h.last(), h.last())
+    # the spoken fallback is logged too now, so the switch is in the log rather
+    # than necessarily on its last line
+    check("and it says so", any("switching to" in l for l in h.log_lines), h.last())
     check("the spoken line admits the switch",
           "backup model" in h.spoken[-1], h.spoken[-1][:40])
 
@@ -143,7 +145,8 @@ async def main():
     await turn(h)
     check("the second silence moves on", h.brain.index == 1, h.brain.model_name())
     check("and says which model it moved to",
-          "switching to" in h.last() and h.brain.model_name().endswith("b"), h.last())
+          any("switching to" in l for l in h.log_lines)
+          and h.brain.model_name().endswith("b"), h.last())
 
     print("-- a turn that answers clears the count --")
     config.MODEL_HANG_LIMIT = 2

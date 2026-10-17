@@ -425,11 +425,13 @@ class Assistant:
             # blocking the loop here backs up the microphone queue: the pump then
             # replays stale audio as if it were fresh, and the tail of his own
             # voice can come back as a phantom second request
+            self.log("jarvis", message)      # spoken fallbacks belong in the record
             await asyncio.to_thread(self.speaker.say, message)
             await asyncio.to_thread(self.player.wait_drained, 60)
             await self._restart_brain()
         except Exception as exc:
             print(f"[assistant] {type(exc).__name__}: {exc}")
+            self.log("jarvis", "Something went wrong there.")
             await asyncio.to_thread(self.speaker.say, "Something went wrong there.")
             await asyncio.to_thread(self.player.wait_drained, 60)
         finally:
