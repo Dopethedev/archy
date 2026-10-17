@@ -23,6 +23,7 @@ import time
 import numpy as np
 
 from . import config
+from . import sweep as sweep_mod
 from .audio import MicCapture, Player
 from .brain import BrainError, PiBrain
 from .hud import Hud
@@ -216,12 +217,20 @@ class Assistant:
             self.log("you", text)
             self._publish_heard(text)
 
-            # A request about what is on the screen gets the screen attached.
-            # Captured here, before the model is asked, so the answer costs one
-            # turn rather than a first turn to request the image and a second
-            # turn to use it.
+            # A request about the screen gets the screen attached; a request
+            # for a security sweep gets fresh results to talk about. The sweep
+            # wins if both match: nobody screenshots while auditing.
             images = None
-            if wanted(text):
+            sweep_report = None
+            if sweep_mod.wanted(text):
+                deltas.put("Running the sweep now, this takes a minute.")
+                try:
+                    sweep_report = await asyncio.wait_for(
+                        asyncio.to_thread(sweep_mod.run), timeout=180.0)
+                except asyncio.TimeoutError:
+                    sweep_report = None
+                    self.log("sys", "the sweep took too long, summarising without it")
+            elif wanted(text):
                 try:
                     jpeg = await asyncio.to_thread(capture)
                     images = [as_image(jpeg)]
@@ -235,7 +244,14 @@ class Assistant:
 
             full = ""
             try:
-                async for kind, payload in self.brain.ask(text, images):
+                prompt = text
+                if sweep_report:
+                    prompt = (f"{text}\n\nFRESH SECURITY SWEEP RESULTS, run just "
+                              f"now on this machine:\n{sweep_report}\n\nSummarise "
+                              "for speech: lead with anything that needs action, "
+                              "then the clean parts in one breath. Be honest "
+                              "about what the sweep does not cover.")
+                async for kind, payload in self.brain.ask(prompt, images):
                     if cancel.is_set():
                         break
                     if kind == "delta":

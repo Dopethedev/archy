@@ -112,6 +112,14 @@ SCREEN_WORDS = ("screen", "screenshot", "display", "monitor", "look at",
                 "this game", "this app", "this website", "this video",
                 "this tab", "this error", "this screen", "my desktop")
 
+# Security sweep triggers. A scan of the machine on request; the clamav part is
+# capped so it cannot quietly eat the evening.
+SWEEP_WORDS = ("security sweep", "security scan", "security check", "virus scan",
+               "virus check", "malware", "rootkit", "scan my", "sweep",
+               "am i infected", "is my computer", "audit my", "check my computer",
+               "any viruses")
+SWEEP_CLAMAV_TIMEOUT_S = 120.0
+
 VOICE_RULES = (
     "Your words are spoken aloud through a speaker. You are talking to Bishesh. "
     "Answer in one or two short sentences of plain prose. Never use markdown, "

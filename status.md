@@ -237,6 +237,20 @@ this project needs **139 MB** of it: whisper's base.en. The rest is from earlier
 experiments (a 4.3 GB Qwen TTS among them) and is not referenced by anything
 here.
 
+## The security sweep
+"run a security sweep", "am i infected", "virus scan" and friends trigger a
+local sweep (sweep.py), whose report is handed to the model to summarise for
+speech. Nine checks: processes running from /tmp, /dev/shm or deleted files
+(upgraded system binaries warn, they do not alert), uid 0 accounts, /etc/hosts
+hijacks, world-writable executables, listeners beyond loopback and the desktop's
+own discovery services, ssh keys, user systemd units launching from scratch
+directories, pending updates, and clamav over /tmp, /dev/shm and ~/Downloads
+with a 120 s cap. Every check reports even when clean: silence is how a skipped
+check hides. Two tuning rules learned the hard way: flagging mDNS and resolver
+stubs trains the reader to ignore the report, and daily clamav updates arrive
+as .cld, not .cvd. The sweep says what it does not cover: the browser, running
+app-level malware, everything outside the scanned folders. 21 test groups.
+
 ## Screen vision
 Ask about the screen and it looks: "what's on my screen", "look at this",
 "what is this error". The trigger list is `SCREEN_WORDS` in config, deliberately
