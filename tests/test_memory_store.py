@@ -126,6 +126,34 @@ with tempfile.TemporaryDirectory() as locktmp:
     finally:
         ms.fcntl, ms.msvcrt = real_fcntl, real_msvcrt
 
+# ------------------------------------------------- the save has to be patient too
+# On Windows a file another process is reading cannot be replaced, and six writers
+# guarantee that overlap. The lock was already correct when this was found; the
+# loss was in os.replace failing during someone else's read.
+with tempfile.TemporaryDirectory() as repltmp:
+    store = Memory(Path(repltmp) / "replacement.json")
+    store.set("before", "1")
+    real_replace = Path.replace
+    waits = []
+
+    def sometimes_blocked(self, target):
+        waits.append(1)
+        if len(waits) < 3:                          # as if a reader had it open
+            raise PermissionError(32, "The process cannot access the file")
+        return real_replace(self, target)
+
+    Path.replace = sometimes_blocked
+    try:
+        store.set("after", "2")
+        check("a save that meets a reader waits and lands", store.get("after") == "2",
+              f"took {len(waits)} attempts")
+    except PermissionError as exc:
+        check("a save that meets a reader waits and lands", False, f"gave up: {exc}")
+    finally:
+        Path.replace = real_replace
+    check("and the fact is on disk, not just in memory",
+          Memory(Path(repltmp) / "replacement.json").get("after") == "2")
+
 # the command the model is told to run must actually work
 out = subprocess.run([sys.executable, "-m", "jarvis.memory_store", "list"],
                      capture_output=True, text=True, cwd=str(Path(__file__).resolve().parents[1]))

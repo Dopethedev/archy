@@ -79,6 +79,25 @@ def _unlock(fh) -> None:
         pass
 
 
+def _replace(tmp: Path, target: Path, attempts: int = 10) -> None:
+    """Move the staged file into place, waiting out a reader on Windows.
+
+    os.replace is what stops a crash truncating the store, but on Windows it needs
+    the destination to be replaceable, and a process that has the file open for
+    reading can block it. Six writers at once hit that every time, and the fact
+    they were saving simply vanished while the lock was held correctly, because
+    the failure was in the save rather than in the serialisation. The window is
+    the microseconds another process spends reading, so a short wait clears it.
+    """
+    for attempt in range(attempts):
+        try:
+            tmp.replace(target)
+            return
+        except PermissionError:
+            time.sleep(0.05 * (attempt + 1))
+    tmp.replace(target)                 # last try: report the error rather than hide it
+
+
 class Memory:
     def __init__(self, path: Path | None = None):
         self.path = Path(path) if path else config.MEMORY_FILE
@@ -104,7 +123,7 @@ class Memory:
         tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         try:
             tmp.write_text(json.dumps(self.facts, indent=2, sort_keys=True))
-            tmp.replace(self.path)          # atomic, so a crash cannot truncate it
+            _replace(tmp, self.path)        # atomic, so a crash cannot truncate it
         finally:
             tmp.unlink(missing_ok=True)
 
