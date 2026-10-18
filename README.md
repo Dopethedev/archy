@@ -1,5 +1,7 @@
 # jarvis
 
+[![tests](https://github.com/Dopethedev/jarvis/actions/workflows/tests.yml/badge.svg)](https://github.com/Dopethedev/jarvis/actions/workflows/tests.yml)
+
 A voice assistant that runs on your own machine. Say the wake phrase, ask
 something, hear the answer. It can also look at your screen, set reminders, read
 you a morning briefing, sweep the machine for anything odd, and drive a
@@ -53,7 +55,10 @@ in [FEATURES.md](FEATURES.md).
 - Linux with PipeWire, a microphone and headphones. Written and used on Arch and
   Hyprland; the voice loop is not tied to a desktop, but the security sweep is
   (it asks `pacman` what owns a file, and reads Brave's profiles).
-- Not Windows, and not macOS. The voice loop itself is portable, since audio in
+- Not Windows, and not macOS. What parses and decides is checked on both, by
+  the workflow above, which runs the microphone-free groups on Windows as well as
+  Linux: the wake matcher, the phrasings, the reminders, the local intents, the
+  memory store and the dashboard all pass there. The voice loop itself is portable, since audio in
   and out is PortAudio, the ears and the voice are onnxruntime, and the machine
   readings already answer "unavailable" when `/proc` is not there. What is not
   portable is the screen (grim, the Wayland compositor's own tool) and the sweep
