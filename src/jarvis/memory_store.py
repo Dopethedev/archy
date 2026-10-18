@@ -22,12 +22,44 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
+
+try:
+    import fcntl                       # Unix
+except ImportError:
+    fcntl = None                       # type: ignore[assignment]
+try:
+    import msvcrt                      # Windows
+except ImportError:
+    msvcrt = None                      # type: ignore[assignment]
 from pathlib import Path
 
 from . import config
 
 MAX_KEY = 64
 MAX_VALUE = 500
+
+
+def _lock(fh) -> None:
+    """Take an exclusive lock on an open file, on either platform.
+
+    The assistant stores facts by running this module as a separate process, so
+    without a lock two writers read the same file and the second one saves its
+    stale copy over the first: the fact simply vanishes. Windows has no flock, so
+    it uses its own byte range lock. A platform with neither writes without one
+    rather than refusing to write.
+    """
+    if fcntl is not None:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+    elif msvcrt is not None:
+        msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+
+
+def _unlock(fh) -> None:
+    if fcntl is not None:
+        fcntl.flock(fh, fcntl.LOCK_UN)
+    elif msvcrt is not None:
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 class Memory:
@@ -70,19 +102,13 @@ class Memory:
         """
         lock_path = self.path.with_name(f".{self.path.name}.lock")
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            import fcntl
-        except ImportError:          # no flock here: single process, no need
-            self._load()
-            yield
-            return
         with open(lock_path, "w") as fh:
-            fcntl.flock(fh, fcntl.LOCK_EX)
+            _lock(fh)
             try:
                 self._load()
                 yield
             finally:
-                fcntl.flock(fh, fcntl.LOCK_UN)
+                _unlock(fh)
 
     # ------------------------------------------------------------------- api
     def set(self, key: str, value: str) -> None:
