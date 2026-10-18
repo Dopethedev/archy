@@ -107,6 +107,13 @@ Interrupt any of it by talking over it, or by saying the wake phrase again.
   before giving up on that attempt.
 - **Talking about it can wake it.** Saying the wake phrase while telling someone
   about the assistant is a call as far as it is concerned.
+- **On a scrolling layout the dashboard can open off the edge.** Hyprland's
+  scrolling layout lays windows out in a row, and a Wayland client cannot place
+  its own window, so the dashboard can land past the right edge of a single
+  monitor. The window can be matched by `class = "brave-127.*"` once opened with
+  `--app` (how `run.sh` opens it), and a window rule that floats it fixes the
+  placement for good. Its title cannot be used: a browser sets the title after the
+  window is mapped, and these rules match the whole string at that moment.
 - **The sweep needs a Linux machine.** It reads `/proc`, asks systemd and the
   package manager, and looks in browser profiles. On Windows, or on a distribution
   without those, asking for one gets a plain answer instead of a sweep. Everything
