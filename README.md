@@ -186,6 +186,14 @@ seams for all of them already exist, because a request is either answered
 locally, where `reminders` and the theme switch live, or handed to the model with
 its tools. Bring your own account and keep it in `config.local.json`.
 
+## How this was made
+
+Written with an AI assistant doing most of the typing, from my direction and
+against this machine: a real microphone in a real room, a real screen, and a test
+suite that had to be able to fail before it was allowed to pass. The commit
+messages keep the parts that were wrong at first, including the reasons, which is
+the half of the story that is usually thrown away.
+
 ## Tests
 
 ```
