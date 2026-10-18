@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 import time
+import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -186,12 +187,31 @@ print("-- the window closes --")
 reminders.PATH.write_text("[]")
 reminders.add("Check the oven", 1200)
 reminders.confirm({"action": "cancel"})
+# Age the snapshot on purpose rather than waiting on the clock: a test that needs
+# two reads of the clock to differ is a test that fails on Windows, where they
+# can be the same instant.
+snapshot = json.loads(reminders._undo_path().read_text())
+snapshot["at"] -= config.REMINDER_UNDO_S + 1
+reminders._undo_path().write_text(json.dumps(snapshot))
+check("after the window it will not come back", reminders.undo_intent("undo") is None)
+check("and the pending list stays empty", reminders.load() == [])
+
+print("-- a window of zero is no window at all --")
 old_window = config.REMINDER_UNDO_S
+real_time = reminders.time
 config.REMINDER_UNDO_S = 0.0
+# A clock that does not move makes the age exactly zero on every platform, which
+# is the only way to prove the boundary here rather than only on Windows.
+reminders.time = types.SimpleNamespace(time=lambda: 1234.5)
 try:
-    check("after the window it will not come back", reminders.undo_intent("undo") is None)
-    check("and the pending list stays empty", reminders.load() == [])
+    reminders.PATH.write_text("[]")
+    reminders.add("Check the oven", 1200)
+    reminders.confirm({"action": "cancel"})
+    check("with no window, an immediate undo still does not bring it back",
+          reminders.undo_intent("undo") is None)
+    check("and nothing came back", reminders.load() == [])
 finally:
+    reminders.time = real_time
     config.REMINDER_UNDO_S = old_window
 
 print("-- a second clear replaces the first snapshot --")

@@ -269,7 +269,11 @@ def undo_intent(text: str) -> str | None:
         return None
     age = time.time() - float(data.get("at") or 0)
     items = data.get("items") or []
-    if not items or age > config.REMINDER_UNDO_S:
+    # A window of zero is no window at all, and the comparison is inclusive for a
+    # reason: a clock that ticks sixty-four times a second, which is what Windows
+    # has, can return the same instant for the snapshot and for the undo, making
+    # the age exactly zero.
+    if not items or age >= config.REMINDER_UNDO_S:
         path.unlink(missing_ok=True)        # too late, or nothing worth keeping
         return None
     with _lock:
