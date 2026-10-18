@@ -110,17 +110,23 @@ run.cmd
 Windows needs nothing extra for the screen: it takes a frame through Pillow.
 ffmpeg is only needed on Wayland, and grim with it.
 
-Then the models. They are not in the repository, and all of them are free:
+Then the models, which are not in the repository and are all free:
 
-| file | where |
-|------|-------|
-| `kokoro-v1.0.fp16.onnx` | `github.com/thewh1teagle/kokoro-onnx`, release `model-files-v1.1` |
-| `voices-v1.0.bin` | the same release |
-| `silero_vad.onnx` | copy it out of openWakeWord's `resources/models`, or silero-vad's own release |
-| `en_GB-alan-medium.onnx` and `.json` | piper voices, only needed for the fallback voice |
+```
+uv run python -m jarvis.fetch_models
+```
 
-Put them in `models/`. Whisper downloads itself into the huggingface cache the
-first time it runs.
+That fetches the voice (`kokoro-v1.0.onnx`) and its accents (`voices-v1.0.bin`)
+from the `kokoro-onnx` release `model-files-v1.1`, copies the voice activity
+detector (`silero_vad.onnx`) out of the openWakeWord package that is already
+installed, then opens each file the way the assistant opens it, because a file
+that is present is not the same as a file that loads. Anything already in place
+is left alone; `--check` says what is here without fetching; `--all` adds the
+optional piper fallback voice.
+
+Two more arrive on their own. Whisper downloads its model into the huggingface
+cache the first time it answers, about 140 MB, and the wake phrase model is
+already inside openWakeWord.
 
 ## Running it
 
@@ -208,6 +214,12 @@ service that can change its mind: calendar, home automation, music control. The
 seams for all of them already exist, because a request is either answered
 locally, where `reminders` and the theme switch live, or handed to the model with
 its tools. Bring your own account and keep it in `config.local.json`.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). It is short, and it says what this
+repository actually does: a test that cannot fail does not count, numbers come
+from runs, failure paths first, and personal settings never in a tracked file.
 
 ## How this was made
 

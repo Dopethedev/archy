@@ -48,7 +48,7 @@ jobs:
           failed=0
           for t in test_wake_phrase test_phrasings test_reminders test_mic_state \
                    test_memory_store test_intents test_briefing test_hud_security \
-                   test_platform; do
+                   test_platform test_fetch_models; do
             echo "=== $t ==="
             if uv run python "tests/$t.py"; then :; else failed=$((failed+1)); fi
           done
