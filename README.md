@@ -50,6 +50,29 @@ the rings, the radar and every panel:
 The full list, including what is limited and what is deliberately not here, is
 in [FEATURES.md](FEATURES.md).
 
+## What leaves this machine
+
+Everything that hears and speaks is local, so this is the short list of what does
+not stay:
+
+- **What you said**, as text. The transcript goes to the model, because that is
+  the question. The audio itself never does.
+- **A picture of your screen**, only when you ask something about what is on it,
+  and only as a JPEG in memory. Nothing is written to disk.
+- **The local facts**, when you ask for a briefing or a sweep: the time, the
+  weather line, the machine readings and the last sweep report go into the prompt
+  as context.
+- **What it remembers about you**, since the stored facts are given to the model
+  on every turn.
+- **The weather lookup**, which asks open-meteo for your coordinates. Plain DNS
+  and HTTP from your machine to theirs, no key, no account.
+
+Where it all goes is whichever model `pi` is pointed at, and that is worth being
+plain about: the default chain here is free public relays, so a third party sees
+your text. Point it at a model you pay for, or one running on this machine, and
+that stops being true. The dashboard never leaves the machine: it listens on
+localhost and refuses anything without its token.
+
 ## Requirements
 
 - Linux with PipeWire, a microphone and headphones. Written and used on Arch and
@@ -206,5 +229,20 @@ the dashboard's own security. They run without a microphone and without a model,
 except two that talk to `pi` on purpose.
 
 ## Licence
+
+MIT, see [LICENSE](LICENSE).
+
+What it uses is not all MIT, which is worth knowing before you ship it:
+
+- faster-whisper, kokoro-onnx, onnxruntime, sounddevice and Pillow are MIT;
+  openwakeword is Apache-2.0; numpy is BSD; **soxr is LGPL-2.1-or-later**.
+- **piper-tts is GPL-3.0-or-later** and is only the fallback voice. The code does
+  not import it: it runs the `piper` program as a separate process, which is what
+  keeps the two apart.
+- The voice models carry the terms of whoever published them: the Kokoro weights
+  are Apache-2.0, Silero VAD is MIT, and Whisper and the Piper voices have their
+  own pages, linked in the model table above.
+- The thinking is not in this repository at all. It is a model behind the relay
+  you configure, with its own terms and its own view of what you send it.
 
 MIT. See `LICENSE`.
