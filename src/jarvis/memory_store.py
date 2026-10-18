@@ -44,22 +44,39 @@ def _lock(fh) -> None:
 
     The assistant stores facts by running this module as a separate process, so
     without a lock two writers read the same file and the second one saves its
-    stale copy over the first: the fact simply vanishes. Windows has no flock, so
-    it uses its own byte range lock. A platform with neither writes without one
-    rather than refusing to write.
+    stale copy over the first: the fact simply vanishes.
+
+    Windows has no flock, so it locks one byte of its own. That byte has to
+    exist: Windows refuses to lock a range it cannot see, so a lock file that
+    starts empty raises instead of waiting, and the write never happens. It gets
+    a byte first. If locking still fails the write goes ahead without one,
+    because the save is atomic and a lost update is a smaller problem than a
+    fact that cannot be stored at all.
     """
-    if fcntl is not None:
-        fcntl.flock(fh, fcntl.LOCK_EX)
-    elif msvcrt is not None:
-        msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+    try:
+        if fcntl is not None:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            return
+        if msvcrt is not None:
+            fh.seek(0, os.SEEK_END)
+            if fh.tell() == 0:
+                fh.write(b"\0")
+                fh.flush()
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+    except OSError:
+        pass
 
 
 def _unlock(fh) -> None:
-    if fcntl is not None:
-        fcntl.flock(fh, fcntl.LOCK_UN)
-    elif msvcrt is not None:
-        fh.seek(0)
-        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    try:
+        if fcntl is not None:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+        elif msvcrt is not None:
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
 
 
 class Memory:
@@ -102,7 +119,9 @@ class Memory:
         """
         lock_path = self.path.with_name(f".{self.path.name}.lock")
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(lock_path, "w") as fh:
+        # "a+b" rather than "w": truncating a file another process holds a lock on
+        # is a sharing problem waiting to happen, and the contents never matter
+        with open(lock_path, "a+b") as fh:
             _lock(fh)
             try:
                 self._load()

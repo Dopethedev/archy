@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from jarvis import config
 from jarvis.memory_store import Memory
+import jarvis.memory_store as ms
 
 failures = 0
 def check(label, ok, detail=""):
@@ -78,6 +79,52 @@ with tempfile.TemporaryDirectory() as tmp:
           f"missing {missing}" if missing else f"kept all six")
     check("concurrent writes never corrupt the file",
           set(json.loads(rush.read_text())) == set(stored))
+
+# ------------------------------------------------------------ the Windows lock
+# Windows locks a byte range and refuses to lock a range it cannot see, so a lock
+# file that starts empty raises instead of waiting. That is what lost a fact in
+# the six-writer case on Windows while passing on Linux: the writer died quietly.
+# The platform cannot be faked entirely, but the rule that broke it can.
+class FakeMsvcrt:
+    """Byte range locking, and the rule that matters: no range, no lock."""
+    LK_LOCK, LK_UNLCK = 1, 2
+
+    def __init__(self):
+        self.taken, self.released = 0, 0
+
+    def locking(self, fd, mode, n):
+        if mode == self.LK_LOCK:
+            if os.fstat(fd).st_size < 1:            # exactly what Windows does
+                raise OSError(36, "Resource deadlock avoided")
+            self.taken += 1
+        else:
+            self.released += 1
+
+
+with tempfile.TemporaryDirectory() as locktmp:
+    fake = FakeMsvcrt()
+    real_fcntl, real_msvcrt = ms.fcntl, ms.msvcrt
+    ms.fcntl, ms.msvcrt = None, fake
+    try:
+        lockfile = Path(locktmp) / "probe.json"
+        lock = Path(locktmp) / ".probe.json.lock"
+        with open(lock, "a+b") as fh:
+            ms._lock(fh)
+            check("a lock is taken even though the lock file started empty",
+                  fake.taken == 1, f"taken={fake.taken}")
+            ms._unlock(fh)
+            check("and released", fake.released == 1, f"released={fake.released}")
+        with open(lock, "a+b") as fh:
+            ms._lock(fh)
+            ms._unlock(fh)
+            check("a second writer can lock the same file", fake.taken >= 2, f"taken={fake.taken}")
+        probe = Memory(lockfile)
+        probe.set("under_windows_lock", "yes")
+        check("a write under the Windows lock lands", probe.get("under_windows_lock") == "yes")
+        check("and the lock file was not truncated away",
+              lock.stat().st_size >= 1, f"{lock.stat().st_size} bytes")
+    finally:
+        ms.fcntl, ms.msvcrt = real_fcntl, real_msvcrt
 
 # the command the model is told to run must actually work
 out = subprocess.run([sys.executable, "-m", "jarvis.memory_store", "list"],
