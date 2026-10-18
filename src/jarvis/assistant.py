@@ -369,12 +369,23 @@ class Assistant:
                 if sweep_report:
                     prompt = (f"{text}\n\nFRESH SECURITY SWEEP RESULTS, run just "
                               f"now on this machine:\n{sweep_report}\n\nSummarise "
-                              "for speech: lead with anything that needs action, "
-                              "then the clean parts in one breath. Be honest "
-                              "about what the sweep does not cover.")
+                              "for speech. These results are current and any "
+                              "earlier sweep in this conversation is out of date. "
+                              "Lead with anything that needs action, then the "
+                              "clean parts in one breath. Be honest about what "
+                              "the sweep does not cover.")
                 elif brief_facts:
-                    prompt = (f"{text}\n\n{brief_facts}Use these facts to answer. "
-                              "One or two sentences, plain prose.")
+                    # The facts are read a moment before this line, but the model
+                    # also has the whole conversation, which on a long session
+                    # holds yesterday's numbers. Asked "how is the machine", it
+                    # answered "up over twelve hours" from its memory of an
+                    # earlier briefing while the facts it was given said two
+                    # hours: the number it repeated was confidently wrong. So it
+                    # is told which of the two to trust.
+                    prompt = (f"{text}\n\n{brief_facts}Answer from these facts: "
+                              "they were read just now, and anything from earlier "
+                              "in this conversation is out of date. One or two "
+                              "sentences, plain prose.")
                 try:
                     async for kind, payload in self.brain.ask(prompt, images):
                         if cancel.is_set():

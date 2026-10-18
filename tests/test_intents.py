@@ -179,6 +179,12 @@ async def main():
         check("the briefing carries the facts to the model",
               h.brain.seen and "LOCAL FACTS" in h.brain.seen[0][0]
               and "Berlin" in h.brain.seen[0][0])
+        # and it is told which numbers to trust: on a long session the model also
+        # has yesterday's briefing in front of it, and it quoted those instead
+        check("the facts are marked as current",
+              h.brain.seen and "read just now" in h.brain.seen[0][0]
+              and "out of date" in h.brain.seen[0][0],
+              f"prompt said: {h.brain.seen[0][0][-90:]!r}" if h.brain.seen else "no prompt")
     finally:
         briefing.gather = real_gather
 
