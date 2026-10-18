@@ -98,6 +98,11 @@ Interrupt any of it by talking over it, or by saying the wake phrase again.
   before giving up on that attempt.
 - **Talking about it can wake it.** Saying the wake phrase while telling someone
   about the assistant is a call as far as it is concerned.
+- **It is a Linux program.** Screen capture uses grim, the Wayland compositor's
+  own tool, and the sweep asks the package manager and reads `/proc`. On Windows
+  those two features have nothing to call, and the launcher is a shell script.
+  Everything that hears and speaks would port, because it is PortAudio and
+  onnxruntime underneath.
 - **Email, calendar and music are not here.** Reading someone's mail means
   shipping their credentials and sending their messages to a model, so that one
   is left to whoever wants it. See the note in the README.

@@ -12,6 +12,45 @@ from jarvis import config
 from jarvis.audio import MicCapture
 
 config.SOFT_AGC = True
+
+# ------------------------------------------------------------------ robustness
+# The card's AGC is a nicety, so neither a missing alsa-utils nor a call that
+# fails may stop the microphone from opening. Both shapes are tested, because
+# guarding only one of them leaves the other to raise out of the open.
+import shutil as _shutil, subprocess as _subprocess
+_real_which = _shutil.which
+failures = 0
+def note(ok, label):
+    global failures
+    if not ok:
+        failures += 1
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {label}")
+
+_shutil.which = lambda name, *a, **k: None if name == "amixer" else _real_which(name, *a, **k)
+try:
+    MicCapture._disable_hardware_agc()
+    note(True, "amixer not installed -> the microphone still opens")
+except Exception as exc:
+    note(False, f"amixer not installed -> the microphone still opens ({type(exc).__name__})")
+finally:
+    _shutil.which = _real_which
+
+_real_run = _subprocess.run
+def _explode(*a, **k):
+    raise FileNotFoundError("amixer")
+_subprocess.run = _explode
+try:
+    MicCapture._disable_hardware_agc()
+    note(True, "amixer present but failing -> still opens")
+except Exception as exc:
+    note(False, f"amixer present but failing -> still opens ({type(exc).__name__})")
+finally:
+    _subprocess.run = _real_run
+
+if failures:
+    print(f"\n{failures} FAILED")
+    raise SystemExit(1)
+
 rng = np.random.default_rng(7)
 
 def make_mic():

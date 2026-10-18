@@ -53,6 +53,12 @@ in [FEATURES.md](FEATURES.md).
 - Linux with PipeWire, a microphone and headphones. Written and used on Arch and
   Hyprland; the voice loop is not tied to a desktop, but the security sweep is
   (it asks `pacman` what owns a file, and reads Brave's profiles).
+- Not Windows, and not macOS. The voice loop itself is portable, since audio in
+  and out is PortAudio, the ears and the voice are onnxruntime, and the machine
+  readings already answer "unavailable" when `/proc` is not there. What is not
+  portable is the screen (grim, the Wayland compositor's own tool) and the sweep
+  (pacman, systemctl, `/proc`, Brave profiles). A port is a screenshot backend, a
+  sweep backend and a launcher, not a rewrite, but nobody has done it.
 - Python 3.12. `uv` handles that, and ctranslate2 has no wheels past 3.12.
 - [`pi`](https://github.com/badlogic/pi-mono) on `PATH`, which is where the
   model connection lives.

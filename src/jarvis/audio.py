@@ -198,12 +198,25 @@ class MicCapture:
 
     @staticmethod
     def _disable_hardware_agc():
-        """Keep the card's own AGC off: it is what loops the mic into the headphones."""
+        """Keep the card's own AGC off: it is what loops the mic into the headphones.
+
+        A nicety, so it fails quietly. `amixer` belongs to alsa-utils, which a
+        PipeWire-only box need not have installed, and the call used to be
+        unguarded: a missing binary raised out of the microphone open and the
+        assistant never started listening. Nothing about turning the card's AGC
+        off is worth the microphone.
+        """
+        import shutil
         import subprocess
+        if shutil.which("amixer") is None:
+            return
         for card in range(4):
             for control in ("Auto Gain Control",):
-                subprocess.run(["amixer", "-c", str(card), "cset", f"name={control}", "off"],
-                               capture_output=True, timeout=5)
+                try:
+                    subprocess.run(["amixer", "-c", str(card), "cset", f"name={control}", "off"],
+                                   capture_output=True, timeout=5)
+                except (OSError, subprocess.SubprocessError):
+                    return
 
     @property
     def device_name(self) -> str:
