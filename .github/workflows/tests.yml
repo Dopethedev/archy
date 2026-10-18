@@ -1,0 +1,48 @@
+# Does the logic still hold on another machine?
+#
+# The full suite needs a microphone, the voice models and a few Linux tools (grim,
+# pacman, clamav), so it stays local. These are the groups that need none of
+# that: the wake matcher, the phrasings, the reminders, the local intents, the
+# memory store, the microphone switch and the dashboard server.
+#
+# Windows is in the list on purpose. The assistant is a Linux program, and the
+# sweep and the screen capture are the parts that will not port, but everything
+# that parses and decides is meant to be portable, and a claim like that is worth
+# having a runner check rather than a sentence in the README.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  logic:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: uv sync
+
+      - name: Logic groups
+        shell: bash
+        run: |
+          failed=0
+          for t in test_wake_phrase test_phrasings test_reminders test_mic_state \
+                   test_memory_store test_intents test_briefing test_hud_security; do
+            echo "=== $t ==="
+            if uv run python "tests/$t.py"; then :; else failed=$((failed+1)); fi
+          done
+          echo "groups that failed: $failed"
+          test "$failed" -eq 0
