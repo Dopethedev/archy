@@ -178,6 +178,20 @@ try:
 finally:
     config.WAKE_PHRASE = real_phrase
 
+# The page that ships in the repository must not carry a phrase of its own: it
+# carries a placeholder, and the fallback for a page served without the swap is
+# in the script. A hardcoded phrase here leaks whoever's it was, and it did once.
+page_path = Path(__file__).resolve().parents[1] / "hud" / "index.html"
+js_path = Path(__file__).resolve().parents[1] / "hud" / "app.js"
+hint_page = page_path.read_text()
+hint_js = js_path.read_text()
+check("the page in the repository carries a placeholder, not a phrase",
+      "__JARVIS_WAKE__" in hint_page and "hey jarvis" not in hint_page,
+      "the phrase lives in config.py and the fallback in app.js")
+check("a page served without the swap falls back instead of showing it",
+      "/^__.*__$/" in hint_js and 'dataset.wake || "hey jarvis"' not in hint_js,
+      "the script refuses a leftover placeholder")
+
 # ------------------------------------------------------------ a bad body is refused quickly
 resp = raw(f"POST /say HTTP/1.1\r\nHost: {HOST}:{PORT}\r\n"
            f"X-Jarvis-Token: {hud.token}\r\nContent-Type: application/json\r\n"

@@ -1,34 +1,46 @@
 # jarvis
 
-[![tests](https://github.com/Dopethedev/jarvis/actions/workflows/tests.yml/badge.svg)](https://github.com/Dopethedev/jarvis/actions/workflows/tests.yml)
-
-A voice assistant that runs on your own machine. Say the wake phrase, ask
+**A voice assistant that runs on your own machine.** Say the wake phrase, ask
 something, hear the answer. It can also look at your screen, set reminders, read
-you a morning briefing, sweep the machine for anything odd, and drive a
-dashboard that changes mood by voice.
+you a briefing, sweep the machine for anything odd, and drive a dashboard that
+changes mood by voice.
 
-Everything that hears and speaks runs locally: silero for voice activity,
+Everything that hears and speaks is local: silero for voice activity,
 faster-whisper for speech to text, kokoro for speech out. Only the thinking goes
-to a model, through a local `pi` process.
+to a model, through a local [`pi`](https://github.com/badlogic/pi-mono) process,
+so the model is whichever one you point it at.
 
-![the dashboard, combat theme](docs/theme-combat.png)
+[![tests](https://github.com/Dopethedev/jarvis/actions/workflows/tests.yml/badge.svg)](https://github.com/Dopethedev/jarvis/actions/workflows/tests.yml)
+[![release](https://img.shields.io/github/v/release/Dopethedev/jarvis?label=release&color=blue)](https://github.com/Dopethedev/jarvis/releases)
+[![licence](https://img.shields.io/badge/licence-MIT-green.svg)](LICENSE)
+[![python](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
 
-The dashboard ships with three themes, switchable by voice. It repaints the orb,
-the rings, the radar and every panel:
+![the dashboard, standard theme](docs/theme-standard.png)
 
-| standard | stealth | combat |
-|---|---|---|
-| ![standard](docs/theme-standard.png) | ![stealth](docs/theme-stealth.png) | ![combat](docs/theme-combat.png) |
+## Quick start
+
+Linux with PipeWire, a microphone, and [`pi`](https://github.com/badlogic/pi-mono)
+on `PATH`:
+
+```
+git clone https://github.com/Dopethedev/jarvis jarvis && cd jarvis
+uv sync
+uv run python -m jarvis.fetch_models     # the voice models, 340 MB, all free
+./run.sh                                 # say the wake phrase, then ask
+```
+
+Windows runs it too, with `run.cmd` as the launcher: [Install](#install).
+
+<!-- When there is a clip, put it here: a 40 second screen recording with sound,
+     linked rather than embedded, because GitHub strips video from READMEs. -->
 
 ## What it does
 
 - **Voice loop.** Wake phrase, request, answer, back to idle. The phrase is
-  recognised rather than matched against a trained model, so any phrase works
+  recognised rather than matched against a trained model, so any phrase works,
   and a request can arrive in the same breath as the wake word.
 - **Interruption.** Talk over it, or say the phrase again, and it stops mid
   sentence. It also gives up on a slow model if you start talking.
-- **Typed input.** The dashboard has a text box, for when the microphone is not
-  the right tool.
 - **Screen vision.** Ask about what is on screen and it takes a screenshot and
   looks at it.
 - **Security sweep.** One request runs a set of checks over the machine:
@@ -39,17 +51,42 @@ the rings, the radar and every panel:
   last sweep went. Gathered locally, before the model is asked anything.
 - **Reminders and timers.** "Remind me in twenty minutes to check the oven."
   Parsed locally, so it is confirmed in under a second, and spoken when due.
-  Clearing them says what went and can be undone for two minutes.
+  Clearing them says what went, and can be undone for two minutes.
 - **Themes.** Three dashboard themes, switched by voice.
 - **Memory.** Durable facts in a file you can read and edit by hand, handed to
   the model on every turn so remembering costs no round trip.
 - **A model chain.** Free relays die without warning. If the first one stops
   answering, the next takes over and it says so.
-- **A microphone switch.** Off means off, from the dashboard or a key, and it
-  stays off across a restart.
+- **Typed input and a microphone switch.** A text box for when the microphone is
+  the wrong tool, and an off switch that means off across a restart.
 
 The full list, including what is limited and what is deliberately not here, is
 in [FEATURES.md](FEATURES.md).
+
+## Numbers from actual runs
+
+Measured on the machine this was built on, not estimated:
+
+| | |
+|---|---|
+| speech in, whisper `base.en` | 0.48 s for an utterance |
+| speech out, kokoro | 1.10 s to make 4.10 s of speech |
+| a reminder, a timer, a theme change | about 0.6 s, no model involved |
+| the models it needs | 340 MB on disk, free, no account |
+| resident memory while running | about 1.2 GB |
+| what leaves the machine | the text of what you said |
+
+`base.en` is chosen over `small.en` because it measured 0.48 s against 1.36 s for
+the same transcription, and the small one bought no accuracy worth the wait.
+
+## Themes
+
+The dashboard repaints the orb, the rings, the radar and every panel. Switch by
+voice, or open it with `?theme=combat`:
+
+| standard | stealth | combat |
+|---|---|---|
+| ![standard](docs/theme-standard.png) | ![stealth](docs/theme-stealth.png) | ![combat](docs/theme-combat.png) |
 
 ## What leaves this machine
 
@@ -76,31 +113,30 @@ localhost and refuses anything without its token.
 
 ## Requirements
 
-- Linux with PipeWire, a microphone and headphones. Written and used on Arch and
-  Hyprland; the voice loop is not tied to a desktop, but the security sweep is
-  (it asks `pacman` what owns a file, and reads Brave's profiles).
-- Linux or Windows. The way of looking at the screen is picked by what the
-  machine has: grim and ffmpeg on Wayland, Pillow anywhere else. The one part
-  that is Linux only is the security sweep, which reads `/proc`, systemd, the
-  package manager and browser profiles; asked for one on Windows it says so
-  instead of pretending. The microphone-free half of the suite, which is most of
-  it, is run on both by the workflow above.
-- Python 3.12. `uv` handles that, and ctranslate2 has no wheels past 3.12.
-- [`pi`](https://github.com/badlogic/pi-mono) on `PATH`, which is where the
+- **Linux** with PipeWire, a microphone and headphones, written and used on Arch
+  with Hyprland. The voice loop is not tied to a desktop. The security sweep is:
+  it reads `/proc`, asks systemd, and reads the package manager and browser
+  profiles, so on Windows it answers honestly instead of pretending.
+- **Windows** works for everything else. `run.cmd` is the launcher, and the
+  screen is captured through Pillow instead of grim.
+- **Python 3.12**, which `uv` handles for you: ctranslate2 has no wheels past it.
+- **[`pi`](https://github.com/badlogic/pi-mono)** on `PATH`, which is where the
   model connection lives.
-- For screen vision: `grim` and `ffmpeg`. Without them it says it cannot see.
-- For the ClamAV part of the sweep: `clamav`. The other checks that need a tool
-  it does not have are skipped and reported as skipped, not as clean.
+- **grim and ffmpeg** for screen questions on Wayland. Pillow covers the rest.
+- **clamav** for the virus scan part of the sweep. Checks that need a tool it
+  does not have are reported as skipped, never as clean.
 
 ## Install
+
+Linux:
 
 ```
 git clone https://github.com/Dopethedev/jarvis jarvis && cd jarvis
 uv sync
+uv run python -m jarvis.fetch_models
 ```
 
-On Windows the same two commands work in PowerShell or a command prompt, and
-`run.cmd` is the launcher:
+Windows, in PowerShell or a command prompt:
 
 ```
 git clone https://github.com/Dopethedev/jarvis jarvis; cd jarvis
@@ -108,25 +144,25 @@ uv sync
 run.cmd
 ```
 
-Windows needs nothing extra for the screen: it takes a frame through Pillow.
-ffmpeg is only needed on Wayland, and grim with it.
-
-Then the models, which are not in the repository and are all free:
+`fetch_models` fetches the voice (`kokoro-v1.0.onnx`) and its accents
+(`voices-v1.0.bin`) from the `kokoro-onnx` release `model-files-v1.1`, copies the
+voice activity detector (`silero_vad.onnx`) out of the openWakeWord package that
+is already installed, then opens each file the way the assistant opens it,
+because a file that is present is not the same as a file that loads:
 
 ```
-uv run python -m jarvis.fetch_models
+$ uv run python -m jarvis.fetch_models --check
+here          kokoro-v1.0.onnx  (310 MB)
+here          voices-v1.0.bin  (27 MB)
+here          silero_vad.onnx  (2 MB)
+
+everything the assistant needs is here
 ```
 
-That fetches the voice (`kokoro-v1.0.onnx`) and its accents (`voices-v1.0.bin`)
-from the `kokoro-onnx` release `model-files-v1.1`, copies the voice activity
-detector (`silero_vad.onnx`) out of the openWakeWord package that is already
-installed, then opens each file the way the assistant opens it, because a file
-that is present is not the same as a file that loads. Anything already in place
-is left alone; `--check` says what is here without fetching; `--all` adds the
-optional piper fallback voice.
-
-Two more arrive on their own. Whisper downloads its model into the huggingface
-cache the first time it answers, about 140 MB, and the wake phrase model is
+Anything already in place is left alone, `--check` says what is here without
+fetching, `--all` adds the optional piper fallback voice, and `--force` refetches.
+Two more models arrive on their own: whisper downloads its own on the first
+question (about 140 MB, into the huggingface cache), and the wake phrase model is
 already inside openWakeWord.
 
 ## Running it
@@ -171,7 +207,8 @@ That file is gitignored. Anything you leave out falls back to a sane default: no
 location means the briefing says the weather is unavailable rather than guessing,
 and the wake phrase stays `hey jarvis`.
 
-## Layout
+<details>
+<summary><b>Layout</b></summary>
 
 ```
 src/jarvis/
@@ -202,27 +239,27 @@ served as static files: no build step, no external assets, no framework.
 stream, so they need no live assistant. The start-up reset of the activity log,
 the mic switch and the boot film are all in `hud/app.js`.
 
-## What is deliberately not here
+</details>
 
-Email is the obvious one. It is not included because reading someone's mail
-means shipping their credentials somewhere and sending their messages to a model,
-and that is a decision each person should make for themselves rather than inherit
+<details>
+<summary><b>What is deliberately not here</b></summary>
+
+Email is the obvious one. It is not included because reading someone's mail means
+shipping their credentials somewhere and sending their messages to a model, and
+that is a decision each person should make for themselves rather than inherit
 from a repository. It is also about eighty lines: an IMAP fetch, a local intent
 beside the ones in `assistant.py`, and the password in `config.local.json`.
 
-The same goes for anything that needs an account, a key you pay for, or a
-service that can change its mind: calendar, home automation, music control. The
-seams for all of them already exist, because a request is either answered
-locally, where `reminders` and the theme switch live, or handed to the model with
-its tools. Bring your own account and keep it in `config.local.json`.
+The same goes for anything that needs an account, a key you pay for, or a service
+that can change its mind: calendar, home automation, music control. The seams for
+all of them already exist, because a request is either answered locally, where
+`reminders` and the theme switch live, or handed to the model with its tools.
+Bring your own account and keep it in `config.local.json`.
 
-## Contributing
+</details>
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). It is short, and it says what this
-repository actually does: a test that cannot fail does not count, numbers come
-from runs, failure paths first, and personal settings never in a tracked file.
-
-## How this was made
+<details>
+<summary><b>How this was made</b></summary>
 
 Written with an AI assistant doing most of the typing, from my direction and
 against this machine: a real microphone in a real room, a real screen, and a test
@@ -230,16 +267,25 @@ suite that had to be able to fail before it was allowed to pass. The commit
 messages keep the parts that were wrong at first, including the reasons, which is
 the half of the story that is usually thrown away.
 
+</details>
+
 ## Tests
 
 ```
 ./tests/run_all.sh
 ```
 
-Each file is a behaviour, not a unit: the audio pump, the wake phrase shapes,
-the sweep's browser checks, the reminder grammar, the model chain failing over,
-the dashboard's own security. They run without a microphone and without a model,
-except two that talk to `pi` on purpose.
+Each file is a behaviour, not a unit: the audio pump, the wake phrase shapes, the
+sweep's browser checks, the reminder grammar, the model chain failing over, the
+dashboard's own security. They run without a microphone and without a model,
+except two that talk to `pi` on purpose. The microphone-free ones run on Linux and
+Windows both, in the workflow behind the badge at the top.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). It is short, and it says what this
+repository actually does: a test that cannot fail does not count, numbers come
+from runs, failure paths first, and personal settings never in a tracked file.
 
 ## Licence
 
@@ -255,8 +301,6 @@ What it uses is not all MIT, which is worth knowing before you ship it:
   is what keeps the two apart.
 - The voice models carry the terms of whoever published them: the Kokoro weights
   are Apache-2.0, Silero VAD is MIT, and Whisper and the Piper voices have their
-  own pages, linked in the model table above.
+  own pages.
 - The thinking is not in this repository at all. It is a model behind the relay
   you configure, with its own terms and its own view of what you send it.
-
-MIT. See `LICENSE`.

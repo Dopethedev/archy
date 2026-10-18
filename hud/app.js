@@ -173,9 +173,15 @@ function showMicState() {
   const off = state === "muted";
   micBtn.classList.toggle("off", off);
   micText.textContent = off ? "mic off" : "mic on";
+  /* hud.py swaps the placeholder for the configured phrase before serving the
+     page, but a page served without that swap still has to read well: the
+     screenshots are made that way, and a leftover __JARVIS_WAKE__ shown to
+     someone is worse than the default phrase. */
+  const wake = hintEl.dataset.wake || "";
+  const phrase = /^__.*__$/.test(wake) ? "hey jarvis" : wake || "hey jarvis";
   hintEl.textContent = off
       ? "microphone is off, press M or click mic"
-      : `say \u201c${hintEl.dataset.wake || "hey jarvis"}\u201d`;
+      : `say \u201c${phrase}\u201d`;
   hintEl.classList.toggle("hidden", !off && state !== "idle" && !heardEl.textContent);
 }
 
