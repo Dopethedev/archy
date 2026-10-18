@@ -55,15 +55,12 @@ in [FEATURES.md](FEATURES.md).
 - Linux with PipeWire, a microphone and headphones. Written and used on Arch and
   Hyprland; the voice loop is not tied to a desktop, but the security sweep is
   (it asks `pacman` what owns a file, and reads Brave's profiles).
-- Not Windows, and not macOS. What parses and decides is checked on both, by
-  the workflow above, which runs the microphone-free groups on Windows as well as
-  Linux: the wake matcher, the phrasings, the reminders, the local intents, the
-  memory store and the dashboard all pass there. The voice loop itself is portable, since audio in
-  and out is PortAudio, the ears and the voice are onnxruntime, and the machine
-  readings already answer "unavailable" when `/proc` is not there. What is not
-  portable is the screen (grim, the Wayland compositor's own tool) and the sweep
-  (pacman, systemctl, `/proc`, Brave profiles). A port is a screenshot backend, a
-  sweep backend and a launcher, not a rewrite, but nobody has done it.
+- Linux or Windows. The way of looking at the screen is picked by what the
+  machine has: grim and ffmpeg on Wayland, Pillow anywhere else. The one part
+  that is Linux only is the security sweep, which reads `/proc`, systemd, the
+  package manager and browser profiles; asked for one on Windows it says so
+  instead of pretending. The microphone-free half of the suite, which is most of
+  it, is run on both by the workflow above.
 - Python 3.12. `uv` handles that, and ctranslate2 has no wheels past 3.12.
 - [`pi`](https://github.com/badlogic/pi-mono) on `PATH`, which is where the
   model connection lives.
@@ -77,6 +74,18 @@ in [FEATURES.md](FEATURES.md).
 git clone https://github.com/Dopethedev/jarvis jarvis && cd jarvis
 uv sync
 ```
+
+On Windows the same two commands work in PowerShell or a command prompt, and
+`run.cmd` is the launcher:
+
+```
+git clone https://github.com/Dopethedev/jarvis jarvis; cd jarvis
+uv sync
+run.cmd
+```
+
+Windows needs nothing extra for the screen: it takes a frame through Pillow.
+ffmpeg is only needed on Wayland, and grim with it.
 
 Then the models. They are not in the repository, and all of them are free:
 
@@ -151,6 +160,7 @@ src/jarvis/
   memory_store.py   durable facts, readable by hand
   hud.py            the dashboard server, the mic switch, the typed input
   mictest.py        the live microphone check
+run.cmd             the launcher for Windows, where there is no bash
 hud/                the dashboard page
 docs/               theme screenshots, and the script that renders them
 tests/              one file per behaviour, all runnable without a microphone

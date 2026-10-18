@@ -252,6 +252,18 @@ async def main():
     check("a missing file never breaks the walk",
           sweep._newest_files([str(work / "does-not-exist")], limit=5)[0] == [])
 
+    # a platform the checks know nothing about says so, rather than reporting a
+    # screenful of "unavailable" that reads like a clean sweep
+    real_supported = sweep.supported
+    sweep.supported = lambda: False
+    try:
+        line = sweep.run()
+        check("another platform is told so, not swept",
+              "not a Linux machine" in line and len(line.splitlines()) == 1, line[:60])
+    finally:
+        sweep.supported = real_supported
+    check("and this platform is swept", sweep.supported() and "security sweep of" in sweep.run())
+
     print()
     print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)")
     return 0 if not failed else 1

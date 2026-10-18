@@ -40,6 +40,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -729,8 +730,22 @@ def wanted(text: str) -> bool:
     return any(w in words for w in config.SWEEP_WORDS)
 
 
+def supported() -> bool:
+    """Is this a machine the checks know how to read?
+
+    Every one of them is a Linux machine's business: /proc, systemd, the package
+    manager, /etc/hosts, and where a browser keeps its profiles. On Windows or
+    macOS there is nothing here to read, and a report of nothing but
+    "unavailable" would be worse than saying so.
+    """
+    return sys.platform.startswith("linux")
+
+
 def run() -> str:
     """Run every check and return a compact plain-text report for the model."""
+    if not supported():
+        return ("security sweep: not a Linux machine, so there is nothing here "
+                "these checks know how to read.")
     lines = [f"security sweep of {os.uname().nodename}, {time.strftime('%H:%M')}:"]
     for check in CHECKS:
         try:

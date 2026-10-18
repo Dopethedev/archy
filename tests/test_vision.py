@@ -68,16 +68,38 @@ else:
     check("as_image roundtrip", image["mimeType"] == "image/jpeg"
           and base64.b64decode(image["data"]) == jpeg)
 
-print("-- the failure path --")
+print("-- the second backend --")
+# Windows, macOS and X11 have no grim. The fallback is one frame from Pillow, and
+# it is tested for real here too, because Pillow can grab an X11 session as well
+# as a Windows one.
+check("the backend is chosen by what is installed", vision.backend() in ("grim", "grab"),
+      vision.backend())
 real_which = vision.shutil.which
 vision.shutil.which = lambda name: None
 try:
-    capture()
-    check("missing tools raise, not crash", False)
-except ScreenError:
-    check("missing tools raise, not crash", True)
+    check("with grim hidden it moves to the other backend", vision.backend() == "grab")
+    try:
+        jpeg = capture(attempts=2)
+        check("the other backend captures a jpeg", jpeg[:2] == b"\xff\xd8" and len(jpeg) > 5_000,
+              f"{len(jpeg)/1024:.0f} kB")
+    except ScreenError as exc:
+        # a headless session has no frame to grab; that is the machine, not this
+        skipped += 1
+        print(f"  [SKIP] the other backend captures a jpeg  {str(exc)[:60]}")
 finally:
     vision.shutil.which = real_which
+
+# and when neither is there, it says what it would need instead of failing oddly
+real_backend = vision.backend
+vision.backend = lambda: ""
+try:
+    capture()
+    check("nothing available raises, not crash", False)
+except ScreenError as exc:
+    check("nothing available raises, not crash", "grim" in str(exc) and "Pillow" in str(exc),
+          str(exc)[:70])
+finally:
+    vision.backend = real_backend
 
 print("-- the prompt payload the brain sends --")
 check("text only has no images key",

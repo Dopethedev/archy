@@ -336,7 +336,13 @@ class Assistant:
             images = None
             sweep_report = None
             brief_facts = None
-            if sweep_mod.wanted(text):
+            if sweep_mod.wanted(text) and not sweep_mod.supported():
+                # Nothing on this machine for the checks to read, so it is
+                # answered here instead of after a long look at nothing.
+                local_reply = ("The sweep reads a Linux machine: the processes, "
+                               "the services, the package manager. There is "
+                               "nothing on this one for it to read.")
+            elif sweep_mod.wanted(text):
                 deltas.put("Running the sweep now, this takes a few seconds.")
                 try:
                     sweep_report = await asyncio.wait_for(

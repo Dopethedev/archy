@@ -28,8 +28,11 @@ from .wake import WakeWord
 
 def _stream_format():
     """What pipewire thinks we asked for, and what it is actually running."""
+    import shutil
     import subprocess
     try:
+        if shutil.which("pactl") is None:          # pulse and pipewire are Linux
+            return []
         out = subprocess.run(["pactl", "list", "source-outputs"], capture_output=True,
                              text=True, timeout=5).stdout
         keep = []

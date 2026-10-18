@@ -34,6 +34,15 @@ def open_dashboard(url: str):
             return name
         except Exception:
             continue
+    # None of the usual browsers, or a platform where they are not named this
+    # way: hand it to the operating system, which on Windows means the default
+    # browser and on Linux means xdg-open.
+    try:
+        import webbrowser
+        if webbrowser.open(url):
+            return "the default browser"
+    except Exception:
+        pass
     return None
 
 
