@@ -249,9 +249,10 @@ What it uses is not all MIT, which is worth knowing before you ship it:
 
 - faster-whisper, kokoro-onnx, onnxruntime, sounddevice and Pillow are MIT;
   openwakeword is Apache-2.0; numpy is BSD; **soxr is LGPL-2.1-or-later**.
-- **piper-tts is GPL-3.0-or-later** and is only the fallback voice. The code does
-  not import it: it runs the `piper` program as a separate process, which is what
-  keeps the two apart.
+- **piper-tts is GPL-3.0-or-later** and is only the fallback voice, so it is not
+  installed by default: `uv sync --extra fallback-voice` adds it. The code does
+  not import it either, it runs the `piper` program as a separate process, which
+  is what keeps the two apart.
 - The voice models carry the terms of whoever published them: the Kokoro weights
   are Apache-2.0, Silero VAD is MIT, and Whisper and the Piper voices have their
   own pages, linked in the model table above.

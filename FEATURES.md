@@ -96,6 +96,10 @@ Interrupt any of it by talking over it, or by saying the wake phrase again.
 - **The model is remote and free.** The chain is made of free relays, and they
   stall. When one does, the next takes over and it says so. Occasionally a turn
   ends with "my connection to the model dropped, ask me again".
+- **The fallback voice is an extra.** Kokoro is the voice, and it needs its model
+  files. If they are missing, the assistant says there is no usable speech engine
+  rather than speaking with something worse. Installing `uv sync --extra
+  fallback-voice` adds piper, which speaks when kokoro cannot.
 - **Screen questions need a model that can see.** With a text only model the
   answer arrives without the picture.
 - **Screen capture is not always reliable.** On some NVIDIA and Wayland

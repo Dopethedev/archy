@@ -5,7 +5,7 @@ through whisper. If whisper can read it back, the voice is genuinely
 intelligible rather than just plausible-sounding.
 """
 from pathlib import Path
-import time, wave, subprocess, sys
+import os, shutil, tempfile, time, wave, subprocess, sys
 import numpy as np
 from jarvis.audio import resample
 
@@ -26,17 +26,24 @@ results = {}
 
 # ---------- piper ----------
 t = time.monotonic()
-p = subprocess.run(
-    ["uv", "run", "piper", "-m", "models/en_GB-alan-medium.onnx", "-f", "/tmp/out_piper.wav"],
-    input=TEXT, text=True, capture_output=True, cwd=str(Path(__file__).resolve().parents[1]))
-if p.returncode != 0:
-    print("piper FAILED:", p.stderr[-400:])
+# piper is the optional fallback voice, so its absence is a skip and not a
+# failure: the comparison just has one voice in it instead of two
+piper_out = Path(tempfile.gettempdir()) / f"jarvis-tts-piper-{os.getpid()}.wav"
+piper_out.unlink(missing_ok=True)      # never measure a file from an earlier run
+if shutil.which("piper") is None:
+    print("piper : skipped, not installed (uv sync --extra fallback-voice)")
 else:
-    dt = time.monotonic() - t
-    with wave.open("/tmp/out_piper.wav") as w:
-        dur = w.getnframes() / w.getframerate()
-    results["piper"] = (dt, dur, "/tmp/out_piper.wav")
-    print(f"piper : {dt:.2f}s for {dur:.2f}s audio  ({dur/dt:.1f}x realtime)")
+    p = subprocess.run(
+        ["uv", "run", "piper", "-m", "models/en_GB-alan-medium.onnx", "-f", str(piper_out)],
+        input=TEXT, text=True, capture_output=True, cwd=str(Path(__file__).resolve().parents[1]))
+    if p.returncode != 0:
+        print("piper FAILED:", p.stderr[-400:])
+    else:
+        dt = time.monotonic() - t
+        with wave.open(str(piper_out)) as w:
+            dur = w.getnframes() / w.getframerate()
+        results["piper"] = (dt, dur, str(piper_out))
+        print(f"piper : {dt:.2f}s for {dur:.2f}s audio  ({dur/dt:.1f}x realtime)")
 
 # ---------- kokoro ----------
 try:
@@ -79,5 +86,25 @@ for name, (dt, dur, path) in results.items():
     print(f"  {name:7s} {'OK  ' if ok else 'MISS'} {text!r}")
     if miss:
         print(f"          missing: {miss}")
+
+
+# ---------- the failure path, now that the fallback voice is optional ----------
+# piper is not installed by default and kokoro needs its model files, so this is
+# the shape of "no voice available", which has to say so rather than crash later
+from jarvis import config as _config
+from jarvis.tts import Speaker as _Speaker
+_real_models = _config.MODELS
+with tempfile.TemporaryDirectory() as _empty:
+    _config.MODELS = Path(_empty)
+    try:
+        _Speaker(type("P", (), {"write": lambda s, a: None})())
+        print("\n  [FAIL] no voice available is reported")
+        allok = False
+    except RuntimeError as exc:
+        good = "no usable speech engine" in str(exc)
+        print(f"\n  [{'OK  ' if good else 'FAIL'}] no voice available is reported  {exc}")
+        allok &= good
+    finally:
+        _config.MODELS = _real_models
 
 sys.exit(0 if allok else 1)

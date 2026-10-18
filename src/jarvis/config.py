@@ -108,10 +108,10 @@ def whisper_hint() -> str:
 
 # ------------------------------------------------------- text to speech
 TTS_ENGINE = "kokoro"        # "kokoro" (natural) or "piper" (faster)
-TTS_VOICE = "bm_george"      # British male
+TTS_VOICE = "bf_emma"        # British female
 TTS_LANG = "en-gb"
 TTS_SPEED = 1.0
-PIPER_VOICE = "en_GB-alan-medium"
+PIPER_VOICE = "en_GB-alba-medium"
 
 # ----------------------------------------------------------------- brain
 PI_BIN = "pi"

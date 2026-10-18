@@ -15,10 +15,17 @@ dependencies = [
     # looking at the screen where grim does not exist (Windows, macOS, X11);
     # on Wayland grim and ffmpeg are used and this is not needed
     "pillow>=11.0.0",
-    "piper-tts>=1.8.0",
     "sounddevice>=0.5.6",
     "soxr>=1.1.0",
 ]
+
+# The fallback voice, and nothing else uses it. piper is GPL-3.0-or-later while
+# this repository is MIT, and the code runs the piper program as a separate
+# process rather than importing it, so keeping it out of a plain install keeps
+# that separation clean. Kokoro is the voice; this is what speaks if the kokoro
+# files are missing.
+[project.optional-dependencies]
+fallback-voice = ["piper-tts>=1.8.0"]
 
 [project.scripts]
 jarvis = "jarvis.__main__:main"

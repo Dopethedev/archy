@@ -369,9 +369,13 @@ dependencies = [
     { name = "onnxruntime" },
     { name = "openwakeword" },
     { name = "pillow" },
-    { name = "piper-tts" },
     { name = "sounddevice" },
     { name = "soxr" },
+]
+
+[package.optional-dependencies]
+fallback-voice = [
+    { name = "piper-tts" },
 ]
 
 [package.metadata]
@@ -382,10 +386,11 @@ requires-dist = [
     { name = "onnxruntime", specifier = ">=1.20.0" },
     { name = "openwakeword", specifier = ">=0.4.0" },
     { name = "pillow", specifier = ">=11.0.0" },
-    { name = "piper-tts", specifier = ">=1.8.0" },
+    { name = "piper-tts", marker = "extra == 'fallback-voice'", specifier = ">=1.8.0" },
     { name = "sounddevice", specifier = ">=0.5.6" },
     { name = "soxr", specifier = ">=1.1.0" },
 ]
+provides-extras = ["fallback-voice"]
 
 [[package]]
 name = "joblib"
