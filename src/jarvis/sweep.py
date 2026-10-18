@@ -21,11 +21,21 @@ Concrete checks, run locally, no model in the loop until the results exist:
   without any install; suspicious targets go through clamav as well.
 
 Every check reports, even when clean. Silence is how a skipped check hides.
+
+Most of it is a Linux machine's business, so the two things that only exist on
+Unix are imported where they are used rather than at the top: `pwd` here, and the
+package manager and `systemctl` inside their own checks. Importing them at module
+level meant that on Windows, where the sweep has nothing to do anyway, the
+assistant could not even start.
 """
 import json
 import os
-import pwd
 import re
+
+try:
+    import pwd
+except ImportError:              # Windows: no account database to read
+    pwd = None                   # type: ignore[assignment]
 import shlex
 import shutil
 import stat
@@ -113,6 +123,8 @@ def check_processes() -> list[str]:
 
 
 def check_uid_zero() -> list[str]:
+    if pwd is None:                  # a platform without an accounts file
+        return ["ok: no account database here, nothing to compare"]
     roots = [p.pw_name for p in pwd.getpwall() if p.pw_uid == 0]
     if roots == ["root"]:
         return ["ok: root is the only account with uid 0"]

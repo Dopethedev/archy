@@ -32,6 +32,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      # sounddevice loads PortAudio when it is imported, so a machine without
+      # the library cannot even import the audio module. Windows wheels carry it;
+      # Ubuntu needs the package.
+      - name: PortAudio (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libportaudio2
+
       - name: Install
         run: uv sync
 

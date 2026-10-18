@@ -16,7 +16,6 @@ Usage from the shell:
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import sys
@@ -71,6 +70,12 @@ class Memory:
         """
         lock_path = self.path.with_name(f".{self.path.name}.lock")
         lock_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            import fcntl
+        except ImportError:          # no flock here: single process, no need
+            self._load()
+            yield
+            return
         with open(lock_path, "w") as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
             try:
