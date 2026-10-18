@@ -1,4 +1,24 @@
-# jarvis
+<p align="center">
+  <img src="docs/banner.svg" alt="jarvis: a voice assistant that runs on your own machine" width="880">
+</p>
+
+<p align="center">
+  <a href="https://github.com/Dopethedev/jarvis/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/Dopethedev/jarvis/tests.yml?branch=main&label=tests&style=for-the-badge&logo=githubactions&logoColor=white&color=4fe3ff&labelColor=05080c" alt="tests"></a>
+  <a href="https://github.com/Dopethedev/jarvis/releases"><img src="https://img.shields.io/github/v/release/Dopethedev/jarvis?style=for-the-badge&label=release&logo=github&logoColor=white&color=4fe3ff&labelColor=05080c" alt="latest release"></a>
+  <img src="https://img.shields.io/badge/licence-MIT-4fe3ff?style=for-the-badge&logo=opensourceinitiative&logoColor=white&labelColor=05080c" alt="MIT licence">
+  <img src="https://img.shields.io/badge/python-3.12-4fe3ff?style=for-the-badge&logo=python&logoColor=white&labelColor=05080c" alt="python 3.12">
+  <img src="https://img.shields.io/badge/linux%20%2B%20windows-4fe3ff?style=for-the-badge&logo=linux&logoColor=white&labelColor=05080c" alt="Linux and Windows">
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#what-it-does">What it does</a> ·
+  <a href="#numbers-from-actual-runs">Numbers</a> ·
+  <a href="#themes">Themes</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#your-own-settings">Settings</a> ·
+  <a href="#tests">Tests</a>
+</p>
 
 **A voice assistant that runs on your own machine.** Say the wake phrase, ask
 something, hear the answer. It can also look at your screen, set reminders, read
@@ -9,11 +29,6 @@ Everything that hears and speaks is local: silero for voice activity,
 faster-whisper for speech to text, kokoro for speech out. Only the thinking goes
 to a model, through a local [`pi`](https://github.com/badlogic/pi-mono) process,
 so the model is whichever one you point it at.
-
-[![tests](https://github.com/Dopethedev/jarvis/actions/workflows/tests.yml/badge.svg)](https://github.com/Dopethedev/jarvis/actions/workflows/tests.yml)
-[![release](https://img.shields.io/github/v/release/Dopethedev/jarvis?label=release&color=blue)](https://github.com/Dopethedev/jarvis/releases)
-[![licence](https://img.shields.io/badge/licence-MIT-green.svg)](LICENSE)
-[![python](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
 
 ![the dashboard, standard theme](docs/theme-standard.png)
 
@@ -62,6 +77,19 @@ Windows runs it too, with `run.cmd` as the launcher: [Install](#install).
 
 The full list, including what is limited and what is deliberately not here, is
 in [FEATURES.md](FEATURES.md).
+
+## What it sounds like
+
+A real turn, from the log of the machine this was built on. Nothing was sent to a
+model for this one, which is why it comes back that fast:
+
+```
+you     set a timer for twenty minutes
+jarvis  Done, a timer for 20 minutes.          about half a second
+```
+
+Everything that does not need the model is answered like that: reminders,
+timers, the theme, and clearing them with a way back.
 
 ## Numbers from actual runs
 
@@ -229,7 +257,7 @@ src/jarvis/
   mictest.py        the live microphone check
 run.cmd             the launcher for Windows, where there is no bash
 hud/                the dashboard page
-docs/               theme screenshots, and the script that renders them
+docs/               the banner, the theme screenshots, and the scripts for both
 tests/              one file per behaviour, all runnable without a microphone
 ```
 
