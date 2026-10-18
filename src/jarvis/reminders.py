@@ -204,11 +204,99 @@ def add(label: str, delay_s: float) -> dict:
     return item
 
 
-def cancel() -> int:
+def _undo_path():
+    """Where the last clearance is kept. Read lazily so a test that moves the
+    state directory does not write into the real one."""
+    return config.STATE_DIR / "reminders-undo.json"
+
+
+def _snapshot(items: list[dict]) -> None:
+    """Keep what is about to be cleared, so a misheard cancel is not final.
+
+    A reminder is the one thing here that cannot be worked out again afterwards:
+    the whole reason it was set is that it would be forgotten. Clearing is
+    immediate, because waiting for a confirmation on a one-thing-at-a-time
+    assistant is worse than the problem, so the answer is to make it reversible
+    for a short while instead.
+    """
+    try:
+        config.STATE_DIR.mkdir(parents=True, exist_ok=True)
+        _undo_path().write_text(json.dumps({"at": time.time(), "items": items}))
+    except OSError:
+        pass                    # it was cleared either way; this only adds the way back
+
+
+def cancel_all() -> tuple[int, list[str]]:
+    """Clear everything pending. Returns the count and the labels it took away."""
     with _lock:
         items = load()
+        if items:
+            _snapshot(items)
         save([])
-    return len(items)
+    return len(items), [i.get("label", "") for i in items]
+
+
+def cancel() -> int:
+    return cancel_all()[0]
+
+
+_UNDO = re.compile(
+    r"(?:\bundo\b|\bun-?cancel\b"
+    r"|\b(?:bring|put)\s+(?:them|those|it|my\s+reminders?|the\s+reminders?)\s+back\b"
+    r"|\bbring\s+back\s+(?:my\s+|the\s+)?(?:reminders?|timers?)\b"
+    r"|\brestore\s+(?:my\s+|the\s+)?(?:reminders?|timers?|alarms?)\b)", re.I)
+
+
+def undo_intent(text: str) -> str | None:
+    """Bring back the last clearance, if this asks for it and it was recent.
+
+    Only claims the sentence when there is something to bring back, so "undo"
+    aimed at something else stays the model's business. A short sentence is
+    enough to mean it; a long one has to say reminders, because "undo the change
+    you made in that file" is a different request and restoring a timer instead
+    would be maddening.
+    """
+    words = text.lower().split()
+    if len(words) > 6 and not any(w.startswith(("remind", "timer", "alarm"))
+                                 for w in words):
+        return None
+    if not _UNDO.search(text):
+        return None
+    path = _undo_path()
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    age = time.time() - float(data.get("at") or 0)
+    items = data.get("items") or []
+    if not items or age > config.REMINDER_UNDO_S:
+        path.unlink(missing_ok=True)        # too late, or nothing worth keeping
+        return None
+    with _lock:
+        save(load() + items)                # their original times, not new ones
+    path.unlink(missing_ok=True)
+    n = len(items)
+    return (f"Brought back one reminder: {_spoken_names([i.get('label','') for i in items])}."
+            if n == 1 else
+            f"Brought back {n} reminders: {_spoken_names([i.get('label','') for i in items])}.")
+
+
+def _spoken_names(labels: list[str]) -> str:
+    """The labels as someone would say them out loud."""
+    named = []
+    for label in labels:
+        label = (label or "").strip()
+        if not label:
+            continue
+        named.append("a " + label.lower() if label in GENERIC
+                     else label[:1].lower() + label[1:])
+    if not named:
+        return "something"
+    if len(named) == 1:
+        return named[0]
+    if len(named) > 3:
+        return ", ".join(named[:3]) + f" and {len(named) - 3} more"
+    return ", ".join(named[:-1]) + " and " + named[-1]
 
 
 def due_items(now: float | None = None) -> list[str]:
@@ -245,10 +333,14 @@ def _spoken_gap(seconds: float) -> str:
             days = round(days)
             return "a day" if days == 1 else f"{days} days"
         return f"{days:.1f} days"
-    if abs(hours * 2 - round(hours * 2)) < 0.05 and hours >= 1.5:
-        half = round(hours * 2) // 2
-        return ("an hour and a half" if half == 1
-                else f"{half} and a half hours")
+    # "and a half" only for actual halves. The old test was "twice the hours is
+    # close to a whole number", which is also true of every whole hour, so a two
+    # hour timer was confirmed out loud as "2 and a half hours" while being set
+    # for two. The timer was right; the sentence about it was not.
+    half = round(hours * 2) / 2
+    if half % 1 == 0.5 and abs(hours - half) < 0.05 and half >= 1.5:
+        return ("an hour and a half" if half == 1.5
+                else f"{int(half)} and a half hours")
     if abs(hours - round(hours)) < 0.1:
         hours = round(hours)
         return "an hour" if hours == 1 else f"{hours:.0f} hours"
@@ -272,11 +364,12 @@ GENERIC = ("Timer", "Reminder")       # labels that stand for nothing named
 def confirm(action: dict) -> str:
     """What to say when the action is taken, before any model is involved."""
     if action["action"] == "cancel":
-        n = cancel()
+        n, labels = cancel_all()
         if not n:
             return "There was nothing to cancel."
-        return ("Done, that reminder is cleared." if n == 1
-                else f"Done, {n} reminders cleared.")
+        return (f"Cleared one: {_spoken_names(labels)}. Say undo if you want it back."
+                if n == 1 else
+                f"Cleared {n}: {_spoken_names(labels)}. Say undo if you want them back.")
     if action["action"] == "list":
         items = pending()
         if not items:

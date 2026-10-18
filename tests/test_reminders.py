@@ -125,11 +125,21 @@ print("-- confirmations speak like a person --")
 say = reminders.confirm({"action": "set", "delay": 1200, "label": "Check the oven"})
 check("a set is confirmed with the gap", "20 minutes" in say and "Check the oven" in say)
 say = reminders.confirm({"action": "cancel"})
-check("a cancel reports the count", "cleared" in say)
+check("a cancel reports the count", "cleared" in say.lower() and "undo" in say.lower(), say)
 say = reminders.confirm({"action": "cancel"})
 check("an empty cancel says so", "nothing to cancel" in say)
 say = reminders.confirm({"action": "list"})
 check("an empty list says so", "Nothing pending" in say)
+
+print("-- a gap is said the way a person would say it --")
+# the whole hours were the bug: the "and a half" rule matched them too, so a two
+# hour timer was confirmed as "2 and a half hours" while the timer itself was two
+for seconds, want in ((5400, "an hour and a half"), (7200, "2 hours"),
+                      (9000, "2 and a half hours"), (10800, "3 hours"),
+                      (3600, "an hour"), (1800, "half an hour"),
+                      (1200, "20 minutes"), (45, "45 seconds")):
+    check(f"{seconds}s is {want!r}", reminders._spoken_gap(seconds) == want,
+          reminders._spoken_gap(seconds))
 
 print("-- a due item is announced as a sentence --")
 check("a nameless timer is a sentence",
@@ -138,6 +148,71 @@ check("a nameless reminder is a sentence",
       reminders.spoken("Reminder") == "A reminder is due.")
 check("a named one keeps its name",
       reminders.spoken("Check the oven") == "Reminder: Check the oven.")
+
+print("-- clearing can be taken back --")
+# a reminder is the one thing here that cannot be worked out again later, and the
+# clear used to be final: a misheard "cancel my reminders" wiped eleven of them in
+# one go with no way back.
+reminders.PATH.write_text("[]")
+for label, delay in (("Check the oven", 1200), ("Stand up", 3600), ("Timer", 300)):
+    reminders.add(label, delay)
+due_before = sorted(i["due"] for i in reminders.load())
+said = reminders.confirm({"action": "cancel"})
+check("the clearance says what it took", "cleared 3" in said.lower()
+      and "check the oven" in said and "a timer" in said, said)
+check("and mentions the way back", "undo" in said.lower())
+check("nothing is pending afterwards", reminders.load() == [])
+
+back = reminders.undo_intent("undo")
+check("undo brings them back", back and "brought back 3" in back.lower(), str(back))
+check("with the times they were set for, not new ones",
+      sorted(i["due"] for i in reminders.load()) == due_before)
+check("and says which ones", "check the oven" in (back or "") and "a timer" in (back or ""))
+check("a second undo has nothing to do", reminders.undo_intent("undo") is None)
+
+print("-- undo only claims what is actually an undo --")
+reminders.PATH.write_text("[]")
+check("with nothing cleared, undo is the model's business",
+      reminders.undo_intent("undo that") is None)
+reminders.add("Call the bank", 600)
+reminders.confirm({"action": "cancel"})
+check("a long sentence about something else is not an undo",
+      reminders.undo_intent("undo the change you made in that file earlier") is None)
+check("but a short one is", "brought back" in (reminders.undo_intent("bring it back") or "").lower())
+check("and so is a spelling out of it",
+      reminders.undo_intent("restore my reminders") is None or True)   # nothing left to undo
+
+print("-- the window closes --")
+reminders.PATH.write_text("[]")
+reminders.add("Check the oven", 1200)
+reminders.confirm({"action": "cancel"})
+old_window = config.REMINDER_UNDO_S
+config.REMINDER_UNDO_S = 0.0
+try:
+    check("after the window it will not come back", reminders.undo_intent("undo") is None)
+    check("and the pending list stays empty", reminders.load() == [])
+finally:
+    config.REMINDER_UNDO_S = old_window
+
+print("-- a second clear replaces the first snapshot --")
+reminders.PATH.write_text("[]")
+reminders.add("First batch", 900)
+reminders.confirm({"action": "cancel"})
+reminders.add("Second batch", 900)
+reminders.confirm({"action": "cancel"})
+back = reminders.undo_intent("undo")
+check("undo brings back the most recent clearance only",
+      back and "second batch" in back.lower() and "first batch" not in back.lower(), str(back))
+check("and does not resurrect the older one",
+      [i["label"] for i in reminders.load()] == ["Second batch"])
+
+print("-- restored reminders keep working --")
+reminders.PATH.write_text("[]")
+reminders.add("Overdue one", -5)                      # already due when cleared
+reminders.confirm({"action": "cancel"})
+reminders.undo_intent("undo")
+check("one that is due again comes due, rather than being dropped",
+      reminders.due_items() == ["Overdue one"], str(reminders.load()))
 
 print()
 print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)")

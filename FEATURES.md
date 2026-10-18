@@ -31,6 +31,10 @@ These never touch a relay, so they land in about half a second:
 - **Reminders and timers.** "Remind me in twenty minutes to check the oven",
   "set a timer for an hour and a half", "what reminders do I have", "cancel my
   reminders". The wording is parsed on the machine and confirmed in one breath.
+- **A way back from clearing them.** Cancelling says what it took away and keeps
+  it for two minutes: "undo" brings them back with the times they were set for. A
+  reminder is the one thing here that cannot be worked out again later, which is
+  exactly why it was set.
 - **Themes.** Three dashboard themes, switched by voice, with no model in the
   loop.
 - **Briefing facts.** Time, date, weather, load, memory, uptime and the last
@@ -76,7 +80,8 @@ Measured against the actual matchers, so these all work as written:
 | "what's on my screen", "look at this error", "what am I looking at" | a screenshot is taken and read |
 | "remind me in twenty minutes to check the oven" | a reminder, confirmed at once, spoken when due |
 | "set a timer for five minutes", "set a timer for an hour and a half" | a timer with an alarm |
-| "what reminders do I have", "cancel my reminders" | the list, or all of them cleared |
+| "what reminders do I have", "cancel my reminders" | the list, or all of them cleared, with two minutes to undo |
+| "undo", "bring them back" | whatever the last cancel took, if it was in the last two minutes |
 | "remember that the router is in the hall" | a durable fact, written to the memory file |
 | anything else | the model, with shell and file tools, so it can search, read and work things out |
 

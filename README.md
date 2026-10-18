@@ -39,6 +39,7 @@ the rings, the radar and every panel:
   last sweep went. Gathered locally, before the model is asked anything.
 - **Reminders and timers.** "Remind me in twenty minutes to check the oven."
   Parsed locally, so it is confirmed in under a second, and spoken when due.
+  Clearing them says what went and can be undone for two minutes.
 - **Themes.** Three dashboard themes, switched by voice.
 - **Memory.** Durable facts in a file you can read and edit by hand, handed to
   the model on every turn so remembering costs no round trip.

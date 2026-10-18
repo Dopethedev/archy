@@ -314,6 +314,8 @@ class Assistant:
             action = reminders_mod.parse(text)
             if action:
                 local_reply = reminders_mod.confirm(action)
+            elif (back := reminders_mod.undo_intent(text)):
+                local_reply = back
             elif (hint := reminders_mod.cannot_do(text)):
                 # a reminder this cannot serve is one a model can only pretend
                 # to accept, so it is answered here instead of passed on

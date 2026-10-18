@@ -142,7 +142,15 @@ async def main():
 
     h = await run_turn("cancel my reminders")
     check("a cancel clears the store",
-          any("cleared" in s for s in h.spoken) and reminders.pending() == [])
+          any("cleared" in s.lower() for s in h.spoken) and reminders.pending() == [],
+          str(h.spoken[:1]))
+
+    # and a clearance can be taken back from a turn, without the model
+    h = await run_turn("undo")
+    check("undo brings the cleared reminders back",
+          any("brought back" in s.lower() for s in h.spoken) and reminders.pending() != [],
+          str(h.spoken[:1]))
+    check("and the model was never asked", h.brain.seen == [], str(h.brain.seen[:1]))
 
     h = await run_turn("combat mode")
     check("a theme is published to the dashboard",

@@ -244,6 +244,9 @@ MIC_DEAF_S = 20.0
 # twelve second timer was spoken sixteen seconds later, which is a promise the
 # assistant visibly fails to keep.
 REMINDER_CHECK_S = 1.0
+# How long a clearance can be undone. Long enough to notice a mishearing, short
+# enough that "undo" later is not a surprise.
+REMINDER_UNDO_S = 120.0
 
 def _voice_rules() -> str:
     """The spoken-conversation rules. A function so it is built after the local
