@@ -304,12 +304,17 @@ on_disk = json.loads(written.read_text())
 check("it approves the assistant's own directories by default",
       str(REPO) in on_disk["roots"] and str(config.STATE_DIR) in on_disk["roots"],
       str(on_disk["roots"]))
-check("and whatever the owner added", str(work) in on_disk["roots"])
+# resolved on both sides: macOS temp directories live behind /private and Windows
+# expands a short name in one place and not the other
+check("and whatever the owner added",
+      str(work.resolve()) in [str(Path(root).resolve()) for root in on_disk["roots"]],
+      str(on_disk["roots"]))
 check("and the home directory is not one of them",
       str(Path.home()) not in on_disk["roots"])
 check("the policy file is not world readable",
-      stat.S_IMODE(written.stat().st_mode) == 0o600,
-      oct(stat.S_IMODE(written.stat().st_mode)))
+      os.name == "nt" or stat.S_IMODE(written.stat().st_mode) == 0o600,
+      "not checked on Windows, where a mode is only a read-only bit" if os.name == "nt"
+      else oct(stat.S_IMODE(written.stat().st_mode)))
 check("it is a policy the gate accepts",
       allowed(gate.ask(toolName="read", input={"path": str(inside)}, policyPath=str(written))))
 missing = dict(saved)
