@@ -12,6 +12,11 @@
 # decides is meant to be portable, and a claim like that is worth having a runner
 # check rather than a sentence in the README. The macOS runner is the only place
 # where the mach cpu call, screencapture and launchd are the real thing.
+#
+# The permission group needs node, because the gate it tests is the pi extension
+# that actually runs, not a copy of its policy: node strips the types and executes
+# the file. All three runners ship node, and a runner without it fails loudly
+# instead of passing a suite that checked nothing.
 
 name: tests
 
@@ -52,7 +57,7 @@ jobs:
           for t in test_wake_phrase test_phrasings test_reminders test_mic_state \
                    test_memory_store test_intents test_briefing test_hud_security \
                    test_platform test_macos test_fetch_models test_net \
-                   test_degrades test_local_chain; do
+                   test_degrades test_local_chain test_permissions; do
             echo "=== $t ==="
             if uv run python "tests/$t.py"; then :; else failed=$((failed+1)); fi
           done
