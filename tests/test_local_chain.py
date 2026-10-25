@@ -70,11 +70,44 @@ saved_url = config.PI_LOCAL_SERVER_URL
 
 
 class Silent(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):                                  # noqa: N802
+    """A router stand-in: health, a model list, and a load endpoint."""
+
+    state = "loaded"            # what GET /models reports
+    loads: list = []           # every POST /models/load
+    sticks = True              # whether a load request changes the state
+
+    def _answer(self, body: bytes):
         self.send_response(200)
-        self.send_header("Content-Length", "2")
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(b"ok")
+        self.wfile.write(body)
+
+    def do_GET(self):                                  # noqa: N802
+        import json as _json
+        if self.path == "/health":
+            return self._answer(b'{"status":"ok"}')
+        if self.path == "/models":
+            entries = [] if Silent.state == "empty" else [
+                {"id": "Qwen3.5-4B-Q4_K_M", "status": {"value": Silent.state}}]
+            return self._answer(_json.dumps({"data": entries}).encode())
+        return self._answer(b"{}")
+
+    def do_POST(self):                                 # noqa: N802
+        Silent.loads.append(self.path)
+        if Silent.state == "empty":
+            # what a real router does when asked for a model it does not have:
+            # this is the wrong model directory, not a slow disk
+            body = b'{"error":{"code":404,"message":"unknown model"}}'
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if Silent.sticks:
+            Silent.state = "loaded"
+        self._answer(b'{"success":true}')
 
     def log_message(self, *a):
         pass
@@ -91,11 +124,43 @@ started = time.monotonic()
 check("a server that answers is healthy", local_model.healthy() is True,
       f"{(time.monotonic() - started) * 1000:.0f} ms")
 config.PI_MODELS_OFFLINE = ("llama.cpp/x",)
-check("and it is left alone, not restarted",
-      local_model.ensure_running() is True)
+
+print("-- a healthy router with the model loaded --")
+Silent.state, Silent.loads[:] = "loaded", []
+check("it is used as it is", local_model.ensure_running() is True)
+check("nothing is asked of it", Silent.loads == [], str(Silent.loads))
 check("nothing was spawned for it", local_model._proc is None,
       "a router someone else started is theirs")
-local_model.stop()
+
+print("-- a healthy router with nothing loaded, which is the bug this fixes --")
+# The router runs with explicit loading, so a healthy one with an idle model
+# answers the first question with 400, model is not loaded. That was a real lost
+# turn in offline mode, found by running it rather than by reading it.
+Silent.state, Silent.loads[:] = "unloaded", []
+check("the model is asked for", local_model.ensure_running() is True)
+check("and the request went to the load endpoint",
+      Silent.loads == ["/models/load"], str(Silent.loads))
+check("only once, however often it is asked",
+      (local_model.ensure_running(), len(Silent.loads))[1] == 1, str(Silent.loads))
+
+print("-- a router that never finishes loading --")
+Silent.state, Silent.loads[:], Silent.sticks = "unloaded", [], False
+saved_wait = config.PI_LOCAL_LOAD_WAIT_S
+config.PI_LOCAL_LOAD_WAIT_S = 1.0
+started = time.monotonic()
+check("it gives up and says so", local_model.ensure_running() is False)
+elapsed = time.monotonic() - started
+check("the wait is bounded", elapsed < 3.0, f"{elapsed:.1f} s")
+config.PI_LOCAL_LOAD_WAIT_S = saved_wait
+Silent.sticks, Silent.state = True, "loaded"
+
+print("-- a router with no models at all, which is the wrong directory --")
+Silent.state, Silent.loads[:] = "empty", []
+check("nothing to load is not a success", local_model.ensure_running() is False)
+check("the attempt was made and refused", Silent.loads == ["/models/load"],
+      str(Silent.loads))
+Silent.state = "loaded"
+
 check("stopping does not kill someone else's server", local_model.healthy() is True)
 httpd.shutdown()
 httpd.server_close()
@@ -146,6 +211,51 @@ with tempfile.TemporaryDirectory() as tmp:
 
 config.PI_LOCAL_MODELS_DIR = saved_dir
 config.PI_LOCAL_SERVER_URL = saved_url
+
+print("-- every entry point starts the server, not only the voice loop --")
+# This is the bug that was found by running it: `--say` went straight to
+# brain.start() without the local server, so the first question in offline mode
+# came back as a dropped connection. One shared method now, and the order is the
+# part that matters.
+import asyncio  # noqa: E402
+
+from jarvis.assistant import Assistant  # noqa: E402
+
+calls: list = []
+real_ensure_local = local_model.ensure_running
+
+
+class StubAssistant(Assistant):
+    def __init__(self):
+        self.brain = type("B", (), {"start": lambda s: None})()
+
+    async def _start(self, label, step):
+        calls.append("brain")
+        return True
+
+
+local_model.ensure_running = lambda *a, **k: calls.append("server") or True
+saved = (config.PI_CHAIN_MODE, config.PI_MODELS_OFFLINE)
+config.PI_CHAIN_MODE, config.PI_MODELS_OFFLINE = "offline", ("local/x",)
+calls.clear()
+asyncio.run(StubAssistant().start_brain())
+check("in offline mode the server comes up first", calls == ["server", "brain"],
+      str(calls))
+
+net.net.note_success()
+config.PI_CHAIN_MODE = "online"
+calls.clear()
+asyncio.run(StubAssistant().start_brain())
+check("online, no server is started for a relay", calls == ["brain"], str(calls))
+
+config.PI_CHAIN_MODE = "auto"
+net.net.note_failure("getaddrinfo ENOTFOUND relay.example")
+calls.clear()
+asyncio.run(StubAssistant().start_brain())
+check("and auto follows the verdict", calls == ["server", "brain"], str(calls))
+local_model.ensure_running = real_ensure_local
+config.PI_CHAIN_MODE, config.PI_MODELS_OFFLINE = saved
+net.net.note_success()
 
 print(f"\n{'ALL PASS' if not failed else str(failed) + ' FAILED'}  ({passed} checks)")
 sys.exit(1 if failed else 0)

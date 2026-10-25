@@ -33,7 +33,12 @@ def check(label, ok, detail=""):
 
 
 print("-- the chain --")
+# Pinned for the same reason: the owner's config.local.json can force offline-only
+# or point the chain at a local model, and these assertions are about the relay
+# chain and the command line it produces.
 real_models = config.PI_MODELS
+saved_mode, saved_chain = config.PI_CHAIN_MODE, config.PI_MODELS_OFFLINE
+config.PI_CHAIN_MODE, config.PI_MODELS_OFFLINE = "auto", ()
 config.PI_MODELS = ("model/a-first", "model/a-second", "model/a-third")
 brain = PiBrain()
 check("it starts at the head", brain.model_name() == "model/a-first")
@@ -68,6 +73,7 @@ try:
 finally:
     brain_mod.subprocess.Popen = real_popen
 config.PI_MODELS = real_models
+config.PI_CHAIN_MODE, config.PI_MODELS_OFFLINE = saved_mode, saved_chain
 
 print("-- turn wiring: local intents and the briefing --")
 

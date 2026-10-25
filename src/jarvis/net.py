@@ -54,7 +54,8 @@ _CONNECTIVITY = (
     "ehostunreach", "enetunreach", "esockettimedout", "fetch failed",
     "getaddrinfo", "socket hang up", "no route to host", "network is unreachable",
     "network error", "dns error", "offline", "connection refused",
-    "connection reset", "connect timeout", "request timed out", "und_err",
+    "connection reset", "connection error", "connect timeout",
+    "request timed out", "und_err",
 )
 _AUTH = (
     "401", "403", "unauthorized", "unauthenticated", "invalid api key",
