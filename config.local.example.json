@@ -22,5 +22,11 @@
   "_comment7": "JARVIS starts the router itself when the offline chain needs it, and stops only one it started.",
   "PI_LOCAL_SERVER_URL": "http://127.0.0.1:8080",
   "PI_LOCAL_MODELS_DIR": "/home/you/models",
-  "PI_LOCAL_DEVICE": "Vulkan0"
+  "PI_LOCAL_DEVICE": "Vulkan0",
+  "_comment8": "Off by default, and off means no gate and no enforcement. On means every tool call is judged in code before it runs: reading and writing inside its own directories, and commands that only look, are allowed; anything else waits for your approval, once, for that exact action. A policy that cannot be read denies everything. Ask what is waiting with 'python -m jarvis.permissions list', allow one with 'approve', or by voice.",
+  "PERMISSIONS": false,
+  "_comment9": "Extra directories the assistant may touch without asking. Its own directory and .state are always included. The home directory is not: approving everything a program can reach is the same as having no gate.",
+  "PERMISSION_ROOTS": [
+    "/home/you/Documents"
+  ]
 }

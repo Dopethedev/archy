@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -16,6 +17,7 @@ import time
 
 from . import config
 from . import net
+from . import permissions
 from .memory_store import Memory
 
 DIALOG_METHODS = {"select", "confirm", "input", "editor"}
@@ -185,7 +187,13 @@ class PiBrain:
             args.append("--continue")          # pick the conversation back up
         if not config.PI_EXTENSIONS:
             args.append("--no-extensions")
+        # The permission gate, when the owner turned it on. It raises here rather
+        # than later if the file that enforces it is not there: starting pi with
+        # the promise of a gate and no gate is worse than not starting it.
+        permissions.write_policy()
+        args += permissions.gate_args()
 
+        environment = dict(os.environ, **permissions.gate_env())
         self._proc = subprocess.Popen(
             args,
             stdin=subprocess.PIPE,
@@ -193,6 +201,7 @@ class PiBrain:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            env=environment,
         )
         threading.Thread(target=self._read_stdout, args=(generation,), daemon=True).start()
         threading.Thread(target=self._read_stderr, args=(generation,), daemon=True).start()

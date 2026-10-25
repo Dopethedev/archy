@@ -28,6 +28,7 @@ from . import config
 from . import briefing
 from . import local_model
 from . import net
+from . import permissions
 from . import reminders as reminders_mod
 from . import mic_state
 from . import sweep as sweep_mod
@@ -104,6 +105,17 @@ class Assistant:
         return task
 
     # --------------------------------------------------------- local intents
+
+    @staticmethod
+    def _approval_question(text: str) -> bool:
+        """Asking what is waiting, in the words someone would actually use."""
+        said = " ".join(re.findall(r"[a-z']+", text.lower()))
+        return any(phrase in said for phrase in (
+            "what are you waiting for", "what needs my approval",
+            "what are you waiting on", "anything waiting for me",
+            "what is waiting", "what's waiting", "pending approval",
+            "what do you need approval", "permissions",
+        ))
     # A theme command is the name of a theme, optionally followed by the word
     # mode or theme, with nothing around it that turns the sentence into a
     # question about themes or an opinion of one. Refusing is the hard half: a
@@ -364,6 +376,23 @@ class Assistant:
                         "stealth": "Stealth mode engaged.",
                         "combat": "Combat mode engaged.",
                     }[theme]
+                elif permissions.enabled() and permissions.approve_intent(text):
+                    # The gate never asks a question: it runs inside pi, where
+                    # there is nobody to answer one, so a blocked action waits in
+                    # a file and the question is asked here. The answer is a token
+                    # for that one action, which the gate burns when it uses it.
+                    waiting = permissions.pending()
+                    digest = permissions.approve(waiting[-1]["id"]) if waiting else None
+                    local_reply = ("Approved once, for that exact action." if digest
+                                   else "Nothing is waiting on your approval.")
+                    self.log("sys", f"permission approved: {digest[:8] if digest else 'nothing'}")
+                elif permissions.enabled() and permissions.deny_intent(text):
+                    waiting = permissions.pending()
+                    permissions.deny(waiting[-1]["id"]) if waiting else None
+                    local_reply = ("Dropped it, nothing will run." if waiting
+                                   else "Nothing is waiting on your approval.")
+                elif permissions.enabled() and self._approval_question(text):
+                    local_reply = permissions.summary()
 
             # A request about the screen gets the screen attached; a request
             # for a security sweep gets fresh results to talk about; a request
