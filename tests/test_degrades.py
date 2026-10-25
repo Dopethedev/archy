@@ -18,7 +18,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import jarvis.assistant as assistant_mod  # noqa: E402
-from jarvis import config, net  # noqa: E402
+from jarvis import config, net, privacy  # noqa: E402
 from jarvis.assistant import Assistant  # noqa: E402
 from jarvis.brain import BrainError  # noqa: E402
 from jarvis.stt import DeafTranscriber  # noqa: E402
@@ -201,6 +201,9 @@ class StubBrain:
 
 class Harness:
     def __init__(self, errors=()):
+        # Assistant.__init__ is not run, so what it creates has to be here: the
+        # confirmation object is reached for on every turn, before anything else.
+        self._privacy_confirm = privacy.Confirmation()
         self.brain = StubBrain(errors)
         self.spoken = []
         self.log_lines = []

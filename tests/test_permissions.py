@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis import config, permissions  # noqa: E402
+from jarvis import config, permissions, privacy  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 GATE = REPO / "src" / "jarvis" / "gate" / "permission-gate.ts"
@@ -422,6 +422,7 @@ class Silence:
         self.log_lines = []
         self.speaker = self                    # the same trick test_degrades uses
         self.brain = self                      # so a fall-through still answers
+        self._privacy_confirm = privacy.Confirmation()
         self.player = type("P", (), {"wait_drained": lambda s, *a, **k: None})()
         self.hud = None
         self.mic_enabled = True

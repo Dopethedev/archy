@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis import config  # noqa: E402
+from jarvis import config, privacy  # noqa: E402
 from jarvis.assistant import Assistant  # noqa: E402
 from jarvis.brain import BrainError  # noqa: E402
 
@@ -62,6 +62,9 @@ class StubBrain:
 
 class Harness:
     def __init__(self, errors=()):
+        # Assistant.__init__ is not run here, so anything it creates has to be
+        # provided: a turn that reaches for it otherwise fails on the attribute.
+        self._privacy_confirm = privacy.Confirmation()
         self.brain = StubBrain(errors)
         self.spoken = []
         self.log_lines = []
