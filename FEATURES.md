@@ -76,11 +76,12 @@ Interrupt any of it by talking over it, or by saying the wake phrase again.
 - **Reminders take a delay, not a clock time.** "Tomorrow at nine" gets a refusal
   with the shape it does understand, because a confident yes that never fires is
   worse than a plain no.
-- **The model is remote and free.** The relays stall; when one does the next takes
-  over and it says so. A turn can end with "my connection to the model dropped".
+- **The model is remote and free.** When a relay stalls the next takes over and it
+  says so. With no internet it says so; a refused key is said as a refused key.
 - **The fallback voice is an extra.** With kokoro's model files missing it says
-  there is no usable speech engine rather than speaking with something worse.
-  `uv sync --extra fallback-voice` adds piper for that case.
+  there is no usable speech engine rather than speaking with something worse;
+  `uv sync --extra fallback-voice` adds piper. With no voice at all it still hears,
+  still answers on the dashboard, and logs what it would have said.
 - **Screen questions need a model that can see, and a compositor that will copy.**
   With a text only model the answer arrives without the picture, and some NVIDIA
   and Wayland combinations refuse a screenshot, which it retries three times.
@@ -92,9 +93,8 @@ Interrupt any of it by talking over it, or by saying the wake phrase again.
 - **The sweep reads Linux and macOS, not Windows.** Asking for one there gets a
   plain answer instead of a sweep. Everything else runs on all three.
 - **macOS gates two things.** Screen Recording for screen questions, Microphone for
-  the microphone, both under System Settings. Before the tick they read as a black
-  frame and a microphone that opens onto nothing, and both are reported as what
-  they are. There is also no temperature on Apple Silicon, since no unprivileged
-  sensor exists; the dashboard shows nothing rather than a made-up number.
+  the microphone, both under System Settings. There is also no temperature on Apple
+  Silicon, since no unprivileged sensor exists; the dashboard shows nothing rather
+  than a made-up number.
 - **Email, calendar and music are not here.** Each needs an account and a
   credential, so they are left to whoever wants them.
