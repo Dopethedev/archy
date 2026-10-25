@@ -241,3 +241,43 @@ class Speaker:
                 emit_text(text)
         if tail := clean(buffer):
             emit_text(tail)
+
+
+class MuteSpeaker:
+    """Stands in when no speech engine could be built.
+
+    Building the speaker raised in the constructor when the kokoro files were
+    missing and piper was not installed, which killed the whole process before
+    the microphone opened: nothing heard, nothing said, and the reason lost in a
+    traceback. This hears, answers on the dashboard, logs what it would have
+    said, and says once that it has no voice.
+
+    say() returns False, which is what the reminder loop reads as "not delivered",
+    and say_stream() drains the text so the turn still finishes instead of
+    leaving the brain's generator half-read.
+    """
+
+    def __init__(self, error: Exception):
+        self.error = error
+        self.spoken: list[str] = []
+        print(f"[tts] no speech engine, so it cannot talk: {error}", flush=True)
+
+    def synth(self, text: str) -> np.ndarray:
+        return np.zeros(0, dtype=np.float32)
+
+    def say(self, text: str) -> bool:
+        text = clean(text)
+        if text:
+            self.spoken.append(text)
+            print(f"[tts] not spoken: {text}", flush=True)
+        return False
+
+    def say_stream(self, deltas, on_spoken=None, stop=None):
+        text = ""
+        for delta in deltas:
+            if stop is not None and stop.is_set():
+                break
+            text += delta
+        if text := clean(text):
+            self.spoken.append(text)
+            print(f"[tts] not spoken: {text}", flush=True)
