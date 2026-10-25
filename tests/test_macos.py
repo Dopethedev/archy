@@ -103,9 +103,14 @@ check("the flavour asked for is host cpu load info", sysinfo._HOST_CPU_LOAD_INFO
 
 print("-- the cpu arithmetic, which is the same on both platforms --")
 real_linux_ticks, real_mac_ticks = sysinfo._linux_cpu_ticks, sysinfo._mac_cpu_ticks
+real_is_linux = sysinfo.IS_LINUX
 clock = [(100, 400)]
 sysinfo._linux_cpu_ticks = lambda: clock[0]
 sysinfo._mac_cpu_ticks = lambda: clock[0]
+# the delta arithmetic is the same on both platforms and lives in one place, so
+# the branch is named rather than left to whatever this machine happens to be:
+# on Windows there is no branch at all, and the numbers would come back zero
+sysinfo.IS_LINUX = True
 try:
     pct, state = sysinfo.cpu_percent((0, 0))
     check("a quarter of the ticks idle reads as three quarters busy",
@@ -119,6 +124,7 @@ try:
           pct == 0.0 and state == (5, 100), f"{pct:.2f}")
 finally:
     sysinfo._linux_cpu_ticks, sysinfo._mac_cpu_ticks = real_linux_ticks, real_mac_ticks
+    sysinfo.IS_LINUX = real_is_linux
 
 print("-- macOS readings, through commands that really run --")
 REAL_PATH = os.environ["PATH"]
@@ -127,7 +133,7 @@ REAL_MEMSIZE = sysinfo._HW_MEMSIZE
 
 
 def as_mac(path: str):
-    os.environ["PATH"] = f"{path}:{REAL_PATH}"
+    os.environ["PATH"] = f"{path}{os.pathsep}{REAL_PATH}"
     sysinfo.IS_LINUX, sysinfo.IS_MAC = False, True
     sysinfo._HW_MEMSIZE = None
 
@@ -138,82 +144,99 @@ def as_this_machine():
     sysinfo._HW_MEMSIZE = REAL_MEMSIZE
 
 
-good = fakebin("macos-good", {
-    "vm_stat": "cat <<'EOF'\n" + VM_STAT + "EOF\n",
-    "sysctl": SYSCTL,
-    "osx-cpu-temp": 'echo "52.3\\xc2\\xb0C"\n',
-})
-as_mac(str(good))
-try:
-    pct, used_gb = sysinfo.memory()
-    check("memory is read out of real vm_stat words", 0.0 <= pct <= 100.0, f"{pct:.1f}%")
-    check("and stays a believable number of gigabytes", 0.0 <= used_gb <= 16.01,
-          f"{used_gb:.2f} GiB")
-    check("the total is remembered rather than asked again",
-          sysinfo._HW_MEMSIZE == 17179869184)
-    up = sysinfo.uptime_seconds()
-    check("uptime comes off kern.boottime", up is not None and up > 0,
-          f"{up:,.0f} s" if up else "None")
-    check("the temperature is read when a tool will say it",
-          sysinfo.temperature_c() == 52.3, str(sysinfo.temperature_c()))
-finally:
-    as_this_machine()
+def read_through_real_commands():
+    """The mac readings, driven by stand-in commands that really run.
 
-# An exact case, so the arithmetic is pinned rather than merely in range.
-# 3000 pages of 4096 bytes, of which 2000 are reclaimable: a third in use.
-exact = fakebin("macos-exact", {
-    "vm_stat": ("cat <<'EOF'\nMach Virtual Memory Statistics: (page size of 4096 bytes)\n"
-                "Pages free:                               1000.\n"
-                "Pages inactive:                           1000.\n"
-                "Pages speculative:                           0.\n"
-                "Pages active:                              500.\nEOF\n"),
-    "sysctl": '[ "$2" = "hw.memsize" ] && echo "12288000"\n',
-})
-as_mac(str(exact))
-try:
-    pct, used_gb = sysinfo.memory()
-    check("a third of the pages in use reads as 33 percent",
-          abs(pct - 33.3333) < 0.01, f"{pct:.4f}")
-    check("and the same figure in gigabytes",
-          abs(used_gb - 4096000 / 1024**3) < 1e-9, f"{used_gb:.6f}")
-    check("reclaimable pages are not counted as used", pct < 50.0)
-finally:
-    as_this_machine()
-
-# The counters do not have to add up: a machine up for weeks can hold more
-# reclaimable pages than the total suggests. Subtracting without clamping there
-# reports negative memory, which is the shape of bug this check exists for.
-overfull = fakebin("macos-overfull", {
-    "vm_stat": ("cat <<'EOF'\nMach Virtual Memory Statistics: (page size of 4096 bytes)\n"
-                "Pages free:                               2000.\n"
-                "Pages inactive:                           1500.\n"
-                "Pages speculative:                           0.\nEOF\n"),
-    "sysctl": '[ "$2" = "hw.memsize" ] && echo "4096000"\n',
-})
-as_mac(str(overfull))
-try:
-    pct, used_gb = sysinfo.memory()
-    check("more reclaimable memory than there is memory reads as none in use",
-          pct == 0.0 and used_gb == 0.0, f"{pct:.1f}% {used_gb:.2f} GiB")
-finally:
-    as_this_machine()
-
-broken = fakebin("macos-broken", {
-    "vm_stat": "echo 'Mach Virtual Memory Statistics:'\n",
-    "sysctl": 'echo "17179869184"\n',
-})
-as_mac(str(broken))
-try:
+    Nothing is stubbed at the Python level here: the stand-ins are executables
+    found on PATH, so the argument building, the subprocess call and the parsing
+    are the real ones.
+    """
+    good = fakebin("macos-good", {
+        "vm_stat": "cat <<'EOF'\n" + VM_STAT + "EOF\n",
+        "sysctl": SYSCTL,
+        "osx-cpu-temp": 'echo "52.3\\xc2\\xb0C"\n',
+    })
+    as_mac(str(good))
     try:
-        sysinfo._mac_memory()
-        check("vm_stat with no page size is refused", False)
-    except ValueError as exc:
-        check("vm_stat with no page size is refused", "page size" in str(exc), str(exc)[:50])
-    check("and the surface answers rather than raising", sysinfo.memory() == (0.0, 0.0))
-    check("uptime it cannot read is None, not zero", sysinfo.uptime_seconds() is None
-          or sysinfo.uptime_seconds() > 0)
-finally:
-    as_this_machine()
+        pct, used_gb = sysinfo.memory()
+        check("memory is read out of real vm_stat words", 0.0 <= pct <= 100.0, f"{pct:.1f}%")
+        check("and stays a believable number of gigabytes", 0.0 <= used_gb <= 16.01,
+              f"{used_gb:.2f} GiB")
+        check("the total is remembered rather than asked again",
+              sysinfo._HW_MEMSIZE == 17179869184)
+        up = sysinfo.uptime_seconds()
+        check("uptime comes off kern.boottime", up is not None and up > 0,
+              f"{up:,.0f} s" if up else "None")
+        check("the temperature is read when a tool will say it",
+              sysinfo.temperature_c() == 52.3, str(sysinfo.temperature_c()))
+    finally:
+        as_this_machine()
+
+    # An exact case, so the arithmetic is pinned rather than merely in range.
+    # 3000 pages of 4096 bytes, of which 2000 are reclaimable: a third in use.
+    exact = fakebin("macos-exact", {
+        "vm_stat": ("cat <<'EOF'\nMach Virtual Memory Statistics: (page size of 4096 bytes)\n"
+                    "Pages free:                               1000.\n"
+                    "Pages inactive:                           1000.\n"
+                    "Pages speculative:                           0.\n"
+                    "Pages active:                              500.\nEOF\n"),
+        "sysctl": '[ "$2" = "hw.memsize" ] && echo "12288000"\n',
+    })
+    as_mac(str(exact))
+    try:
+        pct, used_gb = sysinfo.memory()
+        check("a third of the pages in use reads as 33 percent",
+              abs(pct - 33.3333) < 0.01, f"{pct:.4f}")
+        check("and the same figure in gigabytes",
+              abs(used_gb - 4096000 / 1024**3) < 1e-9, f"{used_gb:.6f}")
+        check("reclaimable pages are not counted as used", pct < 50.0)
+    finally:
+        as_this_machine()
+
+    # The counters do not have to add up: a machine up for weeks can hold more
+    # reclaimable pages than the total suggests. Subtracting without clamping
+    # there reports negative memory, which is the bug this check exists for.
+    overfull = fakebin("macos-overfull", {
+        "vm_stat": ("cat <<'EOF'\nMach Virtual Memory Statistics: (page size of 4096 bytes)\n"
+                    "Pages free:                               2000.\n"
+                    "Pages inactive:                           1500.\n"
+                    "Pages speculative:                           0.\nEOF\n"),
+        "sysctl": '[ "$2" = "hw.memsize" ] && echo "4096000"\n',
+    })
+    as_mac(str(overfull))
+    try:
+        pct, used_gb = sysinfo.memory()
+        check("more reclaimable memory than there is memory reads as none in use",
+              pct == 0.0 and used_gb == 0.0, f"{pct:.1f}% {used_gb:.2f} GiB")
+    finally:
+        as_this_machine()
+
+    broken = fakebin("macos-broken", {
+        "vm_stat": "echo 'Mach Virtual Memory Statistics:'\n",
+        "sysctl": 'echo "17179869184"\n',
+    })
+    as_mac(str(broken))
+    try:
+        try:
+            sysinfo._mac_memory()
+            check("vm_stat with no page size is refused", False)
+        except ValueError as exc:
+            check("vm_stat with no page size is refused", "page size" in str(exc),
+                  str(exc)[:50])
+        check("and the surface answers rather than raising", sysinfo.memory() == (0.0, 0.0))
+        check("a boot time it cannot parse is None, not a made up figure",
+              sysinfo.uptime_seconds() is None)
+    finally:
+        as_this_machine()
+
+
+if os.name != "posix":
+    skipped += 1
+    print("  [SKIP] the mac readings, through commands that really run  this "
+          "machine has no sh to stand one up with")
+else:
+    read_through_real_commands()
+
 
 # A machine that claims to be a Mac and is not: there is no mach kernel to ask,
 # and that has to be a reading of nothing rather than an exception in a thread
