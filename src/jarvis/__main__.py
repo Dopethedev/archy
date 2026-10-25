@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from . import config
+from . import net
 from .assistant import Assistant
 from .hud import Hud
 
@@ -130,10 +131,21 @@ def main():
 
     hud = None if args.no_hud else Hud()
     if hud:
-        hud.start()
-        print(f"dashboard: {hud.url}")
+        # A dashboard is a convenience, and the port it wants may already be in
+        # use by another copy of this program. Failing to bind it used to end the
+        # run before the microphone was opened, so the port was the whole
+        # assistant's problem instead of the dashboard's.
+        try:
+            hud.start()
+            print(f"dashboard: {hud.url}")
+        except Exception as exc:
+            print(f"no dashboard: {type(exc).__name__}: {exc}", flush=True)
+            hud = None
 
-    assistant = Assistant(hud=hud, greet=args.greet or "Online.")
+    # The greeting says what is true, not what is usual: this used to announce
+    # "Online." without checking anything, which is the first thing heard and a
+    # lie the moment the network is unplugged.
+    assistant = Assistant(hud=hud, greet=args.greet or net.startup_greeting())
     if args.open and hud:
         opened = open_dashboard(hud.url)
         print(f"opened dashboard in {opened}" if opened else "no browser found to open the dashboard")

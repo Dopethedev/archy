@@ -16,6 +16,7 @@ queues belong to that loop.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import queue
 import re
 import threading
@@ -25,14 +26,15 @@ import numpy as np
 
 from . import config
 from . import briefing
+from . import net
 from . import reminders as reminders_mod
 from . import mic_state
 from . import sweep as sweep_mod
 from .audio import MicCapture, Player
 from .brain import BrainError, PiBrain
 from .hud import Hud
-from .stt import Transcriber
-from .tts import Speaker
+from .stt import DeafTranscriber, Transcriber
+from .tts import MuteSpeaker, Speaker
 from .vad import SpeechVAD
 from .vision import ScreenError, as_image, capture, wanted
 from .wake import SpeechWake, WakeWord
@@ -54,14 +56,25 @@ class Assistant:
         self.state = "booting"
         self.mic = MicCapture()
         self.player = Player()
-        self.transcriber = Transcriber()
-        self.speaker = Speaker(self.player)
+        # The recogniser and the voice load their models here, and a missing file
+        # used to raise out of the constructor: the assistant never reached its
+        # own microphone, and one absent model meant no assistant at all. Each
+        # gets a stand-in that reports the problem instead, so the rest runs.
+        try:
+            self.transcriber = Transcriber()
+        except Exception as exc:
+            self.transcriber = DeafTranscriber(exc)
+        try:
+            self.speaker = Speaker(self.player)
+        except Exception as exc:
+            self.speaker = MuteSpeaker(exc)
         # In speech mode the phrase is understood rather than matched, so the
         # pretrained detector is not even loaded.
         self.wake = WakeWord() if config.WAKE_MODE == "model" else None
         self.speech_wake = SpeechWake() if config.WAKE_MODE == "speech" else None
         self.brain = PiBrain()
         self._vad = None
+        self._vad_missing = False             # looked for once, not every frame
         self._typed: queue.Queue[str] = queue.Queue()
         self._stopping = False
         self._cancel = threading.Event()      # set when the user interrupts
@@ -200,8 +213,24 @@ class Assistant:
 
     # ------------------------------------------------------------------ vad
     def speech_score(self, frame: np.ndarray) -> float:
+        """Speech probability for one frame, zero if the model cannot be loaded.
+
+        The model is loaded on the first frame, so a missing silero file raised
+        inside the microphone pump and took the whole assistant down mid-run. A
+        missing file means it cannot hear, which is worth saying once, not a
+        reason to stop answering the dashboard. It is also only looked for once:
+        this runs on every 30 ms frame, so retrying a file that is not there
+        would be thirty exceptions a second for nothing.
+        """
+        if self._vad is None and not self._vad_missing:
+            try:
+                self._vad = SpeechVAD()
+            except Exception as exc:
+                self._vad_missing = True
+                print(f"[vad] cannot detect speech: {exc}", flush=True)
+                self.log("sys", f"the speech detector is missing: {exc}")
         if self._vad is None:
-            self._vad = SpeechVAD()
+            return 0.0
         return self._vad.speech(frame.astype(np.int16), frame_size=config.INPUT_BLOCK)
 
     # ------------------------------------------------------------- utterances
@@ -281,6 +310,10 @@ class Assistant:
             if not spoken.is_set():
                 spoken.set()
                 self._hang_count = 0          # this model is answering after all
+                # A turn that produced speech is the best evidence there is that
+                # the internet and the provider are both fine, better than any
+                # probe: it just happened.
+                net.net.note_success()
                 self._speaking_since = loop.time()
                 self.turn_latency = loop.time() - turn_started
                 self.log("sys", f"answered in {self.turn_latency:.1f}s")
@@ -419,20 +452,33 @@ class Assistant:
 
         except BrainError as exc:
             print(f"[brain] {exc}")
+            # What went wrong decides what to say. "No internet" and "the model
+            # refused this one" both produced "my connection dropped" before, which
+            # is wrong in the first case at the level of the fact and useless in
+            # the second, where a refused name is not a connection problem at all.
+            kind = net.net.note_failure(str(exc))
             # A dead relay deserves the next one in the chain. A silent model is
             # not proof on its own that the model died, because a slow tool run
             # looks the same from here, so it gets one retry before the chain
             # moves on. Without the second half of that rule a relay that
             # accepts a connection and then says nothing is retried forever, and
             # every question is answered with "my connection dropped".
-            silent = "said nothing for" in str(exc)
+            silent = kind == net.SILENCE
             self._hang_count = self._hang_count + 1 if silent else 0
             if not silent or self._hang_count >= config.MODEL_HANG_LIMIT:
                 moved = self.brain.advance_model()
                 self._hang_count = 0
             else:
                 moved = None
-            if moved:
+            if kind == net.CONNECTIVITY:
+                self.log("sys", "no internet, so the model cannot be reached")
+                message = ("No internet, so I am on the local model. Ask me again."
+                           if config.PI_MODELS_OFFLINE else
+                           "I have no internet, so I cannot reach the model.")
+            elif kind == net.AUTH:
+                self.log("sys", "the model refused my key")
+                message = "The model refused my key, so I cannot think right now."
+            elif moved:
                 reason = ("went quiet twice" if silent else "failed")
                 self.log("sys", f"the model {reason}, switching to "
                                 f"{moved.split('/')[-1]}")
@@ -835,6 +881,26 @@ class Assistant:
             print(f"[warm] skipped: {exc}")
 
     # -------------------------------------------------------------------- run
+    async def _start(self, label: str, step) -> bool:
+        """Start one part of the assistant, and survive it failing.
+
+        Each of these was a bare call in run(), so any failure took the process
+        with it: a `pi` that is not installed meant no assistant at all, and a
+        missing audio device killed the dashboard with it. A voice assistant with
+        no voice can still be asked things on the dashboard, and one with no brain
+        can still say what time it is, so each part reports and the rest carry on.
+        """
+        try:
+            result = step()
+            if inspect.isawaitable(result):
+                await result
+            return True
+        except Exception as exc:
+            print(f"[start] {label} did not start: {type(exc).__name__}: {exc}",
+                  flush=True)
+            self.log("sys", f"{label} did not start: {exc}")
+            return False
+
     async def run(self):
         self._loop = asyncio.get_running_loop()
         if self.hud:
@@ -846,16 +912,18 @@ class Assistant:
         # stopped, which is a second of start-up spent on a conversation that
         # was going to be set aside anyway
         await asyncio.to_thread(self.brain.archive_sessions)
-        await self.brain.start()
-        self.player.start()
+        await self._start("the model connection", self.brain.start)
+        await self._start("the speakers", self.player.start)
         if self.greet:
-            self.set_state("speaking")
-            await asyncio.to_thread(self.speaker.say, self.greet)
-            await asyncio.to_thread(self.player.wait_drained, 30)
-            self.log("jarvis", self.greet)
-        # warming up and opening the microphone is not speech: leaving the state
-        # on "speaking" made the dashboard claim it was talking for the whole
-        # of start-up
+            try:
+                self.set_state("speaking")
+                await asyncio.to_thread(self.speaker.say, self.greet)
+                await asyncio.to_thread(self.player.wait_drained, 30)
+                self.log("jarvis", self.greet)
+            except Exception as exc:
+                # a greeting is not worth stopping for, and with no output device
+                # this is where it would fail
+                print(f"[start] could not say the greeting: {exc}", flush=True)
         self.set_state("booting")
         await self._warm_up()
         # the switch is remembered: opening the microphone for someone who turned
@@ -864,11 +932,15 @@ class Assistant:
             self.mic_enabled = False
             self.log("sys", "the microphone is still off from last time")
             self.set_state("muted")
-        else:
-            self.mic.start()
+        elif await self._start("the microphone", self.mic.start):
             self.mic.drain()
             self.log("sys", f"listening for \"{config.WAKE_PHRASE}\"")
             self._back_to_idle()
+        else:
+            # the dashboard's typed input and everything that does not need a
+            # microphone still work, so this is not a reason to exit
+            self.mic_enabled = False
+            self.set_state("muted")
         try:
             await self._pump()
         finally:
