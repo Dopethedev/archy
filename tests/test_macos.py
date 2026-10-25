@@ -553,6 +553,26 @@ try:
 finally:
     main_mod.MAC_APP_DIRS = real_dirs
 
+print("-- the same checks against a Mac that is really here --")
+# The stand-ins above prove the parsing. This proves the commands: the runner is a
+# real Mac, so its own spctl, systemextensionsctl, ps, lsof and launchd answer,
+# and a change in any of their output shapes shows up here and nowhere else
+# until someone's sweep comes back wrong on their own machine.
+if sys.platform != "darwin":
+    skipped += 1
+    print("  [SKIP] the mac commands, answering for real  this machine is not one")
+else:
+    for label, fn in (("gatekeeper", sweep.check_mac_gatekeeper),
+                      ("extensions", sweep.check_mac_extensions),
+                      ("processes", sweep.check_mac_processes),
+                      ("listeners", sweep.check_mac_listeners),
+                      ("launch items", sweep.check_mac_launch_items)):
+        lines = fn()
+        level = lines[0].split(":", 1)[0] if lines else ""
+        check(f"{label} answer on a real Mac instead of crashing",
+              bool(lines) and level in ("ok", "warn", "alert"),
+              lines[0][:60] if lines else "no lines at all")
+
 for path in TEMPS:
     shutil.rmtree(path, ignore_errors=True)
 
