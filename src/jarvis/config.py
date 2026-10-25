@@ -197,6 +197,27 @@ PI_EXTENSIONS = False
 SESSION_DIR = Path(os.environ.get("JARVIS_SESSION_DIR") or (ROOT / ".sessions"))
 # overridable so the store can live elsewhere, and so tests can use their own
 MEMORY_FILE = Path(os.environ.get("JARVIS_MEMORY_FILE") or (ROOT / "memory.json"))
+# ------------------------------------------------------------------- permissions
+# Off by default: with this off there is no gate, no policy file, and no
+# enforcement, which is exactly how the assistant behaved before it existed. The
+# gate itself is a pi extension, because pi can refuse a tool call in code and a
+# system prompt cannot. See src/jarvis/gate/permission-gate.ts.
+PERMISSIONS = False
+PERMISSION_GATE = ROOT / "src" / "jarvis" / "gate" / "permission-gate.ts"
+PERMISSION_POLICY = Path(os.environ.get("JARVIS_PERMISSION_POLICY")
+                         or (STATE_DIR / "permission-policy.json"))
+PERMISSION_PENDING = STATE_DIR / "permission-pending.json"
+PERMISSION_APPROVALS = STATE_DIR / "permission-approvals.json"
+PERMISSION_LOG = STATE_DIR / "permission-log.jsonl"
+# Extra directories the assistant may read and write without asking. The repo and
+# the state directory are always included; the home directory never is.
+PERMISSION_ROOTS: tuple = ()
+# Extra commands the gate may treat as read-only. It can widen the list, it cannot
+# promote sudo, rm or a redirect into it.
+PERMISSION_READONLY_COMMANDS: tuple = ()
+# How long an approval lasts before it is stale, in seconds, and how long a
+# blocked request stays on the waiting list.
+PERMISSION_APPROVAL_TTL_S = 300.0
 # If pi says nothing at all for this long the turn is abandoned and the model
 # While a tool call is running, and for the rest of that turn, the process is
 # doing more work than an ordinary question: a twenty second curl is a slow
