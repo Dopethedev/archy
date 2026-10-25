@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 
 from . import config
+from . import privacy
 
 
 class GateMissing(RuntimeError):
@@ -73,6 +74,22 @@ def gate_env() -> dict[str, str]:
     return {"JARVIS_PERMISSION_POLICY": str(config.PERMISSION_POLICY)}
 
 
+# The brain publishes the model it is using here, so the policy written for the gate
+# describes the request the gate is going to be judging. A module-level slot rather
+# than a parameter because there are three callers and one current answer.
+_current_model: tuple = (None,)
+
+
+def current_model() -> tuple:
+    return _current_model
+
+
+def note_model(model: str | None) -> None:
+    """Called by the brain when the chain moves, and followed by write_policy()."""
+    global _current_model
+    _current_model = (model,)
+
+
 def policy() -> dict:
     """The policy the gate enforces.
 
@@ -86,9 +103,14 @@ def policy() -> dict:
         resolved = str(Path(extra).expanduser().resolve())
         if resolved not in roots:
             roots.append(resolved)
+    # Which model is answering is part of the policy, because the gate judges the
+    # file tools and it cannot see the brain's chain from inside pi.
+    remote = privacy.model_is_remote(current_model()[0]) if current_model() else True
     return {
         "version": 1,
         "enabled": True,
+        "privacy_remote": remote,
+        "privacy_allow_files": bool(privacy.shares("files", current_model()[0])),
         "roots": roots,
         "readonly_commands": list(config.PERMISSION_READONLY_COMMANDS),
         "approvals": str(config.PERMISSION_APPROVALS),

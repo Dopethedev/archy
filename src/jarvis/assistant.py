@@ -29,6 +29,7 @@ from . import briefing
 from . import local_model
 from . import net
 from . import permissions
+from . import privacy
 from . import reminders as reminders_mod
 from . import mic_state
 from . import sweep as sweep_mod
@@ -55,6 +56,9 @@ class Assistant:
     def __init__(self, hud: Hud | None = None, greet: str = ""):
         self.hud = hud
         self.greet = greet
+        # Clearing what it remembers takes two sentences, and the second one only
+        # means something for a minute after the first.
+        self._privacy_confirm = privacy.Confirmation()
         self.state = "booting"
         self.mic = MicCapture()
         self.player = Player()
@@ -357,6 +361,11 @@ class Assistant:
             # Local intents are answered without the model: a reminder, a
             # timer, a theme. One breath, no relay in the way.
             local_reply = None
+            # Asked for, then confirmed, and the confirmation is the only thing that
+            # clears anything: calling it for the numbers as well cleared twice and
+            # then reported the second, empty, clearing.
+            confirmed = (self._privacy_confirm.confirm(text)
+                         if self._privacy_confirm.waiting() else None)
             action = reminders_mod.parse(text)
             if action:
                 local_reply = reminders_mod.confirm(action)
@@ -391,6 +400,23 @@ class Assistant:
                     permissions.deny(waiting[-1]["id"]) if waiting else None
                     local_reply = ("Dropped it, nothing will run." if waiting
                                    else "Nothing is waiting on your approval.")
+                elif confirmed:
+                    facts = confirmed["memory"]["cleared"]
+                    talks = confirmed["history"]["cleared"]
+                    parts = []
+                    if facts:
+                        parts.append(f"{facts} thing{'s' if facts != 1 else ''} I remembered")
+                    if talks:
+                        parts.append(f"{talks} saved conversation{'s' if talks != 1 else ''}")
+                    if not parts:
+                        local_reply = "There was nothing stored to delete."
+                    else:
+                        local_reply = ("Done. " + " and ".join(parts)
+                                       + " deleted, with a copy kept beside the originals.")
+                elif privacy.asked_to_clear(text):
+                    local_reply = self._privacy_confirm.ask()
+                elif privacy.wants_status(text):
+                    local_reply = privacy.spoken_status()
                 elif permissions.enabled() and self._approval_question(text):
                     local_reply = permissions.summary()
 
@@ -416,6 +442,11 @@ class Assistant:
                 except asyncio.TimeoutError:
                     sweep_report = None
                     self.log("sys", "the sweep took too long, summarising without it")
+            elif wanted(text) and not privacy.shares("screens", self.brain.model_name()):
+                # Not a screenshot withheld at the last moment: not taken at all, so
+                # there is nothing to leak by accident later.
+                local_reply = ("Screenshots are switched off for online models, so I have not "
+                               "taken one. Switch that on, or use the local model, and I will look.")
             elif wanted(text):
                 try:
                     jpeg = await asyncio.to_thread(capture)
