@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import types
 from pathlib import Path
 
@@ -573,9 +574,31 @@ else:
               bool(lines) and level in ("ok", "warn", "alert"),
               lines[0][:60] if lines else "no lines at all")
 
+    # And the readings themselves. The stand-ins above prove they are read
+    # correctly; this proves the machine answers at all, which is the half no
+    # stand-in can tell you. Two calls, because cpu is a delta and the first one
+    # has nothing to compare against.
+    _, state = sysinfo.cpu_percent((0, 0))
+    time.sleep(0.4)
+    percent, state = sysinfo.cpu_percent(state)
+    # The failure this exists for is the mach call quietly returning nothing, in
+    # which case every reading becomes zero and a range check would still pass.
+    check("the mach kernel hands back real ticks, not nothing",
+          state[1] > 0, f"{state[1]:,} ticks since boot")
+    check("cpu comes off a real Mac as a percentage",
+          0.0 <= percent <= 100.0, f"{percent:.1f}%")
+    percent, used_gb = sysinfo.memory()
+    check("memory comes off a real Mac, and is neither zero nor negative",
+          used_gb > 0.0 and 0.0 < percent <= 100.0, f"{percent:.1f}% {used_gb:.2f} GiB")
+    uptime = sysinfo.uptime_seconds()
+    check("uptime comes off a real Mac", uptime is not None and uptime > 0,
+          f"{uptime:,.0f} s" if uptime else "None")
+    load = sysinfo.load_average()
+    check("load average comes off a real Mac",
+          load is not None and len(load) == 3 and load[0] >= 0.0, str(load))
+
 for path in TEMPS:
     shutil.rmtree(path, ignore_errors=True)
-
 print()
 print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)"
       + (f", {skipped} skipped" if skipped else ""))
