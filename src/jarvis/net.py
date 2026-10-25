@@ -261,6 +261,11 @@ def startup_greeting(link: Connectivity | None = None,
     link = link or net
     link.refresh()
     link.wait(config.NET_GREETING_WAIT_S if wait is None else wait)
+    # Offline-only mode answers from the local model whatever the network is
+    # doing, so saying "Online." would be true about the router and a lie about
+    # the assistant. The mode is what the user hears.
+    if config.PI_CHAIN_MODE == "offline" and config.PI_MODELS_OFFLINE:
+        return "Offline. Running on the local model."
     verdict = link.internet()
     if verdict is True:
         return "Online."

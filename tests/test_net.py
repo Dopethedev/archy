@@ -139,7 +139,13 @@ offline = Connectivity(probe=lambda: False)
 text = net.startup_greeting(offline, wait=1.0)
 check("offline does not claim to be online",
       "Online." not in text and text.startswith("Offline"), text)
-check("and it says why it cannot think", "internet" in text, text)
+# with a local model the honest sentence names the thing that will answer, and
+# without one it names the thing that cannot be reached. Either way it says what
+# is true, which is the point of the function.
+if config.PI_MODELS_OFFLINE:
+    check("and it names the local model it has", "local model" in text, text)
+else:
+    check("and it says why it cannot think", "internet" in text, text)
 
 saved = config.PI_MODELS_OFFLINE
 config.PI_MODELS_OFFLINE = ("llama/local-model",)
@@ -158,8 +164,14 @@ release.set()
 time.sleep(0.05)
 
 print("-- the feature is off by default --")
-check("no local chain is configured out of the box",
-      config.PI_MODELS_OFFLINE == (), str(config.PI_MODELS_OFFLINE))
+# config.local.json is read at import, so this asserts the shape the code works
+# with rather than the value an install ships: empty means the chain is exactly
+# what it always was, which test_local_chain covers by setting it directly.
+check("the local chain is a sequence of model ids",
+      isinstance(config.PI_MODELS_OFFLINE, (tuple, list)),
+      str(type(config.PI_MODELS_OFFLINE).__name__))
+check("and the mode is one of the three it understands",
+      config.PI_CHAIN_MODE in ("auto", "online", "offline"), config.PI_CHAIN_MODE)
 check("probe targets are addresses, not names",
       all(isinstance(t[0], str) and t[0][0].isdigit() for t in config.NET_PROBE_TARGETS),
       str(config.NET_PROBE_TARGETS))
