@@ -5,6 +5,10 @@
 #   ./run.sh --no-hud        console only
 #   ./run.sh --say "hi"      one typed message, no microphone
 #   ./run.sh --mic-test      live mic check: watch the level while you talk
+#
+# Linux and macOS both. On macOS the first run asks for the microphone and the
+# first screen question asks for Screen Recording, both under System Settings.
+# Windows has run.cmd, where there is no bash.
 set -euo pipefail
 cd "$(dirname "$0")"
 

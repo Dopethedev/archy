@@ -6,9 +6,11 @@ transcribes. If transcription is right but the wake word never fires, the
 audio path is fine and the wake phrase is the problem. If the transcription
 is nonsense, the audio itself is wrong.
 
-Also reports clipping and the actual stream format pipewire is delivering,
-because a silent sample-rate mismatch looks exactly like a wake model that
-refuses to match.
+On Linux it also reports clipping and the actual stream format pipewire is
+delivering, because a silent sample-rate mismatch looks exactly like a wake
+model that refuses to match. Neither is a thing on macOS or Windows, so there
+it says so instead, and points at the permission those two platforms gate the
+microphone behind.
 """
 
 from __future__ import annotations
@@ -46,6 +48,19 @@ def _stream_format():
         return []
 
 
+def _permission_note() -> str | None:
+    """Where the microphone switch is on a platform that has one."""
+    import sys
+    if sys.platform == "darwin":
+        return ("macOS gates the microphone: System Settings, Privacy and "
+                "Security, Microphone. The tick has to be there before the "
+                "terminal is started, or the level below stays at zero")
+    if sys.platform == "win32":
+        return ("Windows gates the microphone: Settings, Privacy and security, "
+                "Microphone, and 'let desktop apps access your microphone'")
+    return None
+
+
 async def run(seconds: float | None = None, device: str | None = None, transcribe: bool = True):
     if device:
         config.INPUT_DEVICE = device
@@ -60,6 +75,8 @@ async def run(seconds: float | None = None, device: str | None = None, transcrib
     print(f"input device: {name}")
     for line in _stream_format():
         print(f"  pipewire: {line}")
+    if note := _permission_note():
+        print(f"  note: {note}")
     print("speak normally. ctrl+c to stop.\n")
 
     started = time.monotonic()
@@ -147,9 +164,15 @@ async def run(seconds: float | None = None, device: str | None = None, transcrib
     if peak_level < 0.005 and detections == 0:
         print("\nThe microphone barely heard anything. If you were talking, the problem")
         print("is the mic or its gain, not the software.")
+        if note := _permission_note():
+            print(f"If nothing was ever allowed to listen, check: {note}.")
     if peak_wake := peak_score:
         print(f"\nwake word {'fired' if detections else 'did not fire'} "
               f"(best score {peak_wake:.3f}, threshold {config.WAKE_THRESHOLD})")
-    if clip_pct > 1.0:
+    # the card's own gain is an ALSA control, so the advice is Linux's alone
+    if clip_pct > 1.0 and _permission_note() is None:
         print("\nWARNING: the signal is clipping. Turn Auto Gain Control back off:")
         print("  amixer -c 0 sset 'Auto Gain Control' off")
+    elif clip_pct > 1.0:
+        print("\nWARNING: the signal is clipping. Lower the input level in the "
+              "system sound settings.")

@@ -114,11 +114,24 @@ Interrupt any of it by talking over it, or by saying the wake phrase again.
   `--app` (how `run.sh` opens it), and a window rule that floats it fixes the
   placement for good. Its title cannot be used: a browser sets the title after the
   window is mapped, and these rules match the whole string at that moment.
-- **The sweep needs a Linux machine.** It reads `/proc`, asks systemd and the
-  package manager, and looks in browser profiles. On Windows, or on a distribution
-  without those, asking for one gets a plain answer instead of a sweep. Everything
-  else runs on Linux and Windows both: the screen is captured through grim on
-  Wayland and through Pillow elsewhere, and the launcher for Windows is `run.cmd`.
+- **The sweep reads Linux and macOS, and not Windows.** On Linux it reads
+  `/proc`, asks systemd and the package manager, and looks in browser profiles. On
+  macOS it reads what a Mac has instead: launch items and whether the binary
+  behind each one is signed, system extensions, Gatekeeper, what is listening, and
+  `/etc/hosts`. On Windows, or on a distribution without those, asking for one gets
+  a plain answer instead of a sweep. Everything else runs on all three: the screen
+  is captured through grim on Wayland, `screencapture` on macOS, and Pillow
+  elsewhere, and the launchers are `run.sh` and `run.cmd`.
+- **macOS gates two things.** Screen questions need the Screen Recording
+  permission and the microphone needs the Microphone permission, both under System
+  Settings, Privacy and Security. Before the tick goes in, a screen question reads
+  as a black frame and the microphone opens onto nothing; both are reported for
+  what they are rather than answered around. A terminal that was refused has to be
+  started again after the tick.
+- **The dashboard opens the browser by bundle on macOS.** There is no browser on
+  `PATH` there, so `/Applications` is searched in preference order and the
+  executable inside the bundle is started with the same flags Linux uses. Safari
+  has no app mode, so a Mac with only Safari gets a normal browser window.
 - **Email, calendar and music are not here.** Reading someone's mail means
   shipping their credentials and sending their messages to a model, so that one
   is left to whoever wants it. See the note in the README.

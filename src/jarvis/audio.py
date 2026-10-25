@@ -1,15 +1,18 @@
 """Microphone capture and speaker playback.
 
-Both devices are opened through pipewire, which resamples for us: the headset
-hardware only runs at 48 kHz, while whisper, silero and openWakeWord all want
-16 kHz. Asking PortAudio for the raw hw device fails; the default pipewire
-device accepts anything.
+On Linux both devices are opened through pipewire, which resamples for us: the
+headset hardware only runs at 48 kHz, while whisper, silero and openWakeWord all
+want 16 kHz. Asking PortAudio for the raw hw device fails; the default pipewire
+device accepts anything. On macOS and Windows the same stream opens through
+CoreAudio and WASAPI, which do the same resampling, so nothing above this file
+has to know which one it is sitting on.
 """
 
 from __future__ import annotations
 
 import collections
 import queue
+import sys
 import threading
 import time
 
@@ -67,6 +70,34 @@ def resample(audio: np.ndarray, samplerate: int, target: int) -> np.ndarray:
         return audio
     return np.asarray(soxr.resample(audio, samplerate, target, quality="HQ"),
                       dtype=np.float32)
+
+
+def open_error(exc: Exception) -> str:
+    """A microphone that will not open, in words worth reading.
+
+    macOS is the one platform here that gates the microphone. A terminal that has
+    never been allowed to listen gets a PortAudio error naming nothing useful,
+    and the permission prompt only appears the first time a program actually
+    asks, so the failure arrives before the dialog does if the dialog was
+    dismissed once. Naming the switch is the difference between a two-minute fix
+    and an evening of blaming the microphone.
+
+    The original text is kept: this adds a likely cause, it does not replace
+    evidence.
+    """
+    if sys.platform == "darwin":
+        return (f"the microphone would not open ({exc}). On macOS this is usually "
+                f"the Microphone permission: System Settings, Privacy and "
+                f"Security, Microphone, and the app running jarvis needs a tick "
+                f"there. A terminal that has never been allowed to listen has to "
+                f"be started again after the tick.")
+    if sys.platform == "win32":
+        return (f"the microphone would not open ({exc}). On Windows this is "
+                f"usually the Microphone privacy setting, or another program "
+                f"holding the device in exclusive mode.")
+    return (f"the microphone would not open ({exc}). On Linux this is usually "
+            f"another program holding the device, or the wrong input device "
+            f"selected: try --input followed by part of its name.")
 
 
 class MicCapture:
@@ -186,15 +217,19 @@ class MicCapture:
             self.stop()
         if not config.HARDWARE_AGC:
             self._disable_hardware_agc()
-        self._stream = sd.InputStream(
-            samplerate=config.SAMPLE_RATE,
-            channels=1,
-            dtype="int16",
-            blocksize=self._blocksize,
-            device=self._device,
-            callback=self._callback,
-        )
-        self._stream.start()
+        try:
+            self._stream = sd.InputStream(
+                samplerate=config.SAMPLE_RATE,
+                channels=1,
+                dtype="int16",
+                blocksize=self._blocksize,
+                device=self._device,
+                callback=self._callback,
+            )
+            self._stream.start()
+        except Exception as exc:
+            self._stream = None
+            raise RuntimeError(open_error(exc)) from exc
 
     @staticmethod
     def _disable_hardware_agc():

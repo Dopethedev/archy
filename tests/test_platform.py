@@ -68,15 +68,19 @@ check("the account check says it has nothing to read",
       (answer.stdout.strip().splitlines() or [""])[-1][:60])
 
 # ------------------------------------------------------------------- the sweep
+# Linux and macOS are both read, by different checks; everything else is told so
 check("the sweep knows which machines it can read",
-      sweep.supported() == sys.platform.startswith("linux"),
+      sweep.supported() == (sys.platform.startswith("linux") or sys.platform == "darwin"),
       f"supported={sweep.supported()}")
+check("and it picks the checks that match the machine",
+      sweep.checks() == (sweep.MAC_CHECKS if sys.platform == "darwin" else sweep.CHECKS),
+      f"{len(sweep.checks())} checks")
 real_supported = sweep.supported
 sweep.supported = lambda: False
 try:
     line = sweep.run()
     check("a machine it cannot read is told so, in one line",
-          "not a Linux machine" in line and len(line.splitlines()) == 1, line[:60])
+          "neither Linux nor macOS" in line and len(line.splitlines()) == 1, line[:70])
 finally:
     sweep.supported = real_supported
 

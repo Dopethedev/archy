@@ -72,12 +72,12 @@ finally:
     briefing._weather_cache = (0.0, "")
 
 print("-- machine health and the last sweep --")
-# the readings come from /proc, so on a platform without it the honest answer is
-# that they are unavailable, and that is what this asserts there
-has_proc = Path("/proc/loadavg").exists()
+# the readings come from sysinfo, which knows a Linux box and a Mac both; a
+# platform it cannot read has to say so rather than produce a line of zeroes
+readable = sys.platform.startswith("linux") or sys.platform == "darwin"
 machine_line = briefing._machine()
 check("machine line reads this machine",
-      ("memory at" in machine_line) if has_proc else ("unavailable" in machine_line),
+      ("memory at" in machine_line) if readable else ("unavailable" in machine_line),
       machine_line)
 config.STATE_DIR = Path("/tmp") / f"jarvis-test-{time.time_ns()}"
 check("no sweep yet is admitted", "no sweep has run" in briefing._last_sweep())
@@ -98,7 +98,7 @@ check("time is in it", "Time:" in facts)
 # briefing says so rather than naming a place
 check("weather is in it",
       (config.CITY in facts) if config.CITY else ("your area" in facts))
-check("machine is in it", ("load" in facts) if has_proc else ("unavailable" in facts),
+check("machine is in it", ("load" in facts) if readable else ("unavailable" in facts),
       facts.splitlines()[1][:70])
 check("security is in it", "sweep" in facts)
 check("it tells the model not to go looking",

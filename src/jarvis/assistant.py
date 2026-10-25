@@ -341,9 +341,10 @@ class Assistant:
             if sweep_mod.wanted(text) and not sweep_mod.supported():
                 # Nothing on this machine for the checks to read, so it is
                 # answered here instead of after a long look at nothing.
-                local_reply = ("The sweep reads a Linux machine: the processes, "
-                               "the services, the package manager. There is "
-                               "nothing on this one for it to read.")
+                local_reply = ("The sweep reads a Linux machine or a Mac: the "
+                               "processes, the things that start at login, and "
+                               "what is listening. There is nothing on this one "
+                               "for it to read.")
             elif sweep_mod.wanted(text):
                 deltas.put("Running the sweep now, this takes a few seconds.")
                 try:

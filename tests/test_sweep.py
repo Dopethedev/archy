@@ -259,7 +259,7 @@ async def main():
     try:
         line = sweep.run()
         check("another platform is told so, not swept",
-              "not a Linux machine" in line and len(line.splitlines()) == 1, line[:60])
+              "neither Linux nor macOS" in line and len(line.splitlines()) == 1, line[:70])
     finally:
         sweep.supported = real_supported
     check("and this platform is swept", sweep.supported() and "security sweep of" in sweep.run())

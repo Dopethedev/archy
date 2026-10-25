@@ -21,9 +21,8 @@ import queue
 import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
-from . import config
+from . import config, sysinfo
 
 MIME = {".html": "text/html", ".js": "text/javascript", ".css": "text/css",
         ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
@@ -263,43 +262,12 @@ class Hud:
                 self.subscribers.remove(chan)
 
     # ------------------------------------------------------------------ system
-    @staticmethod
-    def _cpu_percent(prev: tuple[int, int]) -> tuple[float, tuple[int, int]]:
-        try:
-            with open("/proc/stat") as fh:
-                parts = [int(x) for x in fh.readline().split()[1:]]
-            idle, total = parts[3] + parts[4], sum(parts)
-            d_idle, d_total = idle - prev[0], total - prev[1]
-            pct = 0.0 if d_total <= 0 else 100.0 * (1 - d_idle / d_total)
-            return pct, (idle, total)
-        except Exception:
-            return 0.0, prev
-
-    @staticmethod
-    def _memory() -> tuple[float, float]:
-        try:
-            info = {}
-            with open("/proc/meminfo") as fh:
-                for line in fh:
-                    key, _, rest = line.partition(":")
-                    info[key] = float(rest.strip().split()[0])
-            total, avail = info.get("MemTotal", 1), info.get("MemAvailable", 0)
-            return 100.0 * (1 - avail / total), (total - avail) / 1024 / 1024
-        except Exception:
-            return 0.0, 0.0
-
-    @staticmethod
-    def _temp() -> float | None:
-        for hwmon in sorted(Path("/sys/class/hwmon").glob("hwmon*")):
-            try:
-                if (hwmon / "name").read_text().strip() not in ("coretemp", "k10temp", "zenpower"):
-                    continue
-                for label in sorted(hwmon.glob("temp*_label")):
-                    if "package" in label.read_text().lower():
-                        return int((hwmon / label.name.replace("_label", "_input")).read_text()) / 1000
-            except Exception:
-                continue
-        return None
+    # Every reading comes from sysinfo, which is what knows this is a mac or a
+    # Linux box. These three keep their names because the dials are wired to
+    # them, nothing else.
+    _cpu_percent = staticmethod(sysinfo.cpu_percent)
+    _memory = staticmethod(sysinfo.memory)
+    _temp = staticmethod(sysinfo.temperature_c)
 
     def _stats_loop(self):
         prev = (0, 0)

@@ -13,6 +13,7 @@ import asyncio
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 from . import config
 from .assistant import Assistant
@@ -20,8 +21,45 @@ from .hud import Hud
 
 APP_BROWSERS = ["brave", "chromium", "google-chrome-stable", "google-chrome", "firefox"]
 
+# On macOS a browser is a bundle in /Applications rather than a program on PATH,
+# so the same list is looked for as bundles, and the executable inside one is
+# started directly: it takes --app and --new-window exactly as it does on Linux,
+# and it hands the window to the copy that is already running. Safari is not in
+# the list because it has no app mode; the default-browser fallback below opens
+# whatever is set, which on a Mac is Safari unless the owner changed it.
+MAC_BROWSERS = (
+    ("Brave Browser", "Contents/MacOS/Brave Browser", False),
+    ("Google Chrome", "Contents/MacOS/Google Chrome", False),
+    ("Chromium", "Contents/MacOS/Chromium", False),
+    ("Microsoft Edge", "Contents/MacOS/Microsoft Edge", False),
+    ("Firefox", "Contents/MacOS/firefox", True),
+)
+MAC_APP_DIRS = (Path("/Applications"), Path.home() / "Applications",
+                Path("/System/Applications"))
+
+
+def _mac_browser() -> tuple[str, Path, bool] | None:
+    """The first browser bundle installed here, or None."""
+    for name, inner, firefox in MAC_BROWSERS:
+        for base in MAC_APP_DIRS:
+            exe = base / f"{name}.app" / inner
+            if exe.exists():
+                return name, exe, firefox
+    return None
+
 
 def open_dashboard(url: str):
+    if sys.platform == "darwin":
+        found = _mac_browser()
+        if found:
+            name, exe, firefox = found
+            args = [str(exe), "--new-window", url] if firefox else \
+                   [str(exe), f"--app={url}", "--window-size=900,680"]
+            try:
+                subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return name
+            except Exception:
+                pass
     for name in APP_BROWSERS:
         path = shutil.which(name)
         if not path:
@@ -35,8 +73,8 @@ def open_dashboard(url: str):
         except Exception:
             continue
     # None of the usual browsers, or a platform where they are not named this
-    # way: hand it to the operating system, which on Windows means the default
-    # browser and on Linux means xdg-open.
+    # way: hand it to the operating system, which on Windows and macOS means the
+    # default browser and on Linux means xdg-open.
     try:
         import webbrowser
         if webbrowser.open(url):

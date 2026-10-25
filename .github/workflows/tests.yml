@@ -5,10 +5,12 @@
 # that: the wake matcher, the phrasings, the reminders, the local intents, the
 # memory store, the microphone switch and the dashboard server.
 #
-# Windows is in the list on purpose. The assistant is a Linux program, and the
-# sweep and the screen capture are the parts that will not port, but everything
-# that parses and decides is meant to be portable, and a claim like that is worth
-# having a runner check rather than a sentence in the README.
+# Windows and macOS are in the list on purpose. The assistant is written on Linux,
+# and the parts that are platform-specific are the ones that will not port: the
+# sweep, the screen capture, the machine readings. Everything that parses and
+# decides is meant to be portable, and a claim like that is worth having a runner
+# check rather than a sentence in the README. The macOS runner is the only place
+# where the mach cpu call, screencapture and launchd are the real thing.
 
 name: tests
 
@@ -23,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +50,7 @@ jobs:
           failed=0
           for t in test_wake_phrase test_phrasings test_reminders test_mic_state \
                    test_memory_store test_intents test_briefing test_hud_security \
-                   test_platform test_fetch_models; do
+                   test_platform test_macos test_fetch_models; do
             echo "=== $t ==="
             if uv run python "tests/$t.py"; then :; else failed=$((failed+1)); fi
           done

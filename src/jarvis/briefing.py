@@ -10,7 +10,7 @@ import re
 import time
 import urllib.request
 
-from . import config
+from . import config, sysinfo
 
 _weather_cache: tuple[float, str] = (0.0, "")
 
@@ -89,25 +89,22 @@ def _weather() -> str:
 
 
 def _machine() -> str:
-    try:
-        load1, _, _ = os_loadavg()
-        info = {}
-        with open("/proc/meminfo") as fh:
-            for line in fh:
-                key, _, rest = line.partition(":")
-                info[key] = float(rest.strip().split()[0])
-        mem = 100.0 * (1 - info.get("MemAvailable", 1) / info.get("MemTotal", 1))
-        with open("/proc/uptime") as fh:
-            up = float(fh.read().split()[0])
-        hours, mins = int(up // 3600), int(up % 3600 // 60)
-        return f"load {load1:.1f}, memory at {mem:.0f} percent, up {hours}h {mins:02d}m"
-    except Exception:
+    """The machine in one sentence, or an admission that it will not say.
+
+    The readings come from sysinfo, which is what knows whether this is a mac or
+    a Linux box. A machine with none of them is told apart from a machine whose
+    readings all happen to be zero by the uptime and the load average, which
+    every machine that can be asked has.
+    """
+    load = sysinfo.load_average()
+    up = sysinfo.uptime_seconds()
+    mem, _ = sysinfo.memory()
+    if load is None or up is None:
         return "machine readings unavailable"
-
-
-def os_loadavg():
-    with open("/proc/loadavg") as fh:
-        return tuple(float(x) for x in fh.read().split()[:3])
+    hours, mins = int(up // 3600), int(up % 3600 // 60)
+    if mem <= 0.0:                              # a platform that cannot say
+        return f"load {load[0]:.1f}, up {hours}h {mins:02d}m"
+    return f"load {load[0]:.1f}, memory at {mem:.0f} percent, up {hours}h {mins:02d}m"
 
 
 def _last_sweep() -> str:

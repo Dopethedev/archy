@@ -1,6 +1,7 @@
 """The security sweep.
 
-Concrete checks, run locally, no model in the loop until the results exist:
+Concrete checks, run locally, no model in the loop until the results exist.
+On Linux:
 
 - clamav over the places malware actually lands first: /tmp, /dev/shm and
   ~/Downloads. A whole-disk scan would take hours and find nothing that a
@@ -20,6 +21,11 @@ Concrete checks, run locally, no model in the loop until the results exist:
   scratch directories, missing package ownership, and files that appeared
   without any install; suspicious targets go through clamav as well.
 
+On macOS, where there is no /proc, no systemd and no package manager, the same
+questions are asked of the switches a Mac actually has: what launchd starts at
+login and whether the program it starts is signed, which system extensions are
+installed, whether Gatekeeper is on, what is listening, and /etc/hosts.
+
 Every check reports, even when clean. Silence is how a skipped check hides.
 
 Most of it is a Linux machine's business, so the two things that only exist on
@@ -30,6 +36,7 @@ assistant could not even start.
 """
 import json
 import os
+import plistlib
 import re
 
 try:
@@ -718,9 +725,242 @@ def check_clamav() -> list[str]:
                         f"by choice: the cap is {config.SWEEP_CLAMAV_MAX_FILES}")
     return findings
 
+# -------------------------------------------------------------- macOS checks
+# A Mac has no /proc, no systemd and no package manager to check against, so the
+# same questions are asked of the switches it does have. launchd is systemd's
+# counterpart and its plist is the unit file; the code signature is the package
+# manager's checksum by another name; Gatekeeper is the thing that is supposed to
+# stop an unsigned download from running in the first place.
+LAUNCH_DIRS = (
+    ("user agents", HOME / "Library/LaunchAgents"),
+    ("system agents", Path("/Library/LaunchAgents")),
+    ("system daemons", Path("/Library/LaunchDaemons")),
+)
+MAC_SCRATCH = ("/tmp/", "/var/tmp/", "/private/tmp/", "/private/var/tmp/",
+               "/users/shared/", "/downloads/", "/.cache/")
+# Mach-O and fat binaries, in both byte orders. Only these are worth asking
+# codesign about: a launch item that runs a shell script has no signature to
+# verify, and is judged on where it lives and who can write to it instead.
+MACHO_MAGIC = (b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe",
+               b"\xfe\xed\xfa\xce", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca")
+CODESIGN_LIMIT = 20
+
+
+def _plist_target(body) -> str | None:
+    """The program a launch item runs: Program, or the first of ProgramArguments."""
+    if not isinstance(body, dict):
+        return None
+    program = body.get("Program")
+    if isinstance(program, str) and program.strip():
+        return program.strip()
+    args = body.get("ProgramArguments")
+    if isinstance(args, list):
+        for arg in args:
+            if isinstance(arg, str) and arg.strip():
+                return arg.strip()
+    return None
+
+
+def _is_macho(path: Path) -> bool:
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(4) in MACHO_MAGIC
+    except OSError:
+        return False
+
+
+def _codesign_complaint(path: str, cache: dict) -> str:
+    """What codesign says is wrong, or an empty string when it verifies.
+
+    Cached per path, because a launch item and the daemon it starts are often the
+    same binary and verifying one twice is a second of nothing. A machine with no
+    codesign is not evidence of anything, so it produces no finding.
+    """
+    if path not in cache:
+        cache[path] = ""
+        try:
+            proc = subprocess.run(["codesign", "-v", "--verify", path],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  timeout=30)
+            if proc.returncode != 0:
+                said = (proc.stderr or proc.stdout).decode(errors="replace")
+                lines = [ln.strip() for ln in said.splitlines() if ln.strip()]
+                cache[path] = lines[-1][:80] if lines else "no valid signature"
+        except (OSError, subprocess.SubprocessError):
+            cache[path] = ""
+    return cache[path]
+
+
+def check_mac_launch_items(dirs: tuple = None) -> list[str]:
+    """What starts at login, and whether the program it starts can be trusted.
+
+    Three questions per item, in the order that matters: is the plist itself
+    writable by anyone (then the answer to what runs is whoever got there
+    first), does the program it names live in a scratch directory, and is the
+    program signed. The third is the package manager's checksum by another name,
+    and it is only asked of an actual binary.
+    """
+    findings: list[str] = []
+    cache: dict[str, str] = {}
+    candidates = checked = 0
+    for _label, base in (dirs or LAUNCH_DIRS):
+        if not base.exists():
+            continue
+        for item in sorted(base.glob("*.plist")):
+            try:
+                mode = item.stat().st_mode
+                with item.open("rb") as fh:
+                    body = plistlib.load(fh)
+            except OSError as exc:
+                findings.append(f"warn: {item.name} could not be read: {exc}")
+                continue
+            except Exception as exc:               # present, but not a plist
+                findings.append(f"warn: {item.name} is not a readable plist: {exc}")
+                continue
+            if mode & 0o002:
+                findings.append(f"alert: {item} is world-writable, so anyone can "
+                                f"change what runs at login")
+            target = _plist_target(body)
+            if not target:
+                continue
+            if any(part in target.lower() for part in MAC_SCRATCH):
+                findings.append(f"alert: {item.name} launches from a scratch "
+                                f"directory: {target[:70]}")
+                continue
+            program = Path(target)
+            if not program.exists():
+                findings.append(f"warn: {item.name} runs {target[:70]}, which is "
+                                f"not there")
+                continue
+            try:
+                if program.stat().st_mode & 0o002:
+                    findings.append(f"alert: {item.name} runs a program anyone can "
+                                    f"write to: {target[:70]}")
+                    continue
+            except OSError:
+                pass
+            if _is_macho(program):
+                candidates += 1
+                if checked < CODESIGN_LIMIT:
+                    checked += 1
+                    if complaint := _codesign_complaint(target, cache):
+                        findings.append(f"warn: {item.name} runs an unsigned or "
+                                        f"broken binary: {target[:60]} ({complaint})")
+    if not findings:
+        findings.append("ok: no launch item runs from a scratch directory, an "
+                        "unsigned binary or a file anyone can write to")
+    if candidates > checked:
+        findings.append(f"info: {candidates - checked} more signature(s) were not "
+                        f"checked, by choice: the cap is {CODESIGN_LIMIT}")
+    return findings
+
+
+def check_mac_extensions() -> list[str]:
+    """Third-party system extensions: the closest thing here to a kernel module.
+
+    Read rather than trusted. If the tool's output has moved and the rows no
+    longer match, the count in the tool's own header says so, and that is
+    reported instead of a clean bill of health for a list nobody actually read.
+    """
+    try:
+        out = _run(["systemextensionsctl", "list"], timeout=20)
+    except _Fail as exc:
+        return [f"warn: could not list system extensions: {exc}"]
+    said = re.search(r"(\d+)\s+extension", out)
+    listed = int(said.group(1)) if said else None
+    third = []
+    for line in out.splitlines():
+        row = re.match(r"^\s*[*+-]\s+[*+-]\s+(\S+)\s+(\S+)\s+\(", line)
+        if row and not row.group(2).startswith("com.apple."):
+            third.append(row.group(2))
+    if third:
+        return [f"info: third-party system extensions are installed: "
+                f"{', '.join(sorted(set(third))[:6])}: confirm you know each one"]
+    if listed:
+        return [f"warn: {listed} system extension(s) are installed but the list "
+                f"could not be read, so none of them were judged"]
+    return ["ok: no third-party system extensions are installed"]
+
+
+def check_mac_gatekeeper() -> list[str]:
+    try:
+        said = _run(["spctl", "--status"], timeout=20).strip().lower()
+    except _Fail as exc:
+        return [f"warn: could not ask Gatekeeper anything: {exc}"]
+    if "enabled" in said:
+        return ["ok: Gatekeeper is on, so an unsigned app is stopped before it runs"]
+    if "disabled" in said:
+        return ["alert: Gatekeeper is off: unsigned apps run with no check at all"]
+    return [f"warn: Gatekeeper answered oddly: {said[:60]}"]
+
+
+def check_mac_processes() -> list[str]:
+    """The dropped-payload check, without /proc to read it from.
+
+    ps prints the path of each executable, which is what makes the question
+    askable here at all. A Mac has no /proc/<pid>/exe and no deleted-file marker
+    to look for, so this one is only about where a running program lives.
+    """
+    try:
+        out = _run(["ps", "-axo", "pid=,comm="])
+    except _Fail as exc:
+        return [f"warn: could not list processes: {exc}"]
+    findings = []
+    for line in out.splitlines():
+        pid, _, path = line.strip().partition(" ")
+        path = path.strip()
+        if path and any(part in path.lower() for part in MAC_SCRATCH):
+            findings.append(f"alert: pid {pid} runs from {path[:70]}")
+    return findings or ["ok: no process runs from a scratch directory"]
+
+
+def check_mac_listeners() -> list[str]:
+    """What is listening, with lsof because a Mac has no ss.
+
+    -F asks for field output rather than the columnar form, which is the one
+    part of lsof's output that does not shift when a command name happens to
+    contain a space.
+    """
+    try:
+        out = _run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-Fcn"], timeout=20)
+    except _Fail:
+        out = ""
+    listening: list[str] = []
+    command = ""
+    for line in out.splitlines():
+        if line.startswith("c"):
+            command = line[1:].strip()
+        elif line.startswith("n"):
+            listening.append(f"{command or 'a process'} on {line[1:].strip()}")
+    if not listening:                              # lsof is shipped, but not always
+        try:
+            out = _run(["netstat", "-an", "-p", "tcp"], timeout=20)
+        except _Fail as exc:
+            return [f"warn: could not list listeners: {exc}"]
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[-1] == "LISTEN":
+                # netstat separates the host from the port with a dot where lsof
+                # uses a colon, so the two shapes are made one before the filters
+                # below see them. rpartition, because an IPv6 host has dots in it
+                # and the port is what comes last.
+                host, _, port = parts[3].rpartition(".")
+                listening.append(f"a process on {host}:{port}" if host
+                                 else f"a process on {parts[3]}")
+    discovery = re.compile(r":(5353|5355|546)(%\w+)?$")
+    odd = {item for item in listening
+           if not re.search(r"(127\.0\.0\.1|\[::1\]):", item)
+           and not discovery.search(item)}
+    if not odd:
+        return ["ok: nothing listening beyond loopback and discovery services"]
+    return [f"warn: listening beyond loopback: {'; '.join(sorted(odd)[:8])}"]
+
+
 CHECKS = (check_processes, check_uid_zero, check_hosts, check_world_writable,
           check_listeners, check_ssh, check_user_units, check_browser,
           check_launchers, check_updates, check_clamav)
+MAC_CHECKS = (check_mac_processes, check_hosts, check_mac_listeners,
+              check_mac_launch_items, check_mac_extensions, check_mac_gatekeeper)
 
 
 def wanted(text: str) -> bool:
@@ -733,21 +973,28 @@ def wanted(text: str) -> bool:
 def supported() -> bool:
     """Is this a machine the checks know how to read?
 
-    Every one of them is a Linux machine's business: /proc, systemd, the package
-    manager, /etc/hosts, and where a browser keeps its profiles. On Windows or
-    macOS there is nothing here to read, and a report of nothing but
-    "unavailable" would be worse than saying so.
+    Linux is read through /proc, systemd and the package manager; macOS through
+    launchd, the code signature and Gatekeeper. They are different questions with
+    different answers, but both are the same sweep from the outside.
+
+    Windows has neither, and a report of nothing but "unavailable" would be worse
+    than saying so, which is what happens instead.
     """
-    return sys.platform.startswith("linux")
+    return sys.platform.startswith("linux") or sys.platform == "darwin"
+
+
+def checks() -> tuple:
+    """The checks that know how to read this machine."""
+    return MAC_CHECKS if sys.platform == "darwin" else CHECKS
 
 
 def run() -> str:
     """Run every check and return a compact plain-text report for the model."""
     if not supported():
-        return ("security sweep: not a Linux machine, so there is nothing here "
-                "these checks know how to read.")
+        return ("security sweep: this machine is neither Linux nor macOS, so "
+                "there is nothing here these checks know how to read.")
     lines = [f"security sweep of {os.uname().nodename}, {time.strftime('%H:%M')}:"]
-    for check in CHECKS:
+    for check in checks():
         try:
             lines += [f"  {f}" for f in check()]
         except Exception as exc:                      # a check must never sink the sweep

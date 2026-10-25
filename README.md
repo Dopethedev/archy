@@ -7,7 +7,7 @@
   <a href="https://github.com/Dopethedev/jarvis/releases"><img src="https://img.shields.io/github/v/release/Dopethedev/jarvis?style=for-the-badge&label=release&logo=github&logoColor=white&color=4fe3ff&labelColor=05080c" alt="latest release"></a>
   <img src="https://img.shields.io/badge/licence-MIT-4fe3ff?style=for-the-badge&logo=opensourceinitiative&logoColor=white&labelColor=05080c" alt="MIT licence">
   <img src="https://img.shields.io/badge/python-3.12-4fe3ff?style=for-the-badge&logo=python&logoColor=white&labelColor=05080c" alt="python 3.12">
-  <img src="https://img.shields.io/badge/linux%20%2B%20windows-4fe3ff?style=for-the-badge&logo=linux&logoColor=white&labelColor=05080c" alt="Linux and Windows">
+  <img src="https://img.shields.io/badge/linux%20%2B%20windows%20%2B%20macos-4fe3ff?style=for-the-badge&logo=linux&logoColor=white&labelColor=05080c" alt="Linux, Windows and macOS">
 </p>
 
 <p align="center">
@@ -44,7 +44,8 @@ uv run python -m jarvis.fetch_models     # the voice models, 340 MB, all free
 ./run.sh                                 # say the wake phrase, then ask
 ```
 
-Windows runs it too, with `run.cmd` as the launcher: [Install](#install).
+Windows runs it too, with `run.cmd` as the launcher, and macOS uses the same
+`run.sh`: [Install](#install).
 
 <!-- When there is a clip, put it here: a 40 second screen recording with sound,
      linked rather than embedded, because GitHub strips video from READMEs. -->
@@ -124,7 +125,9 @@ not stay:
 - **What you said**, as text. The transcript goes to the model, because that is
   the question. The audio itself never does.
 - **A picture of your screen**, only when you ask something about what is on it,
-  and only as a JPEG in memory. Nothing is written to disk.
+  and only as a JPEG in memory. On Wayland and Windows nothing is written to disk
+  at all; on macOS `screencapture` insists on a file, which is read and removed in
+  the same breath.
 - **The local facts**, when you ask for a briefing or a sweep: the time, the
   weather line, the machine readings and the last sweep report go into the prompt
   as context.
@@ -142,11 +145,17 @@ localhost and refuses anything without its token.
 ## Requirements
 
 - **Linux** with PipeWire, a microphone and headphones, written and used on Arch
-  with Hyprland. The voice loop is not tied to a desktop. The security sweep is:
-  it reads `/proc`, asks systemd, and reads the package manager and browser
-  profiles, so on Windows it answers honestly instead of pretending.
+  with Hyprland. The voice loop is not tied to a desktop.
+- **macOS** works, and the sweep does too, reading what a Mac actually has:
+  launch items and whether their binary is signed, system extensions, Gatekeeper,
+  what is listening, and `/etc/hosts`. Screen questions go through
+  `screencapture`, which needs the Screen Recording permission, and the microphone
+  needs the Microphone permission. The dashboard opens in whatever browser is in
+  `/Applications`.
 - **Windows** works for everything else. `run.cmd` is the launcher, and the
-  screen is captured through Pillow instead of grim.
+  screen is captured through Pillow instead of grim. The sweep says so rather than
+  pretending: it reads `/proc`, asks systemd, and reads the package manager and
+  browser profiles, none of which exist there.
 - **Python 3.12**, which `uv` handles for you: ctranslate2 has no wheels past it.
 - **[`pi`](https://github.com/badlogic/pi-mono)** on `PATH`, which is where the
   model connection lives.
@@ -171,6 +180,19 @@ git clone https://github.com/Dopethedev/jarvis jarvis; cd jarvis
 uv sync
 run.cmd
 ```
+
+macOS is the same as Linux, in a terminal:
+
+```
+git clone https://github.com/Dopethedev/jarvis jarvis && cd jarvis
+uv sync
+uv run python -m jarvis.fetch_models
+./run.sh
+```
+
+The first run asks for the Microphone permission, and the first screen question
+asks for Screen Recording. Both are under System Settings, Privacy and Security,
+and a terminal that was refused has to be started again after the tick.
 
 `fetch_models` fetches the voice (`kokoro-v1.0.onnx`) and its accents
 (`voices-v1.0.bin`) from the `kokoro-onnx` release `model-files-v1.1`, copies the
@@ -248,13 +270,15 @@ src/jarvis/
   tts.py            text to speech
   brain.py          the pi process and its rpc protocol
   assistant.py      the state machine and the audio pump
-  sweep.py          the security checks
+  sweep.py          the security checks, for Linux and macOS
+  sysinfo.py        cpu, memory, uptime, load and temperature, on three platforms
   briefing.py       time, weather, machine health, last sweep
   reminders.py      reminders and timers
   vision.py         screenshots for the model
   memory_store.py   durable facts, readable by hand
   hud.py            the dashboard server, the mic switch, the typed input
   mictest.py        the live microphone check
+run.sh              the launcher for Linux and macOS
 run.cmd             the launcher for Windows, where there is no bash
 hud/                the dashboard page
 docs/               the banner, the theme screenshots, and the scripts for both
@@ -306,8 +330,9 @@ the half of the story that is usually thrown away.
 Each file is a behaviour, not a unit: the audio pump, the wake phrase shapes, the
 sweep's browser checks, the reminder grammar, the model chain failing over, the
 dashboard's own security. They run without a microphone and without a model,
-except two that talk to `pi` on purpose. The microphone-free ones run on Linux and
-Windows both, in the workflow behind the badge at the top.
+except two that talk to `pi` on purpose. The microphone-free ones run on Linux,
+macOS and Windows all, in the workflow behind the badge at the top, and the
+macOS ones drive the mac-only code with its inputs faked from real output.
 
 ## Contributing
 
