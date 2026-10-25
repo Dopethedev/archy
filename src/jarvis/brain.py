@@ -15,9 +15,34 @@ import threading
 import time
 
 from . import config
+from . import net
 from .memory_store import Memory
 
 DIALOG_METHODS = {"select", "confirm", "input", "editor"}
+
+
+def model_chain() -> tuple[str, ...]:
+    """Which models to try, in order, for the network as it looks now.
+
+    With internet: the relays, and the local model behind them as a floor. The
+    floor matters because a relay can also fail for reasons that are not the
+    network (a bad key, a model retired), and a small answer beats no answer.
+
+    Without internet: the local model alone. Trying relays that cannot be reached
+    first would spend a silence deadline per question on a connection that is not
+    coming back, which is the failure this whole path exists to avoid.
+
+    With no local chain configured this returns exactly the old tuple, so an
+    install that never fetched a model behaves as it always did.
+    """
+    local = tuple(config.PI_MODELS_OFFLINE)
+    if config.PI_CHAIN_MODE == "offline":
+        return local or tuple(config.PI_MODELS)     # forced local, or nothing to do
+    if config.PI_CHAIN_MODE == "online":
+        return tuple(config.PI_MODELS)
+    if local and not net.net.likely_online():
+        return local
+    return tuple(config.PI_MODELS) + local
 
 
 class BrainError(RuntimeError):
@@ -45,8 +70,10 @@ class PiBrain:
         self._aborted = threading.Event()
         # where we are in the model chain. The free relays die without warning
         # (a model that answered at breakfast 404s by lunch), so the assistant
-        # moves down the chain and says so rather than failing
+        # moves down the chain and says so rather than failing. The chain itself
+        # is decided in start(), from whether there is internet.
         self.model_index = 0
+        self.chain: tuple[str, ...] = tuple(config.PI_MODELS)
 
     @staticmethod
     def _system_prompt() -> str:
@@ -125,6 +152,10 @@ class PiBrain:
             print(f"[brain] could not archive the session: {exc}", flush=True)
             return 0
 
+    @staticmethod
+    def _is_local(model: str) -> bool:
+        return model in config.PI_MODELS_OFFLINE
+
     async def start(self):
         config.SESSION_DIR.mkdir(exist_ok=True)
         self._generation += 1
@@ -132,14 +163,23 @@ class PiBrain:
         self._loop = asyncio.get_running_loop()
         self._queue = asyncio.Queue()
 
+        self.chain = model_chain()
+        if self.model_index >= len(self.chain):
+            self.model_index = 0
         args = [
             config.PI_BIN, "--mode", "rpc",
             "--session-dir", str(config.SESSION_DIR),
             "--thinking", config.PI_THINKING,
             "--append-system-prompt", self._system_prompt(),
         ]
-        model = config.PI_MODELS[self.model_index % len(config.PI_MODELS)]
+        model = self.chain[self.model_index]
         args += ["--model", model]
+        if self._is_local(model) and config.PI_LOCAL_SYSTEM_PROMPT:
+            # pi's own prompt is a coding assistant's, and on a 4B model on this
+            # machine it costs 5099 tokens to read before the first word against
+            # 966 for the voice one. The relay is not paying that, so only the
+            # local model is handed the short one.
+            args += ["--system-prompt", config.PI_LOCAL_SYSTEM_PROMPT]
         print(f"[brain] model {model}", flush=True)
         if config.PI_CONTINUE:
             args.append("--continue")          # pick the conversation back up
@@ -352,11 +392,25 @@ class PiBrain:
 
     def advance_model(self) -> str | None:
         """Step to the next model in the chain, wrap around, and name it."""
-        self.model_index = (self.model_index + 1) % len(config.PI_MODELS)
-        return config.PI_MODELS[self.model_index]
+        self.model_index = (self.model_index + 1) % len(self.chain)
+        return self.chain[self.model_index]
 
     def model_name(self) -> str:
-        return config.PI_MODELS[self.model_index % len(config.PI_MODELS)]
+        return self.chain[self.model_index % len(self.chain)]
+
+    def on_local_model(self) -> bool:
+        return self._is_local(self.model_name())
+
+    def switch_chain(self) -> str:
+        """Recompute the chain for the network as it looks now, and start at its head.
+
+        Used when a turn proves the internet is gone. Walking the online chain
+        one silence deadline at a time would spend a minute of the user's time to
+        learn what one failure already said, and the local model was never tried.
+        """
+        self.chain = model_chain()
+        self.model_index = 0
+        return self.model_name()
 
     async def new_session(self):
         self._send({"type": "new_session"})

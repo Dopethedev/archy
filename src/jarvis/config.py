@@ -130,6 +130,39 @@ PI_MODELS = (
 # install that never fetches a local model never sees a difference. Filled in by
 # config.local.json with a model the llama.cpp router serves.
 PI_MODELS_OFFLINE = ()
+# Which chain to use: "auto" follows the network, "online" never goes local, and
+# "offline" never calls a relay. Offline-only is how the local path is tested for
+# real without unplugging anything.
+PI_CHAIN_MODE = "auto"
+
+# ------------------------------------------------------- the local server
+# llama.cpp's router, which pi speaks to natively. JARVIS starts it when the
+# offline chain is needed and only stops one it started itself.
+PI_LOCAL_SERVER_BIN = "llama-server"
+PI_LOCAL_SERVER_URL = "http://127.0.0.1:8080"
+PI_LOCAL_MODELS_DIR = Path.home() / "models"
+# Confirmed on this machine: flash attention took prompt processing from 219 to
+# 1274 tokens a second, which is the difference between a four second wait and a
+# half second one on the first question. Generation is unchanged at about 48.
+# The device has to be named: this machine has two Vulkan devices and the Intel
+# one advertises more free memory because it borrows system RAM. `llama-server
+# --list-devices` prints the names.
+PI_LOCAL_DEVICE = "Vulkan0"
+PI_LOCAL_SERVER_ARGS = (
+    "--no-models-autoload", "--jinja", "-ngl", "999", "-c", "32768",
+    "--flash-attn", "on",
+)
+# The local model is small and its prompt is paid for in seconds, so the voice
+# path hands it this instead of pi's coding-assistant prompt: measured, 966
+# tokens against 5099, and the difference is 0.8 seconds against 3.4 on a cold
+# start. The relay keeps pi's own prompt, where the cost is not on this machine.
+PI_LOCAL_SYSTEM_PROMPT = (
+    "You are a voice assistant for a Linux desktop, answering out loud. "
+    "Keep every answer to one or two short sentences of plain prose, with no "
+    "markdown, no lists and no URLs. When asked to do something on this "
+    "machine, do it with your tools, then say in one sentence what happened. "
+    "If you do not know, say so in one short sentence."
+)
 
 # ------------------------------------------------------------ connectivity
 # "There is no internet" and "the provider refused this model" are different
