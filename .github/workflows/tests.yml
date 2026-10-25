@@ -4,7 +4,7 @@
 # pacman, clamav), so it stays local. These are the groups that need none of
 # that: the wake matcher, the phrasings, the reminders, the local intents, the
 # memory store, the microphone switch, the dashboard server, connectivity
-# classification, and what each part does when it cannot start.
+# classification, the local chain, and what each part does when it cannot start.
 #
 # Windows and macOS are in the list on purpose. The assistant is written on Linux,
 # and the parts that are platform-specific are the ones that will not port: the
@@ -52,7 +52,7 @@ jobs:
           for t in test_wake_phrase test_phrasings test_reminders test_mic_state \
                    test_memory_store test_intents test_briefing test_hud_security \
                    test_platform test_macos test_fetch_models test_net \
-                   test_degrades; do
+                   test_degrades test_local_chain; do
             echo "=== $t ==="
             if uv run python "tests/$t.py"; then :; else failed=$((failed+1)); fi
           done

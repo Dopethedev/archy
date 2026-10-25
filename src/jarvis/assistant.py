@@ -26,6 +26,7 @@ import numpy as np
 
 from . import config
 from . import briefing
+from . import local_model
 from . import net
 from . import reminders as reminders_mod
 from . import mic_state
@@ -465,26 +466,37 @@ class Assistant:
             # every question is answered with "my connection dropped".
             silent = kind == net.SILENCE
             self._hang_count = self._hang_count + 1 if silent else 0
-            if not silent or self._hang_count >= config.MODEL_HANG_LIMIT:
-                moved = self.brain.advance_model()
-                self._hang_count = 0
-            else:
-                moved = None
-            if kind == net.CONNECTIVITY:
-                self.log("sys", "no internet, so the model cannot be reached")
+            if kind == net.CONNECTIVITY and config.PI_MODELS_OFFLINE:
+                # No internet, so the online chain is the wrong list to walk: one
+                # silence deadline per relay is most of a minute spent proving
+                # what this failure already proved. The chain is rebuilt around
+                # the local model, and the server behind it is started if it is
+                # not already running.
+                moved = self.brain.switch_chain()
+                ready = await asyncio.to_thread(local_model.ensure_running)
+                self.log("sys", "no internet: the local model takes over" if ready
+                         else "no internet, and the local model did not start")
                 message = ("No internet, so I am on the local model. Ask me again."
-                           if config.PI_MODELS_OFFLINE else
-                           "I have no internet, so I cannot reach the model.")
+                           if ready else
+                           "I have no internet, and the local model is not running.")
+            elif kind == net.CONNECTIVITY:
+                self.log("sys", "no internet, so the model cannot be reached")
+                moved = None
+                message = "I have no internet, so I cannot reach the model."
             elif kind == net.AUTH:
                 self.log("sys", "the model refused my key")
+                moved = None
                 message = "The model refused my key, so I cannot think right now."
-            elif moved:
-                reason = ("went quiet twice" if silent else "failed")
+            elif not silent or self._hang_count >= config.MODEL_HANG_LIMIT:
+                moved = self.brain.advance_model()
+                self._hang_count = 0
+                reason = "went quiet twice" if silent else "failed"
                 self.log("sys", f"the model {reason}, switching to "
                                 f"{moved.split('/')[-1]}")
                 message = ("My connection dropped, so I switched to a backup "
                            "model. Ask me again.")
             else:
+                moved = None
                 self.log("sys", "the model connection dropped, restarting it")
                 message = "My connection to the model dropped. Ask me again."
             # both of these block for seconds while they synthesise, and
@@ -594,6 +606,11 @@ class Assistant:
     async def _restart_brain(self):
         try:
             await asyncio.to_thread(self.brain.stop)
+            # whichever chain we are on decides whether the local server has to
+            # be up first: starting a broker for relays would be a process for
+            # nothing, and skipping it for a local model is a turn that fails
+            if self.brain.on_local_model():
+                await asyncio.to_thread(local_model.ensure_running)
             await self.brain.start()
         except Exception as exc:
             print(f"[brain] restart failed: {exc}")
@@ -912,6 +929,12 @@ class Assistant:
         # stopped, which is a second of start-up spent on a conversation that
         # was going to be set aside anyway
         await asyncio.to_thread(self.brain.archive_sessions)
+        # If the chain is a local one, the model server has to be up before the
+        # brain starts, or the first question is answered by a connection to
+        # nothing. Offline-only mode lands here too, which is how this path is
+        # exercised on a machine whose internet is working fine.
+        if config.PI_CHAIN_MODE == "offline" or not net.net.likely_online():
+            await asyncio.to_thread(local_model.ensure_running)
         await self._start("the model connection", self.brain.start)
         await self._start("the speakers", self.player.start)
         if self.greet:
@@ -951,6 +974,7 @@ class Assistant:
         self.mic.stop()
         self.player.stop()
         self.brain.stop()
+        local_model.stop()          # only one we started; someone else's stays up
         if self.hud:
             self.hud.stop()
         print("\noffline.")

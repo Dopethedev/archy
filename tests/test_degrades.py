@@ -24,6 +24,12 @@ from jarvis.brain import BrainError  # noqa: E402
 from jarvis.stt import DeafTranscriber  # noqa: E402
 from jarvis.tts import MuteSpeaker  # noqa: E402
 
+# No test starts a model server: it is a real process holding real VRAM, and the
+# behaviour under test is what the assistant does with its answer.
+started = []
+real_ensure = assistant_mod.local_model.ensure_running
+assistant_mod.local_model.ensure_running = lambda *a, **k: started.append(1) or True
+
 passed = failed = 0
 
 
@@ -160,13 +166,25 @@ class StubBrain:
         self.models = ("one/a", "two/b")
         self.index = 0
         self.errors = list(errors)
+        self.switched = 0
+        self.chain = self.models
 
     def model_name(self):
-        return self.models[self.index % len(self.models)]
+        return self.chain[self.index % len(self.chain)]
 
     def advance_model(self):
-        self.index = (self.index + 1) % len(self.models)
+        self.index = (self.index + 1) % len(self.chain)
         return self.model_name()
+
+    def switch_chain(self):
+        # the real one recomputes the chain from the network; this records that
+        # the assistant asked for that instead of walking four dead relays
+        self.switched += 1
+        self.index = 0
+        return self.model_name()
+
+    def on_local_model(self):
+        return self.model_name() in config.PI_MODELS_OFFLINE
 
     def abort(self):
         pass
@@ -246,9 +264,24 @@ saved = config.PI_MODELS_OFFLINE
 config.PI_MODELS_OFFLINE = ("llama/local",)
 h = Harness([BrainError("fetch failed")])
 h._hang_count = 0
+started.clear()
 said = asyncio.run(turn(h))
 check("with a local model configured it says which one answered",
       "local model" in said, said)
+check("the chain is rebuilt instead of walked",
+      h.brain.switched == 1, str(h.brain.switched))
+check("and the local server is started before the brain restarts",
+      len(started) == 1, str(len(started)))
+
+# the server that will not start is the honest failure: it must not promise a
+# local model that is not there
+assistant_mod.local_model.ensure_running = lambda *a, **k: False
+h = Harness([BrainError("getaddrinfo ENOTFOUND relay.example")])
+h._hang_count = 0
+said = asyncio.run(turn(h))
+check("a local model that will not start is said so",
+      "not running" in said, said)
+assistant_mod.local_model.ensure_running = real_ensure
 config.PI_MODELS_OFFLINE = saved
 
 print("-- but a refusal from the provider proves the network is up --")
