@@ -181,19 +181,33 @@ function realOf(target: string): string {
 		tail.unshift(probe.slice(parent.length + 1));
 		probe = parent;
 	}
-	try {
-		return join(realpathSync(probe), ...tail);
-	} catch {
-		return normalize(absolute);
+	// The native one expands Windows 8.3 short names and the JavaScript one does
+	// not, so a temp directory named RUNNER~1 resolved to one form for the target
+	// and another for the root, and a file inside an approved directory was judged
+	// to be outside it. Native first, plain as the fallback.
+	for (const realpath of [realpathSync.native, realpathSync]) {
+		try {
+			return join(realpath(probe), ...tail);
+		} catch {
+			continue;
+		}
 	}
+	return normalize(absolute);
+}
+
+/** Windows compares paths without case, and everywhere else with it. */
+function samePath(left: string, right: string): boolean {
+	if (process.platform !== "win32") return left === right;
+	return left.toLowerCase() === right.toLowerCase();
 }
 
 function insideRoots(target: string, roots: string[]): boolean {
 	const real = realOf(target);
 	for (const root of roots) {
 		const realRoot = realOf(root);
-		if (real === realRoot) return true;
-		if (real.startsWith(realRoot.endsWith(sep) ? realRoot : realRoot + sep)) return true;
+		if (samePath(real, realRoot)) return true;
+		const prefix = realRoot.endsWith(sep) ? realRoot : realRoot + sep;
+		if (samePath(real.slice(0, prefix.length), prefix)) return true;
 	}
 	return false;
 }
