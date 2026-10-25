@@ -18,7 +18,7 @@ import jarvis.assistant as jarvis_assistant
 import jarvis.brain as brain_mod
 import jarvis.reminders as reminders
 import jarvis.briefing as briefing
-from jarvis import config
+from jarvis import config, privacy
 from jarvis.assistant import Assistant
 from jarvis.brain import PiBrain
 
@@ -81,6 +81,8 @@ print("-- turn wiring: local intents and the briefing --")
 class FakeBrain:
     def __init__(self):
         self.seen = []
+    def model_name(self):
+        return "some-relay/large-model"      # a remote model, so the switches apply
     async def ask(self, text, images=None):
         self.seen.append((text, images))
         yield "done", "as you wish."
@@ -88,6 +90,9 @@ class FakeBrain:
 
 class Harness:
     def __init__(self):
+        # The constructor is not run here, so anything the assistant sets up in it
+        # has to be provided, or a turn fails on an attribute that never existed.
+        self._privacy_confirm = privacy.Confirmation()
         self.spoken = []
         self.published = []
         self.log_lines = []

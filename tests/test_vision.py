@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import jarvis.assistant as jarvis_assistant
 import jarvis.vision as vision
-from jarvis import config
+from jarvis import config, privacy
 from jarvis.assistant import Assistant
 from jarvis.brain import PiBrain
 from jarvis.vision import ScreenError, as_image, capture, wanted
@@ -27,6 +27,7 @@ passed = failed = skipped = 0
 
 def check(label, ok, detail=""):
     global passed, failed
+    ok = bool(ok)                  # `A and B` can return a list, and int + list stops the run
     passed += ok
     failed += not ok
     print(f"  [{'OK  ' if ok else 'FAIL'}] {label}{'  ' + detail if detail else ''}")
@@ -116,6 +117,7 @@ class ScreenHarness:
     """Enough of an Assistant for _process to run end to end with stubs."""
 
     def __init__(self, capture_result):
+        self._privacy_confirm = privacy.Confirmation()
         self.captures = 0
         self.capture_result = capture_result
         self.log_lines = []
@@ -149,6 +151,8 @@ class ScreenHarness:
 class FakeBrain:
     def __init__(self):
         self.seen = []
+    def model_name(self):
+        return "some-relay/large-model"      # a remote model, so the switches apply
     async def ask(self, text, images=None):
         self.seen.append((text, images))
         yield "done", "ok"

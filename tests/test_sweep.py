@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import jarvis.assistant as jarvis_assistant
+from jarvis import privacy
 import jarvis.sweep as sweep
 from jarvis.assistant import Assistant
 from jarvis.sweep import (check_hosts, check_listeners, check_processes,
@@ -138,6 +139,8 @@ print("-- the turn runs it and hands the report to the model --")
 class FakeBrain:
     def __init__(self):
         self.seen = []
+    def model_name(self):
+        return "some-relay/large-model"      # a remote model, so the switches apply
     async def ask(self, text, images=None):
         self.seen.append((text, images))
         yield "done", "clean"
@@ -145,6 +148,7 @@ class FakeBrain:
 
 class SweepHarness:
     def __init__(self):
+        self._privacy_confirm = privacy.Confirmation()
         self.spoken = []
         self.log_lines = []
         self.brain = FakeBrain()

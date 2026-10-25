@@ -28,5 +28,12 @@
   "_comment9": "Extra directories the assistant may touch without asking. Its own directory and .state are always included. The home directory is not: approving everything a program can reach is the same as having no gate.",
   "PERMISSION_ROOTS": [
     "/home/you/Documents"
-  ]
+  ],
+  "_comment10": "What may leave the machine when an online model is answering. All of these default to on, which is what the assistant already did: a privacy setting that changes behaviour on upgrade is not a setting. With the local model answering, none of it leaves the machine anyway, so these only affect relays. Enforced in code where the request is built, never by asking the model to keep quiet. Ask what is switched off by voice, or with `python -m jarvis.privacy status`.",
+  "PRIVACY_ONLINE_AI": true,
+  "PRIVACY_SHARE_MEMORY": true,
+  "PRIVACY_SHARE_FILES": true,
+  "PRIVACY_SHARE_SCREENS": true,
+  "PRIVACY_SHARE_HISTORY": true,
+  "PRIVACY_KEEP_TRANSCRIPTS": true
 }
