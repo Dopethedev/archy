@@ -466,7 +466,19 @@ class Assistant:
             # every question is answered with "my connection dropped".
             silent = kind == net.SILENCE
             self._hang_count = self._hang_count + 1 if silent else 0
-            if kind == net.CONNECTIVITY and config.PI_MODELS_OFFLINE:
+            if kind == net.CONNECTIVITY and self.brain.on_local_model():
+                # A connection failure on a local model is not the internet: it is
+                # a router that is not up. Saying "no internet" there would be a lie
+                # about a working connection, and the relay's wording would hide
+                # that the fix is to start the server.
+                ready = await asyncio.to_thread(local_model.ensure_running)
+                self.log("sys", "the local model server was not running" +
+                         (" and is started" if ready else " and would not start"))
+                moved = None
+                message = ("The local model was not running, so I started it. "
+                           "Ask me again." if ready else
+                           "The local model is not running and would not start.")
+            elif kind == net.CONNECTIVITY and config.PI_MODELS_OFFLINE:
                 # No internet, so the online chain is the wrong list to walk: one
                 # silence deadline per relay is most of a minute spent proving
                 # what this failure already proved. The chain is rebuilt around
@@ -918,6 +930,20 @@ class Assistant:
             self.log("sys", f"{label} did not start: {exc}")
             return False
 
+    async def start_brain(self) -> bool:
+        """Put the local model server up if this chain needs it, then start pi.
+
+        One place, because every entry point has to do it: the voice loop, a
+        restart after a failure, and `--say`. The one-shot path did not, so a
+        first question in offline mode went to a router that was not running yet
+        and came back as "my connection dropped", which is the wrong thing to tell
+        someone whose connection is fine and whose local model was simply not
+        started.
+        """
+        if config.PI_CHAIN_MODE == "offline" or not net.net.likely_online():
+            await asyncio.to_thread(local_model.ensure_running)
+        return await self._start("the model connection", self.brain.start)
+
     async def run(self):
         self._loop = asyncio.get_running_loop()
         if self.hud:
@@ -929,13 +955,7 @@ class Assistant:
         # stopped, which is a second of start-up spent on a conversation that
         # was going to be set aside anyway
         await asyncio.to_thread(self.brain.archive_sessions)
-        # If the chain is a local one, the model server has to be up before the
-        # brain starts, or the first question is answered by a connection to
-        # nothing. Offline-only mode lands here too, which is how this path is
-        # exercised on a machine whose internet is working fine.
-        if config.PI_CHAIN_MODE == "offline" or not net.net.likely_online():
-            await asyncio.to_thread(local_model.ensure_running)
-        await self._start("the model connection", self.brain.start)
+        await self.start_brain()
         await self._start("the speakers", self.player.start)
         if self.greet:
             try:
