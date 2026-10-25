@@ -1,76 +1,60 @@
 # Features
 
-A voice assistant that runs on your own machine. Everything that hears and
-speaks is local; only the thinking goes to a model. This is the full list,
-including the parts that are limited, so nothing here surprises you after a week
-of use.
+The full list, including the limits. Kept to one line each.
 
 ## Talking to it
 
-- **Any wake phrase.** The phrase is recognised, not matched against a trained
-  model, so you set your own words and no training is involved. The dashboard
-  shows the phrase you configured.
-- **One breath.** The request can arrive in the same utterance as the wake word:
-  "hey jarvis, what is the weather" is one turn, not two.
+- **Any wake phrase.** Recognised, not matched against a trained model, so you set
+  your own words and no training is involved.
+- **One breath.** "hey jarvis, what is the weather" is one turn, not two.
 - **Interruption.** Talk over it and it stops mid sentence, keeps what you said,
-  and answers the new request. Saying the wake phrase again does the same.
-- **It gives up on a slow model.** Start talking while it is still waiting on a
-  model and it drops that wait instead of talking over you later.
-- **Typed input.** The dashboard has a text box, for when a microphone is the
-  wrong tool. Press Enter to send.
-- **A microphone switch.** Key `M` or the button. Off means off, and it stays
-  off across a restart.
-- **It tells you when it cannot hear.** A microphone that is muted or
-  disconnected delivers exact digital silence, and after twenty seconds of it
-  the assistant says so out loud, once.
+  and answers that instead. The wake phrase again does the same.
+- **It gives up on a slow model** if you start talking, rather than talking over
+  you later.
+- **Typed input.** A text box, for when a microphone is the wrong tool.
+- **A microphone switch.** Key `M` or the button. Off means off, across a restart.
+- **It says when it cannot hear.** A muted or disconnected microphone delivers
+  exact digital silence, and after twenty seconds of it the assistant says so once.
 
 ## Answered locally, without the model
 
-These never touch a relay, so they land in about half a second:
+Never touch a relay, so these land in about half a second:
 
-- **Reminders and timers.** "Remind me in twenty minutes to check the oven",
-  "set a timer for an hour and a half", "what reminders do I have", "cancel my
-  reminders". The wording is parsed on the machine and confirmed in one breath.
-- **A way back from clearing them.** Cancelling says what it took away and keeps
-  it for two minutes: "undo" brings them back with the times they were set for. A
-  reminder is the one thing here that cannot be worked out again later, which is
-  exactly why it was set.
-- **Themes.** Three dashboard themes, switched by voice, with no model in the
-  loop.
-- **Briefing facts.** Time, date, weather, load, memory, uptime and the last
-  sweep are gathered locally and handed to the model as facts, so it reports the
-  machine rather than remembering it.
+- **Reminders and timers.** "Remind me in twenty minutes to check the oven", "set
+  a timer for an hour and a half", "what reminders do I have". Parsed on the
+  machine, confirmed in one breath.
+- **A way back from clearing them.** Cancelling says what it took and keeps it for
+  two minutes: "undo" brings them back with the times they had.
+- **Themes.** Three, switched by voice.
+- **Briefing facts.** Time, date, weather, load, memory, uptime and the last sweep,
+  gathered locally and handed to the model as facts, so it reports the machine
+  rather than remembering it.
 
 ## It knows the machine
 
-- **Screen vision.** Ask about what is on screen and it captures the screen and
-  hands the picture to the model. The answer is about the window that is
-  actually open, not about what a model remembers of the internet.
-- **Security sweep.** One request runs a set of checks: running processes,
-  listening sockets, SSH configuration, the hosts file, world writable paths,
-  user services, browser extensions, launcher entries, pending package updates,
-  and a ClamAV scan of the usual drop points. It reports what is normal as well
-  as what is not, and the scan is bounded so it cannot quietly eat the evening.
-- **Briefing.** A spoken summary of time, date, weather, machine load, memory,
-  uptime, and how the last sweep went.
-- **Memory.** Durable facts in a plain file you can read and edit by hand, given
-  to the model on every turn, so remembering costs no round trip. Ask it to
-  remember something and it writes there; the store is small on purpose.
+- **Screen vision.** It captures the screen and hands the picture to the model, so
+  the answer is about the window that is open rather than what a model remembers of
+  the internet.
+- **Security sweep.** Processes, listening sockets, SSH config, hosts file, world
+  writable paths, user services, browser extensions, launcher entries, pending
+  updates, and a bounded ClamAV scan of the usual drop points. It reports what is
+  normal as well as what is not.
+- **Memory.** Durable facts in a plain file you can edit by hand, given to the
+  model every turn. Small on purpose.
 
 ## The dashboard
 
-- **Live state.** What it heard, what it is doing, what it said, and every tool
-  it used, streamed as it happens. The server is the source of truth, so two
-  open tabs agree.
-- **Three themes.** Standard, stealth and combat, switched by voice, repainting
-  the orb, the rings, the radar and every panel. A theme can also be set by
-  opening the page with `?theme=combat`, which is what the screenshots use.
+- **Live state.** What it heard, what it is doing, what it said, every tool it
+  used, streamed as it happens. The server is the source of truth, so two tabs
+  agree.
+- **Three themes.** Standard, stealth and combat, repainting the orb, the rings,
+  the radar and every panel. Also `?theme=combat` on the URL.
 - **It tells you where the turn is.** Thinking, listening, speaking and muted are
   distinct states, not one blinking light.
 
 ## What you can say
 
-Measured against the actual matchers, so these all work as written:
+Against the actual matchers, so these all work as written:
 
 | Say this | What happens |
 |---|---|
@@ -80,58 +64,40 @@ Measured against the actual matchers, so these all work as written:
 | "what's on my screen", "look at this error", "what am I looking at" | a screenshot is taken and read |
 | "remind me in twenty minutes to check the oven" | a reminder, confirmed at once, spoken when due |
 | "set a timer for five minutes", "set a timer for an hour and a half" | a timer with an alarm |
-| "what reminders do I have", "cancel my reminders" | the list, or all of them cleared, with two minutes to undo |
+| "what reminders do I have", "cancel my reminders" | the list, or all cleared, with two minutes to undo |
 | "undo", "bring them back" | whatever the last cancel took, if it was in the last two minutes |
 | "remember that the router is in the hall" | a durable fact, written to the memory file |
-| anything else | the model, with shell and file tools, so it can search, read and work things out |
+| anything else | the model, with shell and file tools |
 
 Interrupt any of it by talking over it, or by saying the wake phrase again.
 
 ## Limits worth knowing
 
-- **Reminders take a delay, not a clock time.** "In twenty minutes" and "in an
-  hour and a half" work. "Tomorrow at nine" gets an honest refusal with the
-  shape it does understand, because the model has no reminder tool and a
-  confident "yes" that never fires is worse than a plain no.
-- **The model is remote and free.** The chain is made of free relays, and they
-  stall. When one does, the next takes over and it says so. Occasionally a turn
-  ends with "my connection to the model dropped, ask me again".
-- **The fallback voice is an extra.** Kokoro is the voice, and it needs its model
-  files. If they are missing, the assistant says there is no usable speech engine
-  rather than speaking with something worse. Installing `uv sync --extra
-  fallback-voice` adds piper, which speaks when kokoro cannot.
-- **Screen questions need a model that can see.** With a text only model the
-  answer arrives without the picture.
-- **Screen capture is not always reliable.** On some NVIDIA and Wayland
-  combinations the compositor refuses a screenshot. It retries three times
-  before giving up on that attempt.
-- **Talking about it can wake it.** Saying the wake phrase while telling someone
-  about the assistant is a call as far as it is concerned.
-- **On a scrolling layout the dashboard can open off the edge.** Hyprland's
-  scrolling layout lays windows out in a row, and a Wayland client cannot place
-  its own window, so the dashboard can land past the right edge of a single
-  monitor. The window can be matched by `class = "brave-127.*"` once opened with
-  `--app` (how `run.sh` opens it), and a window rule that floats it fixes the
-  placement for good. Its title cannot be used: a browser sets the title after the
-  window is mapped, and these rules match the whole string at that moment.
-- **The sweep reads Linux and macOS, and not Windows.** On Linux it reads
-  `/proc`, asks systemd and the package manager, and looks in browser profiles. On
-  macOS it reads what a Mac has instead: launch items and whether the binary
-  behind each one is signed, system extensions, Gatekeeper, what is listening, and
-  `/etc/hosts`. On Windows, or on a distribution without those, asking for one gets
-  a plain answer instead of a sweep. Everything else runs on all three: the screen
-  is captured through grim on Wayland, `screencapture` on macOS, and Pillow
-  elsewhere, and the launchers are `run.sh` and `run.cmd`.
-- **macOS gates two things.** Screen questions need the Screen Recording
-  permission and the microphone needs the Microphone permission, both under System
-  Settings, Privacy and Security. Before the tick goes in, a screen question reads
-  as a black frame and the microphone opens onto nothing; both are reported for
-  what they are rather than answered around. A terminal that was refused has to be
-  started again after the tick.
-- **The dashboard opens the browser by bundle on macOS.** There is no browser on
-  `PATH` there, so `/Applications` is searched in preference order and the
-  executable inside the bundle is started with the same flags Linux uses. Safari
-  has no app mode, so a Mac with only Safari gets a normal browser window.
-- **Email, calendar and music are not here.** Reading someone's mail means
-  shipping their credentials and sending their messages to a model, so that one
-  is left to whoever wants it. See the note in the README.
+- **Reminders take a delay, not a clock time.** "Tomorrow at nine" gets a refusal
+  with the shape it does understand, because a confident yes that never fires is
+  worse than a plain no.
+- **The model is remote and free.** The relays stall; when one does the next takes
+  over and it says so. A turn can end with "my connection to the model dropped".
+- **The fallback voice is an extra.** With kokoro's model files missing it says
+  there is no usable speech engine rather than speaking with something worse.
+  `uv sync --extra fallback-voice` adds piper for that case.
+- **Screen questions need a model that can see.** With a text only model the answer
+  arrives without the picture.
+- **Screen capture is not always reliable.** Some NVIDIA and Wayland combinations
+  refuse a screenshot. It retries three times.
+- **Talking about it can wake it.** The wake phrase in a sentence about the
+  assistant is a call as far as it is concerned.
+- **On a scrolling layout the dashboard can open off the edge**, because a Wayland
+  client cannot place its own window. `class = "brave-127.*"` matches it and a
+  float rule fixes the placement. The title cannot be used: a browser sets it after
+  the window is mapped.
+- **The sweep reads Linux and macOS, not Windows.** Asking for one there gets a
+  plain answer instead of a sweep. Everything else runs on all three.
+- **macOS gates two things.** Screen Recording for screen questions, Microphone for
+  the microphone, both under System Settings. Before the tick they read as a black
+  frame and a microphone that opens onto nothing, and both are reported as what
+  they are.
+- **No temperature on Apple Silicon**, since there is no unprivileged sensor to
+  read. The dashboard shows nothing rather than a made-up number.
+- **Email, calendar and music are not here.** Each needs an account and a
+  credential, so they are left to whoever wants them.
