@@ -12,5 +12,15 @@
     "jarvis",
     "jervis"
   ],
-  "WHISPER_HINT_EXTRA": "your name, your town, the apps you launch by voice"
+  "WHISPER_HINT_EXTRA": "your name, your town, the apps you launch by voice",
+  "_comment5": "Answering with no internet. Needs a local model: install llama.cpp and a Vulkan or CUDA backend for it, put a GGUF in PI_LOCAL_MODELS_DIR, and point pi at it by adding a provider to ~/.pi/agent/models.json whose baseUrl is the router (http://127.0.0.1:8080/v1). Leave the list empty and none of this exists.",
+  "PI_MODELS_OFFLINE": [
+    "local/your-model-file"
+  ],
+  "_comment6": "auto follows the network, online never goes local, offline never calls a relay and is how the local path gets tested without unplugging anything.",
+  "PI_CHAIN_MODE": "auto",
+  "_comment7": "JARVIS starts the router itself when the offline chain needs it, and stops only one it started.",
+  "PI_LOCAL_SERVER_URL": "http://127.0.0.1:8080",
+  "PI_LOCAL_MODELS_DIR": "/home/you/models",
+  "PI_LOCAL_DEVICE": "Vulkan0"
 }

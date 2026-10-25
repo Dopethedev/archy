@@ -76,8 +76,8 @@ Interrupt any of it by talking over it, or by saying the wake phrase again.
 - **Reminders take a delay, not a clock time.** "Tomorrow at nine" gets a refusal
   with the shape it does understand, because a confident yes that never fires is
   worse than a plain no.
-- **The model is remote and free.** When a relay stalls the next takes over and it
-  says so. With no internet it says so; a refused key is said as a refused key.
+- **It works with no internet.** A small local model answers instead of a relay,
+  measured here at 0.7 s cold; llama.cpp and a model fetched by hand are needed.
 - **The fallback voice is an extra.** With kokoro's model files missing it says
   there is no usable speech engine rather than speaking with something worse;
   `uv sync --extra fallback-voice` adds piper. With no voice at all it still hears,
