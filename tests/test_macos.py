@@ -260,75 +260,91 @@ check("the scratch list covers the places a Mac payload lands",
       all(part in sweep.MAC_SCRATCH for part in
           ("/tmp/", "/private/tmp/", "/var/tmp/", "/users/shared/", "/downloads/")))
 
-tree = workdir("launchagents")
-agents = tree / "LaunchAgents"
-agents.mkdir()
-binary = tree / "helper"
-binary.write_bytes(b"\xcf\xfa\xed\xfe" + b"\x00" * 64)      # a 64-bit Mach-O header
-binary.chmod(0o755)
-script = tree / "nightly.sh"
-script.write_text("#!/bin/sh\n")
-script.chmod(0o755)
-
-
-def write_plist(name, target, program_key="Program"):
-    (agents / name).write_text(
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
-        '<plist version="1.0"><dict>\n'
-        f'  <key>Label</key><string>{name}</string>\n'
-        f'  <key>{program_key}</key><string>{target}</string>\n'
-        '</dict></plist>\n')
-
-
-write_plist("com.example.fine.plist", str(script))
-write_plist("com.example.scratch.plist", "/scratch/payload.sh")
-write_plist("com.example.gone.plist", str(tree / "not-there"))
-write_plist("com.example.helper.plist", str(binary))
-write_plist("com.example.wide.plist", str(script))
-(agents / "com.example.wide.plist").chmod(0o666)
-
-DIRS = (("test agents", agents),)
-real_scratch = sweep.MAC_SCRATCH
-real_complaint = sweep._codesign_complaint
-# the fixture lives under /tmp, and /tmp is one of the real scratch directories,
-# so the controlled list is used here and the real one is checked as data above
-sweep.MAC_SCRATCH = ("/scratch/",)
-sweep._codesign_complaint = lambda path, cache: ""
-try:
-    found = sweep.check_mac_launch_items(dirs=DIRS)
-    joined = "\n".join(found)
-    check("a launch item running from a scratch directory is an alert",
-          any(f.startswith("alert") and "scratch" in f for f in found), joined[:70])
-    check("a launch item pointing at nothing is a warning",
-          any(f.startswith("warn") and "not there" in f for f in found))
-    check("a launch item anyone can rewrite is an alert",
-          any(f.startswith("alert") and f"{agents}/com.example.wide.plist" in f for f in found))
-    check("and the one that is fine is not named",
-          not any("com.example.fine" in f for f in found))
-finally:
-    pass
-
-sweep._codesign_complaint = lambda path, cache: "code object is not signed at all"
-try:
-    found = sweep.check_mac_launch_items(dirs=DIRS)
-    check("an unsigned binary behind a launch item is a warning",
-          any(f.startswith("warn") and "not signed" in f for f in found),
-          "\n".join(found)[:70])
-finally:
-    sweep._codesign_complaint = real_complaint
-    sweep.MAC_SCRATCH = real_scratch
-
+sniff = workdir("macho")
+macho_file = sniff / "helper"
+macho_file.write_bytes(b"\xcf\xfa\xed\xfe" + b"\x00" * 8)
+text_file = sniff / "nightly.sh"
+text_file.write_text("#!/bin/sh\n")
 check("a script is not sent to codesign, having no signature to check",
-      sweep._is_macho(script) is False and sweep._is_macho(binary) is True)
-if shutil.which("codesign") is None:
-    check("with no codesign on the machine, nothing is invented about a signature",
-          sweep._codesign_complaint(str(binary), {}) == "")
-else:
+      sweep._is_macho(text_file) is False and sweep._is_macho(macho_file) is True)
+check("with no codesign on the machine, nothing is invented about a signature",
+      shutil.which("codesign") is not None
+      or sweep._codesign_complaint(str(macho_file), {}) == "")
+
+
+def mac_launch_items():
+    """The launch item checks, which read POSIX file modes to do their job.
+
+    Windows reports every writable file as writable by everyone, so a fixture
+    built here would call a good launch item world-writable and the rules would
+    look broken rather than be tested. The rules are about a filesystem that has
+    owners and modes, which is what a Mac has.
+    """
+    tree = workdir("launchagents")
+    agents = tree / "LaunchAgents"
+    agents.mkdir()
+    binary = tree / "helper"
+    binary.write_bytes(b"\xcf\xfa\xed\xfe" + b"\x00" * 64)      # a 64-bit Mach-O header
+    binary.chmod(0o755)
+    script = tree / "nightly.sh"
+    script.write_text("#!/bin/sh\n")
+    script.chmod(0o755)
+
+
+    def write_plist(name, target, program_key="Program"):
+        (agents / name).write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+            '<plist version="1.0"><dict>\n'
+            f'  <key>Label</key><string>{name}</string>\n'
+            f'  <key>{program_key}</key><string>{target}</string>\n'
+            '</dict></plist>\n')
+
+
+    write_plist("com.example.fine.plist", str(script))
+    write_plist("com.example.scratch.plist", "/scratch/payload.sh")
+    write_plist("com.example.gone.plist", str(tree / "not-there"))
+    write_plist("com.example.helper.plist", str(binary))
+    write_plist("com.example.wide.plist", str(script))
+    (agents / "com.example.wide.plist").chmod(0o666)
+
+    DIRS = (("test agents", agents),)
+    real_scratch = sweep.MAC_SCRATCH
+    real_complaint = sweep._codesign_complaint
+    # the fixture lives under /tmp, and /tmp is one of the real scratch directories,
+    # so the controlled list is used here and the real one is checked as data above
+    sweep.MAC_SCRATCH = ("/scratch/",)
+    sweep._codesign_complaint = lambda path, cache: ""
+    try:
+        found = sweep.check_mac_launch_items(dirs=DIRS)
+        joined = "\n".join(found)
+        check("a launch item running from a scratch directory is an alert",
+              any(f.startswith("alert") and "scratch" in f for f in found), joined[:70])
+        check("a launch item pointing at nothing is a warning",
+              any(f.startswith("warn") and "not there" in f for f in found))
+        check("a launch item anyone can rewrite is an alert",
+              any(f.startswith("alert") and f"{agents}/com.example.wide.plist" in f for f in found))
+        check("and the one that is fine is not named",
+              not any("com.example.fine" in f for f in found))
+
+        # now the signature, which needs a real Mach-O to be worth asking about
+        sweep._codesign_complaint = lambda path, cache: "code object is not signed at all"
+        found = sweep.check_mac_launch_items(dirs=DIRS)
+        check("an unsigned binary behind a launch item is a warning",
+              any(f.startswith("warn") and "not signed" in f for f in found),
+              "\n".join(found)[:70])
+    finally:
+        sweep.MAC_SCRATCH = real_scratch
+        sweep._codesign_complaint = real_complaint
+
+
+if os.name != "posix":
     skipped += 1
-    print("  [SKIP] no codesign on this machine  there is one here, so the "
-          "missing-tool path cannot be seen")
+    print("  [SKIP] the launch item rules  Windows has no file modes to read")
+else:
+    mac_launch_items()
+
 
 clean = workdir("launchagents-clean")
 (clean / "LaunchAgents").mkdir()

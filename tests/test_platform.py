@@ -85,11 +85,17 @@ finally:
     sweep.supported = real_supported
 
 # ------------------------------------------------------------------- the screen
+# three backends now: grim where the compositor has it, screencapture on macOS,
+# Pillow's grab everywhere else
 which = vision.backend()
-check("there is a way to look at the screen here", which in ("grim", "grab"), which)
+check("there is a way to look at the screen here",
+      which in ("grim", "screencapture", "grab"), which)
 if sys.platform == "win32":
     check("on Windows it is the portable one, since grim is Wayland only",
           which == "grab", which)
+if sys.platform == "darwin":
+    check("on macOS it is the platform's own screencapture",
+          which == "screencapture", which)
 
 real_which = vision.shutil.which
 vision.shutil.which = lambda name: None
