@@ -10,6 +10,7 @@ import json
 import os
 
 ROOT = Path(__file__).resolve().parents[2]          # ~/jarvis
+LOCAL_CONFIG_FILE = Path(os.environ.get("JARVIS_LOCAL_CONFIG") or (ROOT / "config.local.json"))
 MODELS = ROOT / "models"
 HUD_DIR = ROOT / "hud"
 
@@ -218,6 +219,19 @@ PERMISSION_READONLY_COMMANDS: tuple = ()
 # How long an approval lasts before it is stale, in seconds, and how long a
 # blocked request stays on the waiting list.
 PERMISSION_APPROVAL_TTL_S = 300.0
+
+# ---------------------------------------------------------------------- privacy
+# What may leave the machine when an online model is answering. Every default is
+# the behaviour the assistant already had: a privacy setting that changes what
+# happens on upgrade is not a setting. With the local model answering, none of it
+# leaves the machine anyway, so these only govern remote requests. Enforced in
+# code where the request is built, not in the prompt. See privacy.py.
+PRIVACY_ONLINE_AI = True            # False means local only, whatever the chain says
+PRIVACY_SHARE_MEMORY = True         # the stored facts go into the prompt
+PRIVACY_SHARE_FILES = True          # file tools are usable at all
+PRIVACY_SHARE_SCREENS = True        # a screenshot may be attached to a request
+PRIVACY_SHARE_HISTORY = True        # earlier conversation is resumed
+PRIVACY_KEEP_TRANSCRIPTS = True     # pi keeps its session files on disk
 # If pi says nothing at all for this long the turn is abandoned and the model
 # While a tool call is running, and for the rest of that turn, the process is
 # doing more work than an ordinary question: a twenty second curl is a slow
@@ -397,7 +411,7 @@ def _apply_local_overrides() -> None:
     match the upper-case names above; anything else is ignored with a warning
     rather than silently doing nothing.
     """
-    path = ROOT / "config.local.json"
+    path = LOCAL_CONFIG_FILE
     if not path.exists():
         return
     try:
