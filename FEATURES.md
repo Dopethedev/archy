@@ -81,23 +81,20 @@ Interrupt any of it by talking over it, or by saying the wake phrase again.
 - **The fallback voice is an extra.** With kokoro's model files missing it says
   there is no usable speech engine rather than speaking with something worse.
   `uv sync --extra fallback-voice` adds piper for that case.
-- **Screen questions need a model that can see.** With a text only model the answer
-  arrives without the picture.
-- **Screen capture is not always reliable.** Some NVIDIA and Wayland combinations
-  refuse a screenshot. It retries three times.
+- **Screen questions need a model that can see, and a compositor that will copy.**
+  With a text only model the answer arrives without the picture, and some NVIDIA
+  and Wayland combinations refuse a screenshot, which it retries three times.
 - **Talking about it can wake it.** The wake phrase in a sentence about the
   assistant is a call as far as it is concerned.
 - **On a scrolling layout the dashboard can open off the edge**, because a Wayland
   client cannot place its own window. `class = "brave-127.*"` matches it and a
-  float rule fixes the placement. The title cannot be used: a browser sets it after
-  the window is mapped.
+  float rule fixes the placement.
 - **The sweep reads Linux and macOS, not Windows.** Asking for one there gets a
   plain answer instead of a sweep. Everything else runs on all three.
 - **macOS gates two things.** Screen Recording for screen questions, Microphone for
   the microphone, both under System Settings. Before the tick they read as a black
   frame and a microphone that opens onto nothing, and both are reported as what
-  they are.
-- **No temperature on Apple Silicon**, since there is no unprivileged sensor to
-  read. The dashboard shows nothing rather than a made-up number.
+  they are. There is also no temperature on Apple Silicon, since no unprivileged
+  sensor exists; the dashboard shows nothing rather than a made-up number.
 - **Email, calendar and music are not here.** Each needs an account and a
   credential, so they are left to whoever wants them.
