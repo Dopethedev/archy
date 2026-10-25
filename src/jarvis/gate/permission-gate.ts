@@ -41,6 +41,10 @@ export interface Policy {
 	pending?: string;
 	log?: string;
 	approval_ttl_s?: number;
+	/** Whether the model answering right now is somebody else's computer. */
+	privacy_remote?: boolean;
+	/** Whether file contents may go to that model at all. */
+	privacy_allow_files?: boolean;
 }
 
 export interface Decision {
@@ -94,6 +98,9 @@ const NEVER_READONLY = new Set([
 	"python", "python3", "python3.14", "node", "deno", "bun", "perl", "ruby",
 	"openssl", "gpg", "useradd", "usermod", "passwd", "crontab", "at", "systemctl-restart",
 ]);
+
+/** The tools that carry the contents of a file into a request. */
+const FILE_TOOLS = new Set(["read", "write", "edit"]);
 
 /** Flags that turn a looking command into a writing one. */
 const WRITING_FLAGS = [
@@ -469,6 +476,18 @@ export function decide(toolName: string, input: unknown, loaded: Loaded, cwd: st
 	const roots = policy.roots as string[];
 	const extra = Array.isArray(policy.readonly_commands)
 		? (policy.readonly_commands as string[]).filter(isString) : [];
+
+	// A privacy setting is not something an approval can override. An approval says
+	// "do this one thing"; this says "this kind of thing does not go to that model",
+	// and a question about it would be an offer to make a promise the owner already
+	// declined. So it refuses, without offering one, and says which setting it was.
+	if (policy.privacy_remote === true && policy.privacy_allow_files === false
+		&& FILE_TOOLS.has(toolName)) {
+		const reason = "sending file contents to an online model is switched off, so I "
+			+ "will not read or write files while one is answering";
+		logDecision(policy, toolName, "deny", reason, "");
+		return { allow: false, reason: `I will not do that: ${reason}.`, approval: false, enforcing: true };
+	}
 
 	const call = canonicalise(toolName, input, cwd);
 	if ("invalid" in call) {

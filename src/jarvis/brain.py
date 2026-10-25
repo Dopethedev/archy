@@ -11,6 +11,8 @@ import asyncio
 import json
 import os
 import subprocess
+import tempfile
+from pathlib import Path
 import sys
 import threading
 import time
@@ -18,6 +20,7 @@ import time
 from . import config
 from . import net
 from . import permissions
+from . import privacy
 from .memory_store import Memory
 
 DIALOG_METHODS = {"select", "confirm", "input", "editor"}
@@ -38,6 +41,11 @@ def model_chain() -> tuple[str, ...]:
     install that never fetched a model behaves as it always did.
     """
     local = tuple(config.PI_MODELS_OFFLINE)
+    if not privacy.on("online_ai"):
+        # Switching online AI off has to mean the relays cannot come back, including
+        # through the fallback that exists for the network going away. It is the one
+        # privacy setting that has to hold in every branch below.
+        return local or ()
     if config.PI_CHAIN_MODE == "offline":
         return local or tuple(config.PI_MODELS)     # forced local, or nothing to do
     if config.PI_CHAIN_MODE == "online":
@@ -78,12 +86,17 @@ class PiBrain:
         self.chain: tuple[str, ...] = tuple(config.PI_MODELS)
 
     @staticmethod
-    def _system_prompt() -> str:
+    def _system_prompt(model: str | None = None) -> str:
         """Voice rules, plus how to use the durable store, plus what is in it.
 
         The stored facts go into the prompt itself so that remembering costs no
         tool call and no round trip. It is capped, because a prompt that grows
         without bound would slow every turn down.
+
+        Which is also why the model matters here: this prompt is what a request
+        carries, so the facts are left out entirely when an online model is
+        answering and its owner said memory may not go there. Not a sentence
+        asking it to keep quiet, the text itself, absent.
         """
         python = sys.executable
         how = (
@@ -94,16 +107,40 @@ class PiBrain:
             "something, store it there, because the conversation alone will not "
             "survive. Do it quietly without announcing the mechanism.\n"
         )
-        try:
-            memory = Memory()
-            if memory.line_count():
-                facts = memory.summary()
-                if len(facts) > 1200:
-                    facts = facts[:1200] + " ..."
-                how += f"\nWhat you already know about him: {facts}\n"
-        except Exception as exc:
-            print(f"[memory] could not load: {exc}")
+        if privacy.shares("memory", model):
+            try:
+                memory = Memory()
+                if memory.line_count():
+                    facts = memory.summary()
+                    if len(facts) > 1200:
+                        facts = facts[:1200] + " ..."
+                    how += f"\nWhat you already know about him: {facts}\n"
+            except Exception as exc:
+                print(f"[memory] could not load: {exc}")
+        else:
+            how = how.split("\n")[0]             # how to store one, not what is in it
         return config.VOICE_RULES + how
+
+    @staticmethod
+    def session_dir_for_run() -> Path:
+        """Where pi keeps this run's transcripts.
+
+        Retaining them is a privacy choice, and switching it off has to mean the
+        words are not written to the repository at all, so pi is pointed at a
+        temporary directory that is emptied first. Nothing else reads it, and a
+        restart does not leave the last conversation behind.
+        """
+        if privacy.on("transcripts"):
+            return config.SESSION_DIR
+        directory = Path(tempfile.gettempdir()) / f"jarvis-transcripts-{os.getpid()}"
+        try:
+            if directory.exists():
+                for path in directory.glob("*.jsonl"):
+                    path.unlink()
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            print(f"[brain] could not prepare {directory}: {exc}", flush=True)
+        return directory
 
     # ------------------------------------------------------------------ setup
     @staticmethod
@@ -160,21 +197,27 @@ class PiBrain:
 
     async def start(self):
         config.SESSION_DIR.mkdir(exist_ok=True)
+        session_dir = self.session_dir_for_run()
         self._generation += 1
         generation = self._generation
         self._loop = asyncio.get_running_loop()
         self._queue = asyncio.Queue()
 
         self.chain = model_chain()
+        if not self.chain:
+            # Online AI switched off with nothing local to fall back on. There is no
+            # honest way to answer, so it says that instead of quietly reloading a
+            # relay and calling the setting respected.
+            raise BrainError("online AI is switched off and no local model is configured")
         if self.model_index >= len(self.chain):
             self.model_index = 0
+        model = self.chain[self.model_index]
         args = [
             config.PI_BIN, "--mode", "rpc",
-            "--session-dir", str(config.SESSION_DIR),
+            "--session-dir", str(session_dir),
             "--thinking", config.PI_THINKING,
-            "--append-system-prompt", self._system_prompt(),
+            "--append-system-prompt", self._system_prompt(model),
         ]
-        model = self.chain[self.model_index]
         args += ["--model", model]
         if self._is_local(model) and config.PI_LOCAL_SYSTEM_PROMPT:
             # pi's own prompt is a coding assistant's, and on a 4B model on this
@@ -183,13 +226,16 @@ class PiBrain:
             # local model is handed the short one.
             args += ["--system-prompt", config.PI_LOCAL_SYSTEM_PROMPT]
         print(f"[brain] model {model}", flush=True)
-        if config.PI_CONTINUE:
+        if config.PI_CONTINUE and privacy.shares("history", model):
+            # With history sharing off for an online model, a fresh session is the
+            # only way the earlier conversation is genuinely not sent.
             args.append("--continue")          # pick the conversation back up
         if not config.PI_EXTENSIONS:
             args.append("--no-extensions")
         # The permission gate, when the owner turned it on. It raises here rather
         # than later if the file that enforces it is not there: starting pi with
         # the promise of a gate and no gate is worse than not starting it.
+        permissions.note_model(model)
         permissions.write_policy()
         args += permissions.gate_args()
 
@@ -403,6 +449,21 @@ class PiBrain:
         """Step to the next model in the chain, wrap around, and name it."""
         self.model_index = (self.model_index + 1) % len(self.chain)
         return self.chain[self.model_index]
+
+    def note_for_gate(self) -> None:
+        """Tell the permission gate which model is answering, so it can judge files.
+
+        The gate runs inside pi and cannot see the chain from there, and a chain
+        that moves from a relay to the local model changes whether file contents are
+        leaving the machine at all.
+        """
+        if not permissions.enabled():
+            return
+        permissions.note_model(self.model_name())
+        try:
+            permissions.write_policy()
+        except permissions.GateMissing:
+            pass
 
     def model_name(self) -> str:
         return self.chain[self.model_index % len(self.chain)]
