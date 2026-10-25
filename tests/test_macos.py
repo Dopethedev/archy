@@ -346,17 +346,42 @@ else:
     mac_launch_items()
 
 
-clean = workdir("launchagents-clean")
-(clean / "LaunchAgents").mkdir()
-(clean / "LaunchAgents" / "com.example.quiet.plist").write_text(
-    '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>\n'
-    '<key>ProgramArguments</key><array><string>/bin/sh</string>'
-    '<string>-c</string><string>true</string></array>\n</dict></plist>\n')
-found = sweep.check_mac_launch_items(dirs=(("test agents", clean / "LaunchAgents"),))
-check("a quiet machine gets one ok line, not silence",
-      len(found) == 1 and found[0].startswith("ok"), found[0][:60])
-check("ProgramArguments is read when there is no Program",
-      "not there" not in " ".join(found))
+def mac_clean_launch_items():
+    """A launch item with nothing wrong with it.
+
+    That is the only way to see that a quiet machine says so rather than staying
+    silent, and it needs file modes to be meaningful, like the rules above.
+    """
+    real_scratch, real_complaint = sweep.MAC_SCRATCH, sweep._codesign_complaint
+    sweep.MAC_SCRATCH = ("/scratch/",)
+    sweep._codesign_complaint = lambda path, cache: ""     # that was checked above
+    try:
+        clean = workdir("launchagents-clean")
+        (clean / "LaunchAgents").mkdir()
+        script = clean / "quiet.sh"
+        script.write_text("#!/bin/sh\ntrue\n")
+        script.chmod(0o755)
+        (clean / "LaunchAgents" / "com.example.quiet.plist").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>\n'
+            '<key>ProgramArguments</key><array>'
+            f'<string>{script}</string>'
+            '<string>-c</string><string>true</string></array>\n</dict></plist>\n')
+        found = sweep.check_mac_launch_items(dirs=(("test agents", clean / "LaunchAgents"),))
+        check("a quiet machine gets one ok line, not silence",
+              len(found) == 1 and found[0].startswith("ok"), found[0][:60])
+        check("ProgramArguments is read when there is no Program",
+              "not there" not in " ".join(found))
+    finally:
+        sweep.MAC_SCRATCH = real_scratch
+        sweep._codesign_complaint = real_complaint
+
+
+if os.name != "posix":
+    skipped += 1
+    print("  [SKIP] a launch item with nothing wrong with it  Windows has no "
+          "file modes to read")
+else:
+    mac_clean_launch_items()
 
 print("-- the sweep's other mac checks --")
 real_run = sweep._run
