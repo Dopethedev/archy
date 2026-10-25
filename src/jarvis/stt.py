@@ -72,3 +72,22 @@ class Transcriber:
         if text.lower() in _HALLUCINATIONS:
             return ""
         return text
+
+
+class DeafTranscriber:
+    """Stands in when the recogniser could not be built.
+
+    Whisper is loaded in the constructor, so a missing model file raised out of
+    Assistant() itself: the process died before the microphone was ever opened,
+    with the reason buried in a traceback. Everything that does not go through the
+    recogniser (typed input, the dashboard, briefings, the security sweep,
+    machine readings) still works, so it says once what is missing and hears
+    nothing rather than taking the rest with it.
+    """
+
+    def __init__(self, error: Exception):
+        self.error = error
+        print(f"[stt] no recogniser, so it cannot hear you: {error}", flush=True)
+
+    def transcribe(self, audio) -> str:
+        return ""

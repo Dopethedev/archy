@@ -125,6 +125,27 @@ PI_MODELS = (
     "wandb/Qwen/Qwen3.8-27B",
 )
 
+# The local chain: what to use when there is no internet at all. Empty means the
+# feature is off, which is exactly the behaviour from before it existed, so an
+# install that never fetches a local model never sees a difference. Filled in by
+# config.local.json with a model the llama.cpp router serves.
+PI_MODELS_OFFLINE = ()
+
+# ------------------------------------------------------------ connectivity
+# "There is no internet" and "the provider refused this model" are different
+# failures with different answers, and one error string covers both until they
+# are told apart (see net.py).
+#
+# The probe is a TCP connect to a few well-known addresses, not a DNS lookup and
+# not a web request: DNS answers from a cache, and a captive portal answers a web
+# request with a login page, and neither proves the relay is reachable. A turn
+# that really happened outranks any probe, so being wrong here is temporary.
+NET_PROBE_TARGETS = (("1.1.1.1", 443), ("8.8.8.8", 53), ("9.9.9.9", 53))
+NET_PROBE_TIMEOUT_S = 1.5            # per target, tried in order until one connects
+NET_CHECK_TTL_S = 20.0               # how long a verdict is trusted
+NET_CHECK_MIN_INTERVAL_S = 5.0       # never probe more often than this, however often asked
+NET_GREETING_WAIT_S = 2.0            # how long start-up waits for a verdict before speaking
+
 # Small durable state: the last sweep's report, pending reminders. Lives under
 # the project, recreated if missing, never in the session.
 STATE_DIR = ROOT / ".state"
