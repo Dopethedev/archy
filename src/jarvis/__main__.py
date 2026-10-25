@@ -87,7 +87,7 @@ def open_dashboard(url: str):
 
 async def one_shot(text: str):
     assistant = Assistant(hud=None)
-    await assistant.brain.start()
+    await assistant.start_brain()
     assistant.player.start()
     await assistant._process(text=text)
     assistant.shutdown()

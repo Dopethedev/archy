@@ -148,6 +148,10 @@ PI_LOCAL_MODELS_DIR = Path.home() / "models"
 # one advertises more free memory because it borrows system RAM. `llama-server
 # --list-devices` prints the names.
 PI_LOCAL_DEVICE = "Vulkan0"
+# The router runs with explicit loading, so a model has to be asked for. Loading a
+# 4B off disk measured a few seconds here; the wait is here so a slow disk is a
+# slow start rather than a lost question.
+PI_LOCAL_LOAD_WAIT_S = 90.0
 PI_LOCAL_SERVER_ARGS = (
     "--no-models-autoload", "--jinja", "-ngl", "999", "-c", "32768",
     "--flash-attn", "on",

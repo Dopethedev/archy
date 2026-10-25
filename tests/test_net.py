@@ -132,6 +132,10 @@ check("a probe that raises is not proof of internet", link.wait(2.0) is False)
 check("and the assistant is still alive", link.mode() == net.OFFLINE, link.mode())
 
 print("-- the greeting, which used to lie --")
+# Pinned, because config.local.json is a documented override: an owner who set
+# offline-only would otherwise be asserting against a different greeting.
+saved_mode, saved_chain = config.PI_CHAIN_MODE, config.PI_MODELS_OFFLINE
+config.PI_CHAIN_MODE, config.PI_MODELS_OFFLINE = "auto", ()
 link = Connectivity(probe=lambda: True)
 check("online says so", net.startup_greeting(link, wait=1.0) == "Online.",
       net.startup_greeting(link, wait=1.0))
@@ -162,6 +166,7 @@ check("no verdict at all says something neutral",
       text == "Ready.", text)
 release.set()
 time.sleep(0.05)
+config.PI_CHAIN_MODE, config.PI_MODELS_OFFLINE = saved_mode, saved_chain
 
 print("-- the feature is off by default --")
 # config.local.json is read at import, so this asserts the shape the code works

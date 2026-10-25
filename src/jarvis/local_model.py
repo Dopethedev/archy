@@ -12,6 +12,7 @@ should do on its own.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import time
 import urllib.error
@@ -52,21 +53,63 @@ def healthy(timeout: float = 1.5) -> bool:
         return False
 
 
-def ensure_running(wait: float = 40.0) -> bool:
-    """Start the router if it is not up, and say whether it is usable.
+def _router_model_id() -> str:
+    """The router's name for the configured model.
 
-    A router someone else started is left alone. Ours is waited for, because the
-    first question asked while it is still loading would otherwise be reported as
-    a dead model, and the wait is bounded so a router that never comes up does not
-    hold the turn open forever.
+    The chain holds ids the way pi wants them (`local/Qwen3.5-4B-Q4_K_M`), and the
+    router knows the model as the part after the provider prefix, which is also
+    what it reported in `/models` before any of this existed.
+    """
+    first = str(config.PI_MODELS_OFFLINE[0]) if config.PI_MODELS_OFFLINE else ""
+    return first.split("/", 1)[1] if "/" in first else first
+
+
+def _post(path: str, payload: dict, timeout: float = 5.0) -> bool:
+    body = json.dumps(payload).encode()
+    request = urllib.request.Request(f"{config.PI_LOCAL_SERVER_URL}{path}", data=body,
+                                     headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
+def loaded(timeout: float = 1.5) -> bool | None:
+    """Is a model loaded? None when the router cannot be asked."""
+    try:
+        with urllib.request.urlopen(f"{config.PI_LOCAL_SERVER_URL}/models",
+                                    timeout=timeout) as resp:
+            data = json.loads(resp.read() or b"{}")
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+    entries = data.get("data") or []
+    if not entries:
+        return False
+    state = (entries[0].get("status") or {}).get("value")
+    return state in ("loaded", "sleeping")
+
+
+def ensure_running(wait: float = 40.0) -> bool:
+    """Start the router if it is not up, load the model, and say whether it is usable.
+
+    A router someone else started is left alone, apart from the model being loaded
+    if it is idle: the router runs with explicit loading, so a healthy router with
+    nothing loaded answers the first question with `400, model is not loaded`, and
+    that is a turn lost for no reason. Loading here also means the wait happens
+    once, at start-up, instead of inside somebody's question.
+
+    Both waits are bounded, so a router that never comes up does not hold a turn
+    open forever.
     """
     global _proc
     if not config.PI_MODELS_OFFLINE:
         return False                        # nothing configured to run
+    model = _router_model_id()
     if healthy():
-        return True
+        return _ensure_loaded(model)
     if _proc is not None and _proc.poll() is None:
-        return _wait(wait)                  # already starting
+        return _wait(wait) and _ensure_loaded(model)
     if not Path(config.PI_LOCAL_MODELS_DIR).exists():
         print(f"[local] no model directory: {config.PI_LOCAL_MODELS_DIR}", flush=True)
         return False
@@ -84,7 +127,31 @@ def ensure_running(wait: float = 40.0) -> bool:
     except (OSError, ValueError) as exc:
         print(f"[local] could not start {config.PI_LOCAL_SERVER_BIN}: {exc}", flush=True)
         return False
-    return _wait(wait)
+    return _wait(wait) and _ensure_loaded(model)
+
+
+def _ensure_loaded(model: str, wait: float | None = None) -> bool:
+    """Ask the router to load the model if it has not, and wait for it."""
+    wait = config.PI_LOCAL_LOAD_WAIT_S if wait is None else wait
+    state = loaded()
+    if state is True:
+        return True
+    if state is None:
+        return False                        # cannot ask, so cannot claim
+    print(f"[local] loading {model}", flush=True)
+    if not _post("/models/load", {"model": model}):
+        print("[local] the load request was refused", flush=True)
+        return False
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        if loaded() is True:
+            print(f"[local] {model} is loaded", flush=True)
+            return True
+        if _proc is not None and _proc.poll() is not None:
+            return False                    # the router died while loading
+        time.sleep(0.5)
+    print(f"[local] {model} did not finish loading within {wait:.0f}s", flush=True)
+    return False
 
 
 def _wait(wait: float) -> bool:
