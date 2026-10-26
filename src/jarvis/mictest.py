@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import queue
+import tempfile
 import time
+from pathlib import Path
 
 import numpy as np
 
@@ -58,13 +60,27 @@ async def run(seconds: float | None = None, device: str | None = None, transcrib
     if device:
         config.INPUT_DEVICE = device
     mic = MicCapture()
-    wake = WakeWord()
+    # the detector is only built when WAKE_MODE asks for it: in speech mode nothing
+    # uses it, and building it anyway meant this check could fail on a machine whose
+    # assistant works fine. A model file that is missing says so instead of raising
+    # out of the check that exists to diagnose exactly this.
+    try:
+        wake = WakeWord() if config.WAKE_MODE == "model" else None
+    except Exception as exc:
+        print(f"wake detector unavailable: {exc}")
+        wake = None
     stt = Transcriber() if transcribe else None
     vad = SpeechVAD()
     mic.start()
 
-    import sounddevice as sd
-    name = device or sd.query_devices(sd.default.device[0])["name"]
+    try:
+        import sounddevice as sd
+        name = device or sd.query_devices(sd.default.device[0])["name"]
+    except Exception as exc:
+        # A check that exists to diagnose a silent microphone must not stop on the
+        # one thing that is hard to read on a machine whose audio is broken. The
+        # levels below are still worth watching with no name to put on them.
+        name = device or f"the default input ({type(exc).__name__}: {exc})"
     print(f"input device: {name}")
     for line in _stream_format():
         print(f"  pipewire: {line}")
@@ -101,14 +117,14 @@ async def run(seconds: float | None = None, device: str | None = None, transcrib
             total_samples += frame.size
             clipped += int(np.sum(np.abs(frame.astype(np.int32)) >= 32700))
 
-            if wake.push(frame):
+            if wake is not None and wake.push(frame):
                 detections += 1
                 print("   *** WAKE WORD DETECTED ***")
 
-            score = float(wake.last_score)
+            score = float(getattr(wake, "last_score", 0.0))
             peak_score = max(peak_score, score)
 
-            prob = float(vad.predict(frame.astype(np.int16), frame_size=frame.size))
+            prob = float(vad.speech(frame.astype(np.int16), frame_size=frame.size))
             peak_vad = max(peak_vad, prob)
             captured.append(frame)
             if len(captured) > 16000 * 60 // max(1, frame.size):
@@ -147,11 +163,18 @@ async def run(seconds: float | None = None, device: str | None = None, transcrib
 
     clip_pct = 100.0 * clipped / max(1, total_samples)
     print(f"\npeak level {peak_level:.4f}   peak speech score {peak_vad:.2f}   clipping {clip_pct:.2f}%")
-    print(f"peak wake score {peak_score:.3f}   wake hits: {detections}")
+    if wake is None:
+        print("wake word: heard by the recogniser, not by a trained detector "
+              "(WAKE_MODE is speech), so the score above is not in use")
+    else:
+        print(f"peak wake score {peak_score:.3f}   wake hits: {detections}")
     if captured:
+        # the system's temp directory, not /tmp: this is the one line that assumed
+        # a Unix path, and on Windows it wrote to a directory that does not exist
+        saved_to = Path(tempfile.gettempdir()) / "mic_last.npy"
         try:
-            np.save("/tmp/mic_last.npy", np.concatenate(captured))
-            print("saved the last minute to /tmp/mic_last.npy for offline analysis")
+            np.save(saved_to, np.concatenate(captured))
+            print(f"saved the last minute to {saved_to} for offline analysis")
         except Exception as exc:
             print(f"could not save audio: {exc}")
     if peak_level < 0.005 and detections == 0:
@@ -159,9 +182,9 @@ async def run(seconds: float | None = None, device: str | None = None, transcrib
         print("is the mic or its gain, not the software.")
         if note := _permission_note():
             print(f"If nothing was ever allowed to listen, check: {note}.")
-    if peak_wake := peak_score:
+    if wake is not None:
         print(f"\nwake word {'fired' if detections else 'did not fire'} "
-              f"(best score {peak_wake:.3f}, threshold {config.WAKE_THRESHOLD})")
+              f"(best score {peak_score:.3f}, threshold {config.WAKE_THRESHOLD})")
     # the card's own gain is an ALSA control, so the advice is Linux's alone
     if clip_pct > 1.0 and _permission_note() is None:
         print("\nWARNING: the signal is clipping. Turn Auto Gain Control back off:")
