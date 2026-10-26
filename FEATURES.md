@@ -17,8 +17,8 @@ The full list, including the limits. Kept to one line each.
 
 Never touch a relay, so these land in about half a second:
 
-- **Reminders and timers.** "Remind me in twenty minutes to check the oven", "set a
-  timer for an hour and a half", "what reminders do I have". Parsed on the machine.
+- **Reminders and timers.** A delay, a clock time, or every day at a time, parsed on
+  the machine and confirmed in one breath, including "what reminders do I have".
 - **A way back from clearing them.** Cancelling keeps what it took for two minutes:
   "undo" brings them back, with their times.
 - **Briefing facts.** Time, date, weather, load, memory, uptime, gathered locally.
@@ -77,9 +77,8 @@ Interrupt any of it by talking over it, or by saying the wake phrase again.
 
 ## Limits worth knowing
 
-- **Reminders take a delay, not a clock time.** "Tomorrow at nine" gets a refusal
-  with the shape it does understand, because a confident yes that never fires is
-  worse than a plain no.
+- **Date shapes are still refused.** "Next week", "on the 14th" and "in two weeks"
+  get one plain sentence, because a confident yes that never fires is worse than a no.
 - **It works with no internet.** A small local model answers instead of a relay,
   measured here at 0.7 s cold; llama.cpp and a model fetched by hand are needed.
 - **The fallback voice is an extra.** `uv sync --extra fallback-voice` adds piper;

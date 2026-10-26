@@ -5,6 +5,7 @@ restart would meet it: a fresh read of the same file.
 """
 import json
 import sys
+from datetime import datetime, timedelta
 import tempfile
 import time
 import types
@@ -24,6 +25,8 @@ def check(label, ok, detail=""):
     failed += not ok
     print(f"  [{'OK  ' if ok else 'FAIL'}] {label}{'  ' + detail if detail else ''}")
 
+
+CLOCK_NOW = datetime(2026, 10, 26, 11, 0)     # a Monday, late morning, local time
 
 tmp = Path(tempfile.mkdtemp())
 config.STATE_DIR = tmp
@@ -101,14 +104,115 @@ for text, want in (("remind me in twenty minutes", 1200.0),
     check(f"spoken numbers work: {text!r}",
           a and a["action"] == "set" and abs(a["delay"] - want) < 0.01, str(a))
 
-# a request this cannot serve is one a model can only pretend to accept
-for text in ("remind me at 5pm to call mum", "remind me tomorrow morning to call",
-             "set an alarm for 7am", "remind me on friday to send the email"):
-    check(f"an absolute time is refused here: {text!r}",
-          reminders.parse(text) is None and reminders.cannot_do(text) is not None)
+# a request this cannot serve is one a model can only pretend to accept, and now
+# that clock times are served, only the date shapes are left
+for text in ("remind me next week to renew the thing", "remind me on the 14th to pay",
+             "remind me in two weeks to renew", "remind me the 3rd of March to fly"):
+    check(f"a date is still refused here: {text!r}",
+          reminders.cannot_do(text) is not None and "clock time" in reminders.cannot_do(text))
+for text in ("remind me at 5pm to call mum", "remind me tomorrow at nine to call",
+             "set an alarm for 7am", "remind me on friday at 9 to send the email",
+             "remind me every day at 7 to take medicine"):
+    check(f"and a clock time is not: {text!r}",
+          reminders.parse_clock(text, now=CLOCK_NOW) is not None
+          and reminders.cannot_do(text) is None)
 for text in ("remind me to buy milk", "what reminders do i have", "open the timer app"):
     check(f"no refusal where none is needed: {text!r}",
           reminders.cannot_do(text) is None)
+
+print("-- a clock time, which is a time and not a delay --")
+# The day the time falls on changes between runs, so every case is read against a
+# fixed morning: a Monday at eleven, which is the awkward one for "at nine".
+for text, wanted in (
+        ("remind me at 5 to check the oven", (17, 0, 0)),
+        ("remind me at 5pm to check the oven", (17, 0, 0)),
+        ("remind me at 5:30 to stretch", (17, 30, 0)),
+        ("remind me at 17:30 to stretch", (17, 30, 0)),
+        ("remind me at half past five to leave", (17, 30, 0)),
+        ("remind me at quarter past five to leave", (17, 15, 0)),
+        ("remind me at quarter to six to leave", (17, 45, 0)),
+        ("remind me at noon", (12, 0, 0)),
+        ("remind me at 7 in the morning to run", (7, 0, 1)),
+        ("remind me at 9 in the evening to call", (21, 0, 0)),
+        ("remind me tonight at 8 to watch", (20, 0, 0)),
+        ("remind me at midnight to sleep", (0, 0, 1)),
+        ("remind me tomorrow at nine to call mum", (9, 0, 1)),
+        ("remind me at 2 in the afternoon to stretch", (14, 0, 0))):
+    got = reminders.parse_clock(text, now=CLOCK_NOW)
+    when = datetime.fromtimestamp(got["due"]) if got else None
+    check(f"a clock time is read: {text!r}",
+          bool(got) and when.hour == wanted[0] and when.minute == wanted[1]
+          and (when.date() - CLOCK_NOW.date()).days == wanted[2],
+          f"{when.strftime('%H:%M on %a %d') if when else 'nothing'}")
+
+weekday = reminders.parse_clock("remind me on monday at 9 to send the form", now=CLOCK_NOW)
+when = datetime.fromtimestamp(weekday["due"])
+check("a weekday already past in the day means the next one, not tonight",
+      when.date() == CLOCK_NOW.date() + timedelta(days=7) and when.hour == 9,
+      when.strftime("%H:%M on %a %d"))
+friday = reminders.parse_clock("remind me on friday at 9 to send the email", now=CLOCK_NOW)
+check("a later weekday is that weekday this week",
+      datetime.fromtimestamp(friday["due"]).date() == CLOCK_NOW.date() + timedelta(days=4),
+      datetime.fromtimestamp(friday["due"]).strftime("%a %d"))
+
+morning = reminders.parse_clock("remind me at nine to check", now=datetime(2026, 10, 26, 7, 0))
+check("with no am or pm it is this half of the day",
+      datetime.fromtimestamp(morning["due"]).hour == 9,
+      str(datetime.fromtimestamp(morning["due"])))
+evening = reminders.parse_clock("remind me at nine to check", now=datetime(2026, 10, 26, 22, 0))
+check("and after nine in the evening, tomorrow morning",
+      datetime.fromtimestamp(evening["due"]).hour == 9
+      and datetime.fromtimestamp(evening["due"]).date() == CLOCK_NOW.date() + timedelta(days=1),
+      str(datetime.fromtimestamp(evening["due"])))
+
+daily = reminders.parse_clock("remind me every day at 7 to take medicine", now=CLOCK_NOW)
+check("every day is a repeat, not a one off", daily and daily["repeat"] == "daily", str(daily))
+check("and it is spoken without a day on it",
+      daily and daily["described"] == "at 7 pm", str(daily and daily["described"]))
+check("a one off names the day it chose, so a wrong reading is visible",
+      "tomorrow" in reminders.parse_clock("remind me tomorrow at nine to call mum",
+                                          now=CLOCK_NOW)["described"])
+
+a = reminders.parse_clock("remind me at 5 to check the oven", now=CLOCK_NOW)
+check("the time is not left in the name", a and a["label"] == "Check the oven", str(a))
+a = reminders.parse_clock("remind me at quarter to six", now=CLOCK_NOW)
+check("nor is an hour that came out of the time itself",
+      a and a["label"] == "Reminder", str(a))
+a = reminders.parse_clock("remind me at 5 in the afternoon to walk the dog", now=CLOCK_NOW)
+check("and the rest of the sentence still is",
+      a and a["label"] == "Walk the dog", str(a))
+
+print("-- what it says when it sets one --")
+_before_clock = json.dumps(reminders.load())
+say = reminders.confirm(reminders.parse_clock("remind me at 5 to check the oven",
+                                              now=CLOCK_NOW))
+check("the confirmation names the moment it chose", "5 pm today" in say, say)
+say = reminders.confirm(reminders.parse_clock("remind me every day at 7 to take medicine",
+                                             now=CLOCK_NOW))
+check("a daily one says so", "every day at 7 pm" in say, say)
+check("and neither repeats the label into the sentence",
+      "Check the oven at" not in say, say)
+reminders.PATH.write_text(_before_clock)
+
+print("-- a daily one keeps coming back, a one off does not --")
+_yesterday = time.time() - 86400 + 2
+reminders.PATH.write_text(json.dumps([{"label": "Take medicine", "due": _yesterday,
+                                       "repeat": "daily"}]))
+check("a daily reminder is moved on rather than removed",
+      [i["label"] for i in reminders.due_items()] == ["Take medicine"]
+      and len(reminders.load()) == 1, str(reminders.load()))
+left = reminders.load()[0]["due"] - time.time()
+check("to its next occurrence at the same time of day, not to now",
+      0 < left <= 4, f"{left:.1f}s away, a day after it was due")
+check("so it does not fire again on the next check", reminders.due_items() == [])
+check("and the pending list says it is daily",
+      "every day at" in reminders.pending()[0], str(reminders.pending()))
+reminders.PATH.write_text(json.dumps([{"label": "Off for days", "due": time.time() - 3 * 86400,
+                                       "repeat": "daily"}]))
+check("a daily one missed while the machine was off is announced once",
+      [i["label"] for i in reminders.due_items()] == ["Off for days"]
+      and reminders.due_items() == [], str(reminders.load()))
+reminders.PATH.write_text(json.dumps([]))
 
 print("-- the store survives a restart --")
 reminders.add("Check the oven", 1.0)
@@ -116,7 +220,7 @@ reminders.add("Stand up", 3600.0)
 fresh = json.loads(reminders.PATH.read_text())
 check("both are on disk", len(fresh) == 2)
 check("a due one comes back and leaves the file",
-      reminders.due_items(now=time.time() + 2) == ["Check the oven"]
+      [i["label"] for i in reminders.due_items(now=time.time() + 2)] == ["Check the oven"]
       and len(json.loads(reminders.PATH.read_text())) == 1)
 check("the far one is still pending with a gap",
       "Stand up" in reminders.pending()[0] and "an hour" in reminders.pending()[0])
@@ -232,7 +336,7 @@ reminders.add("Overdue one", -5)                      # already due when cleared
 reminders.confirm({"action": "cancel"})
 reminders.undo_intent("undo")
 check("one that is due again comes due, rather than being dropped",
-      reminders.due_items() == ["Overdue one"], str(reminders.load()))
+      [i["label"] for i in reminders.due_items()] == ["Overdue one"], str(reminders.load()))
 
 print()
 print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)")
