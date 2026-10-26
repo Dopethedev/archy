@@ -14,14 +14,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import jarvis.assistant as jarvis_assistant
-import jarvis.brain as brain_mod
-import jarvis.reminders as reminders
-import jarvis.briefing as briefing
-from jarvis import status as status_mod
-from jarvis import config, privacy
-from jarvis.assistant import Assistant
-from jarvis.brain import PiBrain
+import archy.assistant as archy_assistant
+import archy.brain as brain_mod
+import archy.reminders as reminders
+import archy.briefing as briefing
+from archy import status as status_mod
+from archy import config, privacy
+from archy.assistant import Assistant
+from archy.brain import PiBrain
 
 passed = failed = 0
 
@@ -234,7 +234,7 @@ async def main():
     print("-- windows, answered here and not by the model --")
     # The compositor is stubbed at the seam: real window records from niri, no
     # window actually moved while the suite runs.
-    import jarvis.desktop as desktop_mod
+    import archy.desktop as desktop_mod
     real_windows, real_focus, real_close = (desktop_mod.windows, desktop_mod.focus,
                                             desktop_mod.close_focused)
     moved = []
@@ -275,7 +275,7 @@ async def main():
               str(h.spoken))
 
         h = await run_turn("focus spotify")
-        answered = any(who == "jarvis" and text for who, text in h.log_lines)
+        answered = any(who == "archy" and text for who, text in h.log_lines)
         check("a name that matches nothing is left to the model",
               h.brain.seen != [] and answered, f"seen={h.brain.seen} spoke={answered}")
         check("and nothing was moved for it", moved[-1] != "spotify", str(moved))

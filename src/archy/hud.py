@@ -27,10 +27,10 @@ from . import config, permissions, sysinfo
 MIME = {".html": "text/html", ".js": "text/javascript", ".css": "text/css",
         ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
 
-TOKEN_PLACEHOLDER = "__JARVIS_TOKEN__"
+TOKEN_PLACEHOLDER = "__ARCHY_TOKEN__"
 # the wake phrase is yours, so the page is told it rather than carrying a copy of
 # whatever was on the machine it was written on
-PHRASE_PLACEHOLDER = "__JARVIS_WAKE__"
+PHRASE_PLACEHOLDER = "__ARCHY_WAKE__"
 MAX_BODY = 8192                          # a typed instruction, not a file upload
 LOOPBACK_NAMES = ("127.0.0.1", "localhost", "[::1]")
 
@@ -83,7 +83,7 @@ class _Handler(BaseHTTPRequestHandler):
         A query parameter exists because EventSource cannot set headers, and
         the event stream carries the transcript.
         """
-        supplied = self.headers.get("X-Jarvis-Token") or ""
+        supplied = self.headers.get("X-Archy-Token") or ""
         if not supplied and "?" in self.path:
             from urllib.parse import parse_qs
             supplied = (parse_qs(self.path.split("?", 1)[1]).get("t") or [""])[0]
@@ -324,7 +324,7 @@ class Hud:
         except OSError as exc:
             raise RuntimeError(
                 f"dashboard port {self.port} is already in use ({exc}). "
-                f"Another copy of jarvis is probably running: pkill -f '[j]arvis'"
+                f"Another copy of archy is probably running: pkill -f '[j]arvis'"
             ) from exc
         self._server.hud = self                                # type: ignore[attr-defined]
         self._server.daemon_threads = True

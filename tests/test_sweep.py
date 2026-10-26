@@ -13,12 +13,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import jarvis.assistant as jarvis_assistant
-from jarvis import status as status_mod
-from jarvis import privacy
-import jarvis.sweep as sweep
-from jarvis.assistant import Assistant
-from jarvis.sweep import (check_hosts, check_listeners, check_processes,
+import archy.assistant as archy_assistant
+from archy import status as status_mod
+from archy import privacy
+import archy.sweep as sweep
+from archy.assistant import Assistant
+from archy.sweep import (check_hosts, check_listeners, check_processes,
                           check_uid_zero, check_world_writable, run, wanted)
 
 passed = failed = 0
@@ -239,7 +239,7 @@ async def main():
           f"skipped {skipped}")
 
     print("-- only real files are offered to the scanner --")
-    work = Path(tempfile.mkdtemp(prefix="jarvis-clam-"))
+    work = Path(tempfile.mkdtemp(prefix="archy-clam-"))
     (work / "a_regular_file").write_text("hello\n")
     os.symlink("/etc/hosts", work / "a_symlink")
     import socket as _socket

@@ -90,16 +90,16 @@ def main() -> int:
         return 1
 
     outliner = Outliner(font_path)
-    wordmark, width = outliner.text("jarvis", 148, 68, 196, tracking=-4)
+    wordmark, width = outliner.text("archy", 148, 68, 196, tracking=-4)
     tagline, _ = outliner.text("a voice assistant that runs on your own machine", 27, 72, 250)
     caption, _ = outliner.text("local speech in   local speech out   nothing to sign up for",
                                18, 72, 292)
     # The URL is outlined like the rest: a self contained file should not render
     # differently because of whatever monospace font the reader happens to have.
-    url, url_width = outliner.text("github.com/Dopethedev/jarvis", 17, 0, H - 26)
+    url, url_width = outliner.text("github.com/Dopethedev/archy", 17, 0, H - 26)
 
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">
-  <title>jarvis</title>
+  <title>archy</title>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="{BG_TOP}"/>

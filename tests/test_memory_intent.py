@@ -1,7 +1,7 @@
 """Remembering is done here, not by a shell command and not by a model.
 
 Before this, "remember that the router is in the hall" became a `python -m
-jarvis.memory_store set` command for the model to run: a round trip to a relay to
+archy.memory_store set` command for the model to run: a round trip to a relay to
 write a fact into a file on this machine, and, with the permission gate on, an
 approval before it could. Asking what was already known was the same trip in the
 other direction.
@@ -18,16 +18,16 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import os
-os.environ["JARVIS_SESSION_DIR"] = tempfile.mkdtemp(prefix="jarvis-test-session-")
-STORE = Path(tempfile.mkdtemp(prefix="jarvis-test-memory-")) / "memory.json"
-os.environ["JARVIS_MEMORY_FILE"] = str(STORE)
+os.environ["ARCHY_SESSION_DIR"] = tempfile.mkdtemp(prefix="archy-test-session-")
+STORE = Path(tempfile.mkdtemp(prefix="archy-test-memory-")) / "memory.json"
+os.environ["ARCHY_MEMORY_FILE"] = str(STORE)
 
-from jarvis import config  # noqa: E402
-from jarvis import memory_store as store
-from jarvis import privacy
-from jarvis import status as status_mod
-from jarvis.assistant import Assistant
-from jarvis.memory_store import Memory
+from archy import config  # noqa: E402
+from archy import memory_store as store
+from archy import privacy
+from archy import status as status_mod
+from archy.assistant import Assistant
+from archy.memory_store import Memory
 
 failures = 0
 checks = 0

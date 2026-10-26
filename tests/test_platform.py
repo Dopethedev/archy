@@ -18,8 +18,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from jarvis import config, sweep, vision               # noqa: E402
-from jarvis.vision import ScreenError                 # noqa: E402
+from archy import config, sweep, vision               # noqa: E402
+from archy.vision import ScreenError                 # noqa: E402
 
 passed = failed = skipped = 0
 
@@ -47,8 +47,8 @@ def fake(name, *a, **k):
         raise ImportError("not on this platform: " + name)
     return real_import(name, *a, **k)
 builtins.__import__ = fake
-import jarvis.assistant, jarvis.sweep, jarvis.memory_store, jarvis.vision
-import jarvis.hud, jarvis.mictest, jarvis.briefing, jarvis.__main__
+import archy.assistant, archy.sweep, archy.memory_store, archy.vision
+import archy.hud, archy.mictest, archy.briefing, archy.__main__
 print("imported")
 '''
 env = dict(os.environ, PYTHONPATH=str(ROOT / "src"))
@@ -62,7 +62,7 @@ check("every module imports without the Unix-only ones",
 # and the answers they give without them are honest rather than empty
 answer = subprocess.run(
     [sys.executable, "-c", blocker + '''
-import jarvis.sweep as s
+import archy.sweep as s
 print(s.check_uid_zero()[0])
 '''], capture_output=True, text=True, cwd=str(ROOT), env=env, timeout=180)
 check("the account check says it has nothing to read",
@@ -139,7 +139,7 @@ if cmd.exists():
     check("and it is in Windows line endings", bare == 0 and raw.count(b"\r\n") > 5,
           f"{raw.count(b'\r\n')} lines, {bare} bare")
     text = raw.decode()
-    check("it starts the assistant", "-m jarvis" in text and "uv" in text)
+    check("it starts the assistant", "-m archy" in text and "uv" in text)
 
 print("-- a run that was asked to stop after a while --")
 # `--seconds` was documented as "stop after this many seconds" and then ignored for
@@ -147,7 +147,7 @@ print("-- a run that was asked to stop after a while --")
 # worse than no flag, because the help text is where someone reads what it does.
 import asyncio  # noqa: E402
 
-import jarvis.__main__ as entry  # noqa: E402
+import archy.__main__ as entry  # noqa: E402
 
 
 class FakeAssistant:
@@ -178,11 +178,11 @@ asyncio.run(entry.run_limited(whole, None))
 check("with no limit it runs to the end", whole.finished is True)
 
 print("-- the waiting list, read once --")
-from jarvis import permissions  # noqa: E402
+from archy import permissions  # noqa: E402
 
 saved_state = config.STATE_DIR
 try:
-    config.STATE_DIR = Path(tempfile.mkdtemp(prefix="jarvis-reading-"))
+    config.STATE_DIR = Path(tempfile.mkdtemp(prefix="archy-reading-"))
     config.PERMISSION_PENDING = config.STATE_DIR / "pending.json"
     check("a missing list is nothing waiting, not an error",
           permissions.reading() == {"waiting": 0, "pending": []},

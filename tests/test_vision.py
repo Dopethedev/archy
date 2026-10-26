@@ -15,13 +15,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import jarvis.assistant as jarvis_assistant
-import jarvis.vision as vision
-from jarvis import status as status_mod
-from jarvis import config, privacy
-from jarvis.assistant import Assistant
-from jarvis.brain import PiBrain
-from jarvis.vision import ScreenError, as_image, capture, wanted
+import archy.assistant as archy_assistant
+import archy.vision as vision
+from archy import status as status_mod
+from archy import config, privacy
+from archy.assistant import Assistant
+from archy.brain import PiBrain
+from archy.vision import ScreenError, as_image, capture, wanted
 
 passed = failed = skipped = 0
 
@@ -224,12 +224,12 @@ def consume(deltas):
 async def run_turn(text, capture_result, stream: tuple = ()):
     h = ScreenHarness(capture_result, stream)
     # patch where the assistant looks the name up, not on the class
-    real = jarvis_assistant.capture
-    jarvis_assistant.capture = h.fake_capture
+    real = archy_assistant.capture
+    archy_assistant.capture = h.fake_capture
     try:
         await Assistant._process(h, text=text)
     finally:
-        jarvis_assistant.capture = real
+        archy_assistant.capture = real
     return h
 
 

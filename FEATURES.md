@@ -6,7 +6,7 @@ The full list, including the limits.
 
 - **Any wake phrase.** Recognised, not matched against a trained model, so you set
   your own words and no training is involved.
-- **One breath.** "hey jarvis, what is the weather" is one turn.
+- **One breath.** "hey archy, what is the weather" is one turn.
 - **Interruption.** Talk over it and it stops, keeps what you said, and answers that.
 - **It gives up on a slow model** if you start talking, not after.
 - **Typed input.**
@@ -95,6 +95,6 @@ Against the actual matchers, so these all work as written:
 - **The sweep reads Linux and macOS, not Windows**, which gets a plain answer instead.
 - **macOS gates two things.** Screen Recording and Microphone. There is also no
   temperature on Apple Silicon, so the dashboard shows nothing rather than a number.
-- **With the gate off, nothing is checked**, and `python -m jarvis.permissions status` says so.
+- **With the gate off, nothing is checked**, and `python -m archy.permissions status` says so.
 - **Email, calendar and music are not here, and are not planned.** Each needs an
   account and a credential of your own, so they belong to whoever wants them.

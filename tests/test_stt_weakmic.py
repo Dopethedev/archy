@@ -8,14 +8,14 @@ the real reason words come out wrong.
 from pathlib import Path
 import sys, time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis.audio import resample  # noqa: E402
+from archy.audio import resample  # noqa: E402
 import numpy as np
 from kokoro_onnx import Kokoro
 from faster_whisper import WhisperModel
-from jarvis import config
+from archy import config
 
-PHRASE = "Jarvis, open Sober and tell me my cpu usage"
-WANT = {"jarvis", "open", "sober", "cpu", "usage"}
+PHRASE = "Archy, open Sober and tell me my cpu usage"
+WANT = {"archy", "open", "sober", "cpu", "usage"}
 
 kokoro = Kokoro("models/kokoro-v1.0.onnx", "models/voices-v1.0.bin")
 samples, sr = kokoro.create(PHRASE, voice="bm_george", speed=1.0, lang="en-gb")
@@ -26,7 +26,7 @@ print(f"phrase: {PHRASE!r}\n")
 # the vocabulary hint is the machine owner's business, so this test states
 # the one it needs instead of inheriting it: the point is that a hint makes
 # coarse audio legible, and that has to hold on a fresh checkout
-config.WHISPER_HINT = ("Jarvis, Sober, cpu, usage, Hyprland, terminal, "
+config.WHISPER_HINT = ("Archy, Sober, cpu, usage, Hyprland, terminal, "
                        "wifi, bluetooth, screenshot")
 config.WHISPER_HINT_EXTRA = ""      # and not the machine's own words either
 

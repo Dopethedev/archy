@@ -1,6 +1,6 @@
-"""The part of the permission system that lives in JARVIS.
+"""The part of the permission system that lives in ARCHY.
 
-The enforcement is in src/jarvis/gate/permission-gate.ts, inside pi, because that
+The enforcement is in src/archy/gate/permission-gate.ts, inside pi, because that
 is where a tool call can actually be refused. This module is everything around it:
 writing the policy the gate reads, handing pi the flag that loads it, asking the
 owner about what was blocked, recording the answer as a single-use approval, and
@@ -71,7 +71,7 @@ def gate_args() -> list[str]:
 def gate_env() -> dict[str, str]:
     if not ready() or not enabled():
         return {}
-    return {"JARVIS_PERMISSION_POLICY": str(config.PERMISSION_POLICY)}
+    return {"ARCHY_PERMISSION_POLICY": str(config.PERMISSION_POLICY)}
 
 
 # The brain publishes the model it is using here, so the policy written for the gate

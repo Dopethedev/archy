@@ -15,8 +15,8 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis import config  # noqa: E402
-from jarvis import mic_state  # noqa: E402
+from archy import config  # noqa: E402
+from archy import mic_state  # noqa: E402
 
 passed = failed = 0
 
@@ -28,7 +28,7 @@ def check(label, ok, detail=""):
     print(f"  [{'OK  ' if ok else 'FAIL'}] {label:56s} {detail}")
 
 
-work = Path(tempfile.mkdtemp(prefix="jarvis-mic-state-"))
+work = Path(tempfile.mkdtemp(prefix="archy-mic-state-"))
 config.STATE_DIR = work
 
 print("-- nothing stored yet means listening --")
@@ -63,7 +63,7 @@ check("no temporary files remain", not leftovers, str(leftovers))
 
 print("-- the dashboard toggle is what records it --")
 # the assistant's set_mic_enabled writes it, so a restart lands where he left it
-source = (Path(__file__).resolve().parents[1] / "src/jarvis/assistant.py").read_text()
+source = (Path(__file__).resolve().parents[1] / "src/archy/assistant.py").read_text()
 check("the switch writes the state", "mic_state.save(" in source)
 check("and start-up reads it", "mic_state.load()" in source)
 
@@ -72,7 +72,7 @@ print("-- what it says when the microphone gives nothing at all --")
 # microphone from here, and this is the sentence the user actually hears, so the
 # platform switch is named on the platforms that have one.
 import sys as _sys
-from jarvis import audio as _audio
+from archy import audio as _audio
 
 real_platform = _sys.platform
 try:
@@ -91,7 +91,7 @@ try:
           "System Settings" not in _audio.silence_warning()
           and "switched off" in _audio.silence_warning(), _audio.silence_warning()[:80])
     _sys.platform = "darwin"
-    from jarvis import mictest as _mictest
+    from archy import mictest as _mictest
     check("the live microphone check points at the same setting",
           _mictest._permission_note() == _audio.mic_permission_note(),
           str(_mictest._permission_note()))

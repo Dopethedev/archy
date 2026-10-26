@@ -13,8 +13,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from jarvis import briefing                              # noqa: E402
-from jarvis.assistant import Assistant                   # noqa: E402
+from archy import briefing                              # noqa: E402
+from archy.assistant import Assistant                   # noqa: E402
 
 passed = failed = 0
 

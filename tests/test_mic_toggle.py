@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis.assistant import Assistant  # noqa: E402
+from archy.assistant import Assistant  # noqa: E402
 
 failures = 0
 def check(label, ok, detail=""):

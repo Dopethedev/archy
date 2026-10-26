@@ -7,7 +7,7 @@ intelligible rather than just plausible-sounding.
 from pathlib import Path
 import os, shutil, tempfile, time, wave, subprocess, sys
 import numpy as np
-from jarvis.audio import resample
+from archy.audio import resample
 
 TEXT = "Systems online. Your cpu usage is twelve percent and I have opened it for you."
 
@@ -28,7 +28,7 @@ results = {}
 t = time.monotonic()
 # piper is the optional fallback voice, so its absence is a skip and not a
 # failure: the comparison just has one voice in it instead of two
-piper_out = Path(tempfile.gettempdir()) / f"jarvis-tts-piper-{os.getpid()}.wav"
+piper_out = Path(tempfile.gettempdir()) / f"archy-tts-piper-{os.getpid()}.wav"
 piper_out.unlink(missing_ok=True)      # never measure a file from an earlier run
 if shutil.which("piper") is None:
     print("piper : skipped, not installed (uv sync --extra fallback-voice)")
@@ -91,8 +91,8 @@ for name, (dt, dur, path) in results.items():
 # ---------- the failure path, now that the fallback voice is optional ----------
 # piper is not installed by default and kokoro needs its model files, so this is
 # the shape of "no voice available", which has to say so rather than crash later
-from jarvis import config as _config
-from jarvis.tts import Speaker as _Speaker
+from archy import config as _config
+from archy.tts import Speaker as _Speaker
 _real_models = _config.MODELS
 with tempfile.TemporaryDirectory() as _empty:
     _config.MODELS = Path(_empty)

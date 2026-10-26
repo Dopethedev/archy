@@ -101,8 +101,8 @@ class PiBrain:
         python = sys.executable
         how = (
             f" You keep durable facts about {config.USER_NAME} in {config.MEMORY_FILE}. "
-            f"Read them with `{python} -m jarvis.memory_store list`, add one with "
-            f"`{python} -m jarvis.memory_store set NAME \"VALUE\"`, and remove one "
+            f"Read them with `{python} -m archy.memory_store list`, add one with "
+            f"`{python} -m archy.memory_store set NAME \"VALUE\"`, and remove one "
             "with `forget NAME`. Whenever you are asked to remember, note, or keep "
             "something, store it there, because the conversation alone will not "
             "survive. Do it quietly without announcing the mechanism.\n"
@@ -132,7 +132,7 @@ class PiBrain:
         """
         if privacy.on("transcripts"):
             return config.SESSION_DIR
-        directory = Path(tempfile.gettempdir()) / f"jarvis-transcripts-{os.getpid()}"
+        directory = Path(tempfile.gettempdir()) / f"archy-transcripts-{os.getpid()}"
         try:
             if directory.exists():
                 for path in directory.glob("*.jsonl"):

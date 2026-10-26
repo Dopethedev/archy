@@ -21,15 +21,15 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import os, tempfile as _tf
-os.environ["JARVIS_SESSION_DIR"] = _tf.mkdtemp(prefix="jarvis-test-session-")
-os.environ.setdefault("JARVIS_MEMORY_FILE", "/tmp/jarvis-test-memory.json")
+os.environ["ARCHY_SESSION_DIR"] = _tf.mkdtemp(prefix="archy-test-session-")
+os.environ.setdefault("ARCHY_MEMORY_FILE", "/tmp/archy-test-memory.json")
 
-from jarvis import config  # noqa: E402
-from jarvis import desktop
-from jarvis import privacy
-from jarvis import status as status_mod
-from jarvis import assistant as jarvis_assistant
-from jarvis.assistant import Assistant
+from archy import config  # noqa: E402
+from archy import desktop
+from archy import privacy
+from archy import status as status_mod
+from archy import assistant as archy_assistant
+from archy.assistant import Assistant
 
 failures = 0
 def check(label, ok, detail=""):
@@ -74,7 +74,7 @@ def blocking_calls_outside_threads(source: str) -> list[str]:
     return offenders
 
 
-source = Path(jarvis_assistant.__file__).read_text()
+source = Path(archy_assistant.__file__).read_text()
 offenders = blocking_calls_outside_threads(source)
 check("no blocking helper is called straight from a turn",
       not offenders, ", ".join(offenders) or "every one is on another thread")
