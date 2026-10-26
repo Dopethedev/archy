@@ -267,6 +267,19 @@ class PiBrain:
             self._stderr.append(line.rstrip())
             del self._stderr[:-40]              # keep the tail only
 
+    def _stderr_tail(self, limit: int = 2) -> str:
+        """What pi last said on its error stream, for when it dies without a word.
+
+        This was collected from the day it was written and never read anywhere, so a
+        pi that ended mid-turn reported "pi process ended unexpectedly" and nothing
+        else, while the reason (a key it could not find, a flag it did not
+        understand, a config file that would not parse) was sitting in a list nobody
+        looked at. Anything secret in there is not: pi writes no request bodies to
+        stderr, and this goes into a log line and a spoken sentence either way.
+        """
+        lines = [line.strip() for line in self._stderr if line.strip()]
+        return " / ".join(lines[-limit:])[:200]
+
     def alive(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
@@ -357,7 +370,9 @@ class PiBrain:
                     f"{' while a tool was running' if tool_running else ''}"
                 ) from None
             if line is None:
-                raise BrainError("pi process ended unexpectedly")
+                tail = self._stderr_tail()
+                raise BrainError("pi process ended unexpectedly"
+                                 + (f": {tail}" if tail else ""))
             # Time as well as count: one slow fetch can cost more than several
             # quick ones. Checked per event, which is exactly when a tool has
             # just finished and the model is about to decide what to do next.
