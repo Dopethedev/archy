@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -179,6 +180,145 @@ class Memory:
 
     def line_count(self) -> int:
         return len(self.facts)
+
+
+# ------------------------------------------------------------------- intents
+# What a person says to have something kept, and to hear it back.
+#
+# This ran as a command before, which cost three things nobody asked for: a shell
+# command for a fact that is already on this machine, a round trip to a relay to
+# be told what is in a local file, and, with the permission gate on, an approval
+# for every "remember that". None of the three are needed for the shapes below,
+# which is nearly everything people actually say.
+
+_SPOKEN_STRIP = " \t\r\n.,!?;:'\""
+_RE_REMEMBER = re.compile(
+    r"^(?:please\s+)?(?:remember|note|make a note|keep in mind|"
+    r"don't forget|do not forget|dont forget)\s+(?:that\s+)?(?P<rest>.+)$", re.I)
+# "my router is in the hall" is a name and a value; "I take my coffee black" is not.
+_RE_PAIR = re.compile(r"^(?P<key>.+?)\s+(?:is|are|was|were|=|:)\s+(?P<value>.+)$", re.I)
+_RE_FORGET = re.compile(
+    r"^(?:please\s+)?(?:forget|delete|remove|drop|stop remembering)\s+"
+    r"(?:that\s+|about\s+)?(?P<what>.+)$", re.I)
+# "forget everything" is the privacy question, which has its own confirmation, and
+# so is the long way of saying it: "forget everything you know about me" is not one
+# fact with an odd name, which is what this read it as.
+_NOT_ONE_FACT = {"it", "this", "that", "them", "those", "data",
+                 "everything_about_me", "the_whole_memory"}
+_EVERYTHING = {"everything", "all"}
+
+
+def _slug(text: str) -> str:
+    """A stored name for something spoken: "my sister's name" -> sister's_name."""
+    words = re.sub(r"[^\w\s'-]", " ", str(text).lower()).split()
+    while words and words[0] in ("my", "the", "a", "an"):
+        words.pop(0)
+    return "_".join(words)[:MAX_KEY].strip("_")
+
+
+def _readable(key: str) -> str:
+    return str(key).replace("_", " ")
+
+
+def _is_note(key: str, value: str) -> bool:
+    """A fact with no name of its own, stored under everything it says.
+
+    "remember that I take my coffee black" has no "is" in it, so there is nothing
+    to call it. The sentence is the name and the value, which is fine to store and
+    reads badly if it is spoken back as a pair: the value is said on its own.
+    """
+    return _slug(value) == key
+
+
+def remember_intent(text: str) -> tuple[str, str] | None:
+    """The fact a sentence asks to keep, as (name, value), or None.
+
+    None for a question, because "remember my address?" is someone asking whether
+    it was kept, and None for an errand: "remember to call mum at five" is a
+    reminder, and storing it as a fact would keep it forever.
+    """
+    said = (text or "").strip()
+    if not said or said.endswith("?"):
+        return None
+    match = _RE_REMEMBER.match(said.strip(_SPOKEN_STRIP))
+    if not match:
+        return None
+    rest = match.group("rest").strip(_SPOKEN_STRIP)
+    if not rest or rest.lower().startswith("to "):
+        return None
+    pair = _RE_PAIR.match(rest)
+    if pair:
+        key = _slug(pair.group("key"))
+        value = pair.group("value").strip(_SPOKEN_STRIP)
+    else:
+        key, value = _slug(rest), rest
+    if not key or not value:
+        return None
+    return key, value[:MAX_VALUE]
+
+
+def recall_intent(text: str) -> bool:
+    """Whether a sentence is asking what is already known, rather than telling."""
+    words = " ".join((text or "").strip(_SPOKEN_STRIP).lower().split())
+    if words in config.MEMORY_RECALL_PHRASES:
+        return True
+    return words.startswith(config.MEMORY_RECALL_PREFIXES)
+
+
+def forget_intent(text: str, memory: "Memory") -> str | None:
+    """What to say back when a sentence asks to drop one stored fact, else None.
+
+    The name is looked up rather than taken literally: "forget my router location"
+    and "forget the router location" both land on router_location, and a name that
+    matches nothing is answered here too, because "I have nothing stored as that"
+    is not worth a model.
+    """
+    match = _RE_FORGET.match((text or "").strip(_SPOKEN_STRIP))
+    if not match:
+        return None
+    what = match.group("what").strip(_SPOKEN_STRIP)
+    wanted = _slug(what)
+    if wanted in _NOT_ONE_FACT or len(wanted) < 3:
+        return None
+    if _EVERYTHING & set(wanted.split("_")):
+        return None
+    # "about me" on the end is the same request as "everything": the whole store
+    if wanted.endswith(("_about_me", "_about_you")):
+        return None
+    keys = list(memory.facts)
+    exact = next((key for key in keys if key.lower() == wanted), None)
+    if exact is None:
+        near = [key for key in keys if wanted in key.lower() or key.lower() in wanted]
+        if len(near) == 1:
+            exact = near[0]
+        elif len(near) > 1:
+            return ("I have more than one of those: "
+                    + ", ".join(sorted(_readable(key) for key in near)[:4])
+                    + ". Which one?")
+    if exact is None:
+        memory._load()                        # another process may have just stored it
+        return f"I have nothing stored about {what}."
+    memory.forget(exact)
+    return f"Forgotten: {_readable(exact)}."
+
+
+def spoken_remember(key: str, value: str) -> str:
+    return "Noted." if _is_note(key, value) else f"Noted: {_readable(key)} is {value}."
+
+
+def spoken_recall(memory: "Memory", limit: int = 8) -> str:
+    """Everything stored, said as sentences rather than as a list of pairs."""
+    items = sorted(memory.facts.items())
+    if not items:
+        return "I have nothing stored about you yet."
+    parts = []
+    for key, entry in items[:limit]:
+        value = str(entry.get("value", ""))
+        parts.append(value if _is_note(key, value) else f"{_readable(key)} is {value}")
+    said = ", ".join(parts)
+    extra = len(items) - limit
+    return ("Here is what you have told me: " + said
+            + (f", and {extra} more" if extra > 0 else "") + ".")
 
 
 # ---------------------------------------------------------------------- cli
