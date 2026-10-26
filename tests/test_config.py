@@ -10,12 +10,14 @@ the failure arrived later as a model that did not exist.
 Every check here is about the reading, not about the settings.
 """
 import json
+import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis import config  # noqa: E402
+from archy import config  # noqa: E402
 
 passed = failed = 0
 
@@ -27,7 +29,7 @@ def check(label, ok, detail=""):
     print(f"  [{'OK  ' if ok else 'FAIL'}] {label:56s} {detail}")
 
 
-work = Path(tempfile.mkdtemp(prefix="jarvis-config-"))
+work = Path(tempfile.mkdtemp(prefix="archy-config-"))
 file = work / "config.local.json"
 original = {name: getattr(config, name) for name in
             ("PI_MODELS", "WAKE_ALIASES", "PERMISSION_ROOTS", "PRIVACY_SHARE_MEMORY",
@@ -112,6 +114,25 @@ file.write_text(json.dumps({"DESKTOP_ALIASES": {"term": 3}}))
 said = config.apply_local_overrides(file)
 check("a name that is not a name is refused, with the default kept whole",
       config.DESKTOP_ALIASES.get("term") != 3 and bool(said), str(said)[:80])
+
+print("-- a fresh clone, with no config file at all --")
+# A local file only overrides the keys it names, so nothing in this process can
+# put a shipped value back once one has been changed. The only honest place to
+# read the shipped settings is a process that has read no file.
+empty = work / "empty.json"
+empty.write_text("{}")
+ran = subprocess.run(
+    [sys.executable, "-c", "from archy import config; "
+     "print(config.WAKE_PHRASE, '|', ','.join(config.WAKE_ALIASES))"],
+    capture_output=True, text=True,
+    env={**os.environ, "ARCHY_LOCAL_CONFIG": str(empty)})
+phrase, _, aliases = ran.stdout.strip().partition("|")
+check("it reads the shipped phrase, which names the project",
+      phrase.strip() == "hey archy", repr(ran.stdout.strip()))
+check("and the shipped aliases carry the spelling the recogniser reached for, "
+      "because it wrote 'Archie' for a name it had never seen",
+      "archie" in aliases, aliases)
+check("and reading them is not an error", ran.returncode == 0, ran.stderr[-150:])
 
 print("-- and the file this machine actually has --")
 # the defaults back first, so this reads the file rather than the last experiment

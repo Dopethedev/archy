@@ -8,9 +8,9 @@ everything that must NOT wake it.
 from pathlib import Path
 import asyncio, sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis import config
-from jarvis.assistant import Assistant, blip
-from jarvis.wake import SpeechWake
+from archy import config
+from archy.assistant import Assistant, blip
+from archy.wake import SpeechWake
 
 failures = 0
 def check(label, ok, detail=""):
@@ -21,24 +21,24 @@ def check(label, ok, detail=""):
 
 # this test is about the shapes a call takes, so it brings its own
 # phrase and aliases rather than inheriting the owner's
-PHRASE = "hey jarvis"
-ALIASES = ("jarvis", "jervis", "jarvas")
+PHRASE = "hey archy"
+ALIASES = ("archy", "archie", "arky")
 w = SpeechWake(PHRASE, ALIASES)
 
 print("-- what should wake it --")
 for text, want in [
-    ("Hey Jarvis, open Sober", "open Sober"),
-    ("hey jarvis", ""),
-    ("Hey, Jarvis. what is my cpu usage", "what is my cpu usage"),
-    ("Jarvis what is the time", "what is the time"),
-    ("Hey Jervis open brave", "open brave"),
-    ("Hey Jarvis take a screenshot", "take a screenshot"),
+    ("Hey Archy, open Sober", "open Sober"),
+    ("hey archy", ""),
+    ("Hey, Archy. what is my cpu usage", "what is my cpu usage"),
+    ("Archy what is the time", "what is the time"),
+    ("Hey Archie open brave", "open brave"),
+    ("Hey Archy take a screenshot", "take a screenshot"),
 ]:
     heard, rest = w.match(text)
     check(f"{text!r}", heard and rest == want, f"-> {rest!r}")
 
 print("-- recogniser spellings of the name --")
-for text in ("Hey Jarvis", "Hey Jervis", "Hey Jarvas"):
+for text in ("Hey Archy", "Hey Archie", "Hey Arky"):
     heard, _ = w.match(text)
     check(f"accepted {text!r}", heard)
 
@@ -51,22 +51,22 @@ for text in ("Hey Computer open sober", "how are you today", "open brave",
 
 print("-- the name only counts when it comes first --")
 # a video on the desk saying the name mid-sentence must not call the assistant
-for text in ("Good idea, Jarvis, Jarvis, Jarvis.",
-             "and then Jarvis asked a question",
-             "I'm going to ask Jarvis to fix it",
-             "tell Jarvis I said hello"):
+for text in ("Good idea, Archy, Archy, Archy.",
+             "and then Archy asked a question",
+             "I'm going to ask Archy to fix it",
+             "tell Archy I said hello"):
     heard, _ = w.match(text)
     check(f"ignored {text!r}", not heard)
 # one stray word of filler in front is still a call
-for text, want in [("uh hey Jarvis open sober", "open sober"),
-                   ("so hey Jarvis, what time is it", "what time is it")]:
+for text, want in [("uh hey Archy open sober", "open sober"),
+                   ("so hey Archy, what time is it", "what time is it")]:
     heard, rest = w.match(text)
     check(f"{text!r}", heard and rest == want, f"-> {rest!r}")
 
 print("-- tidying what follows the phrase --")
-for text, want in [("hey jarvis, so please open sober", "open sober"),
-                   ("hey jarvis, open brave", "open brave"),
-                   ("hey jarvis , what time is it", "what time is it")]:
+for text, want in [("hey archy, so please open sober", "open sober"),
+                   ("hey archy, open brave", "open brave"),
+                   ("hey archy , what time is it", "what time is it")]:
     heard, rest = w.match(text)
     tidied = w.strip_greeting(rest)
     check(f"{text!r}", heard and tidied == want, f"-> {tidied!r}")
@@ -103,12 +103,12 @@ async def behaviour():
     import numpy as np
     audio = np.zeros(16000, dtype=np.float32)
 
-    h = Harness("Hey Jarvis, open Sober")
+    h = Harness("Hey Archy, open Sober")
     await h._check_wake(audio, None)
     check("phrase plus a request -> handled at once",
           h.processed == ["open Sober"], f"processed={h.processed}")
 
-    h = Harness("hey jarvis")
+    h = Harness("hey archy")
     await h._check_wake(audio, None)
     check("phrase alone -> armed and listening",
           h.state == "listening" and not h.processed, f"state={h.state}")
@@ -118,22 +118,22 @@ async def behaviour():
     check("ordinary speech -> back to idle",
           h.state == "idle" and not h.processed, f"state={h.state}")
 
-    h = Harness("hey jarvis")
-    await h._check_wake(audio, "hey jarvis")         # ready transcript path
+    h = Harness("hey archy")
+    await h._check_wake(audio, "hey archy")         # ready transcript path
     check("a ready transcript is used, not re-transcribed",
           h.state == "listening", f"state={h.state}")
 
-    h = Harness("Hey Jarvis, open Brave")
+    h = Harness("Hey Archy, open Brave")
     await h._check_wake(audio, None)
     check("it acknowledges before handling", len(h.wrote) == 1 and h.wrote[0] > 0, f"blips={h.wrote}")
 
     # the request must survive intact: the phrase is a prefix, not a rewrite
     for spoken, want in [
-        ("Hey Jarvis, open Sober", "open Sober"),
-        ("hey jarvis open github.com/Foo", "open github.com/Foo"),
-        ("Hey Jarvis, what's the time?", "what's the time?"),
-        ("Jervis, open Sober", "open Sober"),       # alias spelling, not the phrase
-        ("jarvis whats the weather in Berlin", "whats the weather in Berlin"),
+        ("Hey Archy, open Sober", "open Sober"),
+        ("hey archy open github.com/Foo", "open github.com/Foo"),
+        ("Hey Archy, what's the time?", "what's the time?"),
+        ("Archie, open Sober", "open Sober"),       # recogniser spelling, not the phrase
+        ("archy whats the weather in Berlin", "whats the weather in Berlin"),
     ]:
         h = Harness(spoken)
         await h._check_wake(audio, None)
