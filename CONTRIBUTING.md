@@ -2,8 +2,8 @@
 
 A personal assistant that runs on one machine, so the useful contributions are the
 ones that make it work better there: a local intent, a sweep check, a fix to
-something that mishears, another platform's backend, or the integration you want
-for yourself (mail, calendar, music), which is deliberately not in here.
+something that mishears, another platform's backend, or the integration you want for
+yourself (mail, calendar, music).
 
 ## Running the tests
 
@@ -17,13 +17,14 @@ compositor: a suite that needs hardware is a suite nobody runs. The groups that
 need neither hardware nor a model run on Linux, macOS and Windows in CI, on every
 push.
 
-Two groups need **node** 22 or newer, because it runs the files that really run
-rather than a copy: the permission gate group executes the pi extension, and the
-dashboard group executes the page's own script.
+Two groups need **node** 22 or newer, since they execute the real files rather
+than a copy: one runs the pi extension, the other the dashboard's own script.
 
-`./run.sh --mic-test` watches the live input level while you talk, and `uv run
-python -m jarvis.fetch_models --check` says whether the models are where they
-should be.
+`main` is protected: force pushes and deletions are refused, history stays linear,
+and a commit whose run is red cannot land.
+
+`./run.sh --mic-test` watches the live input level, and `python -m
+jarvis.fetch_models --check` says whether the models are where they should be.
 
 ## The rules this repository follows
 
@@ -70,6 +71,5 @@ you expect, not just the happy one.
 
 ## Commits
 
-Plain sentences, first person, and keep the reason. If you tried something and it
-did not work, say so. That half of the story is what stops the next person trying
-it again.
+Plain sentences, first person, and keep the reason. If you tried something and it did
+not work, say so: that half is what stops the next person trying it again.
