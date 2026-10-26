@@ -1,9 +1,9 @@
 """Entry point.
 
-  python -m jarvis                 talk to it (wake phrase: "hey jarvis")
-  python -m jarvis --open          the same, and open the dashboard
-  python -m jarvis --say "hello"   no mic: send one message straight to the brain
-  python -m jarvis --mic-test      live microphone check
+  python -m archy                 talk to it (wake phrase: "hey archy")
+  python -m archy --open          the same, and open the dashboard
+  python -m archy --say "hello"   no mic: send one message straight to the brain
+  python -m archy --mic-test      live microphone check
 """
 
 from __future__ import annotations
@@ -117,7 +117,7 @@ async def one_shot(text: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="jarvis", description="a voice assistant")
+    parser = argparse.ArgumentParser(prog="archy", description="a voice assistant")
     parser.add_argument("--say", metavar="TEXT", help="one typed message, no microphone, then exit")
     parser.add_argument("--open", action="store_true", help="open the dashboard window")
     parser.add_argument("--no-hud", action="store_true", help="no dashboard, console only")

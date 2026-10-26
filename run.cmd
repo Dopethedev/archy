@@ -1,5 +1,5 @@
 @echo off
-REM Start JARVIS on Windows.
+REM Start ARCHY on Windows.
 REM
 REM   run.cmd                 talk to it, dashboard opens in a window
 REM   run.cmd --no-hud        console only
@@ -26,8 +26,8 @@ if "%~1"=="--say"     set OPEN=
 if "%~1"=="--mic-test" set OPEN=
 
 if defined OPEN (
-  uv run python -m jarvis --open %*
+  uv run python -m archy --open %*
 ) else (
-  uv run python -m jarvis %*
+  uv run python -m archy %*
 )
 endlocal

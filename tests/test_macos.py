@@ -30,11 +30,11 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from PIL import Image                                # noqa: E402
 
-import jarvis.__main__ as main_mod                    # noqa: E402
-import jarvis.audio as audio                          # noqa: E402
-import jarvis.sweep as sweep                          # noqa: E402
-import jarvis.sysinfo as sysinfo                      # noqa: E402
-import jarvis.vision as vision                        # noqa: E402
+import archy.__main__ as main_mod                    # noqa: E402
+import archy.audio as audio                          # noqa: E402
+import archy.sweep as sweep                          # noqa: E402
+import archy.sysinfo as sysinfo                      # noqa: E402
+import archy.vision as vision                        # noqa: E402
 
 passed = failed = skipped = 0
 TEMPS = []
@@ -49,7 +49,7 @@ def check(label, ok, detail=""):
 
 def workdir(prefix):
     """A scratch directory, remembered so it can be cleaned up at the end."""
-    path = Path(tempfile.mkdtemp(prefix=f"jarvis-{prefix}-"))
+    path = Path(tempfile.mkdtemp(prefix=f"archy-{prefix}-"))
     TEMPS.append(path)
     return path
 

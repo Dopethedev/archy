@@ -26,7 +26,7 @@ from . import config
 
 PERMISSION_HINT = ("on macOS this is the Screen Recording permission: System "
                    "Settings, Privacy and Security, Screen Recording, and the app "
-                   "running jarvis needs a tick there")
+                   "running archy needs a tick there")
 
 
 class ScreenError(Exception):

@@ -24,7 +24,7 @@ than a copy: one runs the pi extension, the other the dashboard's own script.
 and a commit whose run is red cannot land.
 
 `./run.sh --mic-test` watches the live input level, and `python -m
-jarvis.fetch_models --check` says whether the models are where they should be.
+archy.fetch_models --check` says whether the models are where they should be.
 
 ## The rules this repository follows
 
@@ -50,7 +50,7 @@ jarvis.fetch_models --check` says whether the models are where they should be.
 
 ## Adding a local intent
 
-Three parts, in `src/jarvis/reminders.py`, before the model is involved:
+Three parts, in `src/archy/reminders.py`, before the model is involved:
 
 1. `wanted(text)` decides whether the request is this kind of request.
 2. `parse(text)` returns an action or `None`. If it returns `None` while `wanted`

@@ -39,7 +39,7 @@ stub = """<style>/* a still image: no transitions, so a colour change is never c
     {type: "log", who: "sys", text: "listening for the wake phrase"},
     {type: "log", who: "you", text: "hey, brief me"},
     {type: "log", who: "sys", text: "wake phrase"},
-    {type: "log", who: "jarvis", text: "It is four past five on Saturday, twenty degrees and clear in your city, load is under one and the last sweep came back clean."},
+    {type: "log", who: "archy", text: "It is four past five on Saturday, twenty degrees and clear in your city, load is under one and the last sweep came back clean."},
     {type: "log", who: "sys", text: "answered in 7.2s"}
   ];
   class FakeStream {
@@ -59,9 +59,9 @@ page = page.replace('<script src="/app.js"></script>', stub)
 
 # The page here is served as a plain file, so hud.py never gets the chance to put
 # the configured phrase in. The images ship with the public default, and this
-# asserts it: a screenshot of "__JARVIS_WAKE__" is worse than no screenshot.
-page = page.replace("__JARVIS_WAKE__", "hey jarvis")
-assert "__JARVIS_WAKE__" not in page, "the placeholder survived"
+# asserts it: a screenshot of "__ARCHY_WAKE__" is worse than no screenshot.
+page = page.replace("__ARCHY_WAKE__", "hey archy")
+assert "__ARCHY_WAKE__" not in page, "the placeholder survived"
 open(path, "w").write(page)
 PY
 

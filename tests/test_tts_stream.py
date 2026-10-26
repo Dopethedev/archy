@@ -9,7 +9,7 @@ from pathlib import Path
 import re, sys, time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
-from jarvis.tts import Speaker, clean, split_ready
+from archy.tts import Speaker, clean, split_ready
 
 failures = 0
 def check(label, ok, detail=""):

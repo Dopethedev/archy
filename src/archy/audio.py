@@ -118,7 +118,7 @@ def open_error(exc: Exception) -> str:
     if sys.platform == "darwin":
         return (f"the microphone would not open ({exc}). On macOS this is usually "
                 f"the Microphone permission: System Settings, Privacy and "
-                f"Security, Microphone, and the app running jarvis needs a tick "
+                f"Security, Microphone, and the app running archy needs a tick "
                 f"there. A terminal that has never been allowed to listen has to "
                 f"be started again after the tick.")
     if sys.platform == "win32":

@@ -359,7 +359,7 @@ wheels = [
 ]
 
 [[package]]
-name = "jarvis"
+name = "archy"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [

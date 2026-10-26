@@ -11,8 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import jarvis.briefing as briefing
-from jarvis import config
+import archy.briefing as briefing
+from archy import config
 
 passed = failed = 0
 
@@ -25,7 +25,7 @@ def check(label, ok, detail=""):
 
 
 print("-- what triggers a briefing --")
-for text in ("brief me", "hey jarvis give me my morning briefing",
+for text in ("brief me", "hey archy give me my morning briefing",
              "good morning", "what's the weather", "what day is it",
              "what time is it", "system status", "hows the machine"):
     check(f"wanted {text!r}", briefing.wanted(text))
@@ -79,7 +79,7 @@ machine_line = briefing._machine()
 check("machine line reads this machine",
       ("memory at" in machine_line) if readable else ("unavailable" in machine_line),
       machine_line)
-config.STATE_DIR = Path("/tmp") / f"jarvis-test-{time.time_ns()}"
+config.STATE_DIR = Path("/tmp") / f"archy-test-{time.time_ns()}"
 check("no sweep yet is admitted", "no sweep has run" in briefing._last_sweep())
 config.STATE_DIR.mkdir(parents=True)
 (config.STATE_DIR / "last-sweep.txt").write_text(

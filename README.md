@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="docs/banner.svg" alt="jarvis: a voice assistant that runs on your own machine" width="880">
+  <img src="docs/banner.svg" alt="archy: a voice assistant that runs on your own machine" width="880">
 </p>
 
 <p align="center">
-  <a href="https://github.com/Dopethedev/jarvis/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/Dopethedev/jarvis/tests.yml?branch=main&label=tests&style=for-the-badge&logo=githubactions&logoColor=white&color=4fe3ff&labelColor=05080c" alt="tests"></a> <a href="https://github.com/Dopethedev/jarvis/releases"><img src="https://img.shields.io/github/v/release/Dopethedev/jarvis?style=for-the-badge&label=release&logo=github&logoColor=white&color=4fe3ff&labelColor=05080c" alt="latest release"></a> <img src="https://img.shields.io/badge/licence-MIT-4fe3ff?style=for-the-badge&logo=opensourceinitiative&logoColor=white&labelColor=05080c" alt="MIT licence"> <img src="https://img.shields.io/badge/python-3.12-4fe3ff?style=for-the-badge&logo=python&logoColor=white&labelColor=05080c" alt="python 3.12"> <img src="https://img.shields.io/badge/linux%20%2B%20windows%20%2B%20macos-4fe3ff?style=for-the-badge&logo=linux&logoColor=white&labelColor=05080c" alt="Linux, Windows and macOS">
+  <a href="https://github.com/Dopethedev/archy/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/Dopethedev/archy/tests.yml?branch=main&label=tests&style=for-the-badge&logo=githubactions&logoColor=white&color=4fe3ff&labelColor=05080c" alt="tests"></a> <a href="https://github.com/Dopethedev/archy/releases"><img src="https://img.shields.io/github/v/release/Dopethedev/archy?style=for-the-badge&label=release&logo=github&logoColor=white&color=4fe3ff&labelColor=05080c" alt="latest release"></a> <img src="https://img.shields.io/badge/licence-MIT-4fe3ff?style=for-the-badge&logo=opensourceinitiative&logoColor=white&labelColor=05080c" alt="MIT licence"> <img src="https://img.shields.io/badge/python-3.12-4fe3ff?style=for-the-badge&logo=python&logoColor=white&labelColor=05080c" alt="python 3.12"> <img src="https://img.shields.io/badge/linux%20%2B%20windows%20%2B%20macos-4fe3ff?style=for-the-badge&logo=linux&logoColor=white&labelColor=05080c" alt="Linux, Windows and macOS">
 </p>
 
 **A voice assistant that runs on your own machine.** Say the wake phrase, ask
@@ -21,9 +21,9 @@ so the model is whichever one you point it at.
 ## Install
 
 ```
-git clone https://github.com/Dopethedev/jarvis jarvis && cd jarvis
+git clone https://github.com/Dopethedev/archy archy && cd archy
 uv sync
-uv run python -m jarvis.fetch_models     # the voice models, 340 MB, all free
+uv run python -m archy.fetch_models     # the voice models, 340 MB, all free
 ./run.sh                                 # say the wake phrase, then ask
 ```
 
@@ -91,7 +91,7 @@ Optional, per feature, each reported as skipped rather than as a clean machine:
 - `clamscan` for the virus scan, `lynis` for the deeper audit, and `rkhunter` for the
   rootkit check, which is root only on Arch, so the sweep says it could not run.
 - `niri`, `hyprctl` or `swaymsg`, whichever compositor you run, for "focus the
-  browser". A desktop JARVIS does not recognise gets one honest sentence.
+  browser". A desktop ARCHY does not recognise gets one honest sentence.
 
 Arch: `pacman -S pipewire grim ffmpeg clamav lynis rkhunter`, and Debian the same
 names through `apt install libportaudio2 pipewire grim ffmpeg clamav lynis rkhunter`.
@@ -122,7 +122,7 @@ variants it invents on top. Anything left out falls back to a default.
 ## Layout
 
 ```
-src/jarvis/   the assistant, one module per part, named for what it does
+src/archy/   the assistant, one module per part, named for what it does
 hud/          the dashboard page, served as static files, so no build step
 tests/        one file per behaviour, none needing a microphone
 docs/         the banner, the theme screenshots, and the scripts that draw them

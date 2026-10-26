@@ -15,7 +15,7 @@ import {
 	decide,
 	loadPolicy,
 	mergeTokens,
-} from "../src/jarvis/gate/permission-gate.ts";
+} from "../src/archy/gate/permission-gate.ts";
 
 const lines = createInterface({ input: process.stdin });
 

@@ -16,10 +16,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis import status as status_mod
-from jarvis import config, privacy  # noqa: E402
-from jarvis.assistant import Assistant  # noqa: E402
-from jarvis.brain import BrainError  # noqa: E402
+from archy import status as status_mod
+from archy import config, privacy  # noqa: E402
+from archy.assistant import Assistant  # noqa: E402
+from archy.brain import BrainError  # noqa: E402
 
 passed = failed = 0
 

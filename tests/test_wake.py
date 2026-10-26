@@ -1,6 +1,6 @@
-"""Wake word: does 'hey jarvis' fire on speech, and stay quiet on everything else?"""
+"""Wake word: does 'hey archy' fire on speech, and stay quiet on everything else?"""
 import numpy as np, os, sys
-from jarvis.audio import resample
+from archy.audio import resample
 import openwakeword
 from openwakeword.model import Model
 from kokoro_onnx import Kokoro
@@ -25,9 +25,9 @@ def peak_of(audio):
 
 print("\n--- should FIRE ---")
 pos = {
-    "hey jarvis": peak_of(say("Hey Jarvis")),
-    "hey jarvis + request": peak_of(say("Hey Jarvis, what is the weather")),
-    "hey jarvis (slower)": peak_of(say("Hey, Jarvis.")),
+    "hey archy": peak_of(say("Hey Archy")),
+    "hey archy + request": peak_of(say("Hey Archy, what is the weather")),
+    "hey archy (slower)": peak_of(say("Hey, Archy.")),
 }
 for t, v in pos.items():
     print(f"  {t:24s} {v:.3f}")

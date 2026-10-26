@@ -15,8 +15,8 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis import config  # noqa: E402
-from jarvis.brain import PiBrain  # noqa: E402
+from archy import config  # noqa: E402
+from archy.brain import PiBrain  # noqa: E402
 
 failures = 0
 
@@ -28,7 +28,7 @@ def check(label, ok, detail=""):
     print(f"  [{'OK  ' if ok else 'FAIL'}] {label:56s} {detail}")
 
 
-work = Path(tempfile.mkdtemp(prefix="jarvis-session-test-"))
+work = Path(tempfile.mkdtemp(prefix="archy-session-test-"))
 sessions = work / "sessions"
 state = work / "state"
 sessions.mkdir()

@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis import brain, config, local_model, net  # noqa: E402
+from archy import brain, config, local_model, net  # noqa: E402
 
 passed = failed = 0
 
@@ -202,7 +202,7 @@ saved_url = config.PI_LOCAL_SERVER_URL
 saved_models = config.PI_LOCAL_MODELS_DIR
 # a directory that exists, because a machine with no models at all never gets as far
 # as starting a server: this is about the command, not about what is on this disk
-_argv_dir = tempfile.mkdtemp(prefix="jarvis-argv-models-")
+_argv_dir = tempfile.mkdtemp(prefix="archy-argv-models-")
 config.PI_LOCAL_MODELS_DIR = Path(_argv_dir)
 config.PI_LOCAL_SERVER_URL = "http://127.0.0.1:18799"
 config.PI_MODELS_OFFLINE = ("local/Qwen3.5-4B-Q4_K_M",)
@@ -275,7 +275,7 @@ print("-- every entry point starts the server, not only the voice loop --")
 # part that matters.
 import asyncio  # noqa: E402
 
-from jarvis.assistant import Assistant  # noqa: E402
+from archy.assistant import Assistant  # noqa: E402
 
 calls: list = []
 real_ensure_local = local_model.ensure_running

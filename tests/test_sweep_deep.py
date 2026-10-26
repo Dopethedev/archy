@@ -16,8 +16,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-import jarvis.sweep as sweep  # noqa: E402
-from jarvis import config  # noqa: E402
+import archy.sweep as sweep  # noqa: E402
+from archy import config  # noqa: E402
 
 passed = failed = 0
 

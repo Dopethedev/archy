@@ -25,11 +25,11 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-import jarvis.hud as hud_mod  # noqa: E402
-import jarvis.local_model as local_model  # noqa: E402
-import jarvis.status as status_mod  # noqa: E402
-from jarvis import config, net, permissions, privacy  # noqa: E402
-from jarvis.hud import Hud  # noqa: E402
+import archy.hud as hud_mod  # noqa: E402
+import archy.local_model as local_model  # noqa: E402
+import archy.status as status_mod  # noqa: E402
+from archy import config, net, permissions, privacy  # noqa: E402
+from archy.hud import Hud  # noqa: E402
 
 passed = failed = 0
 
@@ -371,11 +371,11 @@ check("the panel starts hidden, so a dashboard without the feature is unchanged"
 check("the page holds no credential of its own",
       "apiKey" not in script and "apiKey" not in html and "sk-" not in script)
 check("and the only token in it is the placeholder the server fills in",
-      html.count("__JARVIS_TOKEN__") == 1
-      and html.count('window.JARVIS_TOKEN = "__JARVIS_TOKEN__"') == 1,
+      html.count("__ARCHY_TOKEN__") == 1
+      and html.count('window.ARCHY_TOKEN = "__ARCHY_TOKEN__"') == 1,
       "one assignment, and its value is the placeholder")
 check("while the script only ever reads that value, never defines one",
-      "window.JARVIS_TOKEN" in script and "JARVIS_TOKEN =" not in script)
+      "window.ARCHY_TOKEN" in script and "ARCHY_TOKEN =" not in script)
 check("it says unavailable rather than zero when the waiting list cannot be read",
       "unknown" in script and "waiting" in script)
 

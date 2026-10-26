@@ -26,12 +26,12 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-import jarvis.assistant as assistant_mod  # noqa: E402
-import jarvis.brain as brain_mod  # noqa: E402
-from jarvis import config, permissions, privacy  # noqa: E402
-from jarvis.assistant import Assistant  # noqa: E402
-from jarvis.brain import PiBrain  # noqa: E402
-from jarvis.memory_store import Memory  # noqa: E402
+import archy.assistant as assistant_mod  # noqa: E402
+import archy.brain as brain_mod  # noqa: E402
+from archy import config, permissions, privacy  # noqa: E402
+from archy.assistant import Assistant  # noqa: E402
+from archy.brain import PiBrain  # noqa: E402
+from archy.memory_store import Memory  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 HARNESS = Path(__file__).resolve().parent / "gate_decide.mjs"
@@ -54,7 +54,7 @@ def check(label, ok, detail=""):
     print(f"  [{'OK  ' if ok else 'FAIL'}] {label:58s} {detail}")
 
 
-work = Path(tempfile.mkdtemp(prefix="jarvis-privacy-"))
+work = Path(tempfile.mkdtemp(prefix="archy-privacy-"))
 work_root = work / "notes"
 work_root.mkdir()
 inside = work_root / "diary.txt"
@@ -355,7 +355,7 @@ check("into the file personal settings live in", local_config.exists())
 check("as the name config.py reads", json.loads(local_config.read_text())["PRIVACY_SHARE_MEMORY"] is False)
 check("while config.py still holds the default unchanged",
       "PRIVACY_SHARE_MEMORY = True" in (
-          REPO / "src" / "jarvis" / "config.py").read_text(),
+          REPO / "src" / "archy" / "config.py").read_text(),
       "the defaults stay in config.py, the choice lives beside it")
 check("a setting that is not one is refused, not invented",
       _raises_keyerror(privacy.set_switch, "telepathy", False))

@@ -1,7 +1,7 @@
 """Reminders and timers: parsed locally, kept in a small file, spoken when due.
 
 No cloud, no cron syntax. He says "remind me in twenty minutes to check the
-oven" and twenty minutes later jarvis says so, out loud, even if the assistant
+oven" and twenty minutes later archy says so, out loud, even if the assistant
 was restarted in between, because the due time lives on disk.
 """
 import json
