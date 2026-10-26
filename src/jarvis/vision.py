@@ -34,8 +34,21 @@ class ScreenError(Exception):
 
 
 def _run(argv: list[str], stdin: bytes | None = None, timeout: float = 10.0) -> bytes:
-    proc = subprocess.run(argv, input=stdin, stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE, timeout=timeout)
+    """Run a capture tool. Everything that can go wrong arrives as a ScreenError.
+
+    It did not: a timeout or a missing binary came out of subprocess as its own
+    exception type, and the assistant's handler catches ScreenError, so a slow
+    compositor produced "Something went wrong there" instead of "I could not
+    capture the screen". A failure the caller cannot name is a failure nobody can
+    act on.
+    """
+    try:
+        proc = subprocess.run(argv, input=stdin, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise ScreenError(f"{argv[0]} took longer than {timeout:.0f}s") from None
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ScreenError(f"{argv[0]} could not be run: {exc}") from None
     if proc.returncode != 0:
         raise ScreenError(f"{argv[0]} failed: {proc.stderr.decode(errors='replace')[:120]}")
     return proc.stdout
@@ -158,6 +171,11 @@ def capture(attempts: int = 3) -> bytes:
             return grab()
         except ScreenError as exc:
             last = exc
+            if "permission" in str(exc).lower():
+                # Asking a second and third time does not grant a permission, and
+                # the sentence that says which setting it is is the whole value of
+                # the answer, so it is not buried under "after 3 attempts".
+                raise
             if attempt + 1 < attempts:
                 time.sleep(0.15)
     raise ScreenError(f"{last} (after {attempts} attempts)")

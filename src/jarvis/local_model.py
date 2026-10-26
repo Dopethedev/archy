@@ -179,4 +179,8 @@ def stop() -> None:
             _proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             _proc.kill()
+            try:
+                _proc.wait(timeout=5)      # reaped, not left as a zombie
+            except subprocess.TimeoutExpired:
+                print("[local] the server would not stop", flush=True)
     _proc = None

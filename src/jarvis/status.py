@@ -104,17 +104,18 @@ def _local_model() -> dict:
 
 def _permissions() -> dict:
     state = permissions.state()
-    waiting = permissions.waiting_count()
+    # one read of the waiting list, so the count and the list cannot disagree
+    waiting = permissions.reading()
     out = {
         "enabled": state["enabled"],
         "enforcing": state["enforcing"],
-        "waiting": waiting,
+        "waiting": waiting["waiting"],
         "reason": state["reason"],
     }
-    if waiting:
+    if waiting["waiting"]:
         out["pending"] = [{"tool": entry.get("tool"),
                            "summary": permissions.redact(str(entry.get("summary", "")))}
-                          for entry in permissions.pending()]
+                          for entry in waiting["pending"]]
     return out
 
 

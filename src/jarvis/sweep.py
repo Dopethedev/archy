@@ -34,6 +34,7 @@ package manager and `systemctl` inside their own checks. Importing them at modul
 level meant that on Windows, where the sweep has nothing to do anyway, the
 assistant could not even start.
 """
+import itertools
 import json
 import os
 import platform
@@ -118,9 +119,15 @@ def _proc_entries():
 
 def check_processes() -> list[str]:
     findings = []
+    unreadable = 0
     for pid, exe, cmdline in _proc_entries():
         if exe is None:
-            continue                                      # kernel threads and unreadable
+            # kernel threads, and every process belonging to someone else: this
+            # user cannot readlink their exe. Counting them matters, because the
+            # finding below says no process runs from a scratch directory, and that
+            # is a claim about the processes this check could see.
+            unreadable += 1
+            continue
         low = exe.lower()
         if "/tmp/" in low or "/dev/shm/" in low:
             findings.append(f"alert: pid {pid} runs from {exe}: {cmdline[:80]}")
@@ -128,7 +135,13 @@ def check_processes() -> list[str]:
             # normal right after a package upgrade, suspicious otherwise, so it
             # is a warning to read, not an alert to act on
             findings.append(f"warn: pid {pid} runs a deleted file: {cmdline[:80]}")
-    return findings or ["ok: no process runs from /tmp, /dev/shm or a deleted file"]
+    if findings:
+        return findings
+    if unreadable:
+        return [f"ok: none of the {len(list(_proc_entries())) - unreadable} readable "
+                f"process(es) runs from /tmp, /dev/shm or a deleted file; {unreadable} "
+                f"could not be read (kernel threads, or another user's processes)"]
+    return ["ok: no process runs from /tmp, /dev/shm or a deleted file"]
 
 
 def check_uid_zero() -> list[str]:
@@ -161,7 +174,10 @@ def check_world_writable(bases: tuple = ("/tmp", "/dev/shm")) -> list[str]:
         root = Path(base)
         if not root.exists():
             continue
-        for path in list(root.rglob("*"))[:2000]:
+        # islice, not a slice of a list: `list(rglob())` walks the whole tree
+        # before the cap is applied, so the cap bounded what was reported and not
+        # the work, on the one directory on this machine with ten thousand files
+        for path in itertools.islice(root.rglob("*"), 2000):
             try:
                 if path.is_file() and os.access(path, os.X_OK) \
                         and (os.stat(path).st_mode & 0o002):
