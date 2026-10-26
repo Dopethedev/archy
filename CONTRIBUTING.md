@@ -16,6 +16,10 @@ compositor: a suite that needs hardware is a suite nobody runs. The groups that
 need neither hardware nor a model run on Linux, macOS and Windows in CI, on every
 push.
 
+Two groups need **node** 22 or newer, because it runs the files that really run
+rather than a copy: the permission gate group executes the pi extension, and the
+dashboard group executes the page's own script.
+
 `./run.sh --mic-test` watches the live input level while you talk, and `uv run
 python -m jarvis.fetch_models --check` says whether the models are where they
 should be.
