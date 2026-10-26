@@ -199,6 +199,11 @@ print("-- the command the server is started with --")
 # The flag that switches it off is asserted here, since it is the only part of that
 # which a machine without a model can check.
 saved_url = config.PI_LOCAL_SERVER_URL
+saved_models = config.PI_LOCAL_MODELS_DIR
+# a directory that exists, because a machine with no models at all never gets as far
+# as starting a server: this is about the command, not about what is on this disk
+_argv_dir = tempfile.mkdtemp(prefix="jarvis-argv-models-")
+config.PI_LOCAL_MODELS_DIR = Path(_argv_dir)
 config.PI_LOCAL_SERVER_URL = "http://127.0.0.1:18799"
 config.PI_MODELS_OFFLINE = ("local/Qwen3.5-4B-Q4_K_M",)
 saved_healthy, saved_wait, saved_load = (local_model.healthy, local_model._wait,
@@ -231,6 +236,7 @@ finally:
     local_model.healthy, local_model._wait, local_model._ensure_loaded = (
         saved_healthy, saved_wait, saved_load)
     config.PI_LOCAL_SERVER_URL = saved_url
+    config.PI_LOCAL_MODELS_DIR = saved_models
 
 argv = FakeSubprocess.argv
 check("the server was started", started is True and argv, " ".join(argv[:4]))
