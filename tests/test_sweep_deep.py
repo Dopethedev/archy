@@ -155,8 +155,12 @@ def fake_run(payload: str, code: int = 0):
 
 
 real_subprocess_run = sweep.subprocess.run
+real_access2 = sweep.os.access
 try:
     sweep._find = lambda name: "/usr/bin/lynis"
+    # the point here is what happens after a tool starts, so it is made runnable
+    # rather than depending on what this machine happens to have installed
+    sweep.os.access = lambda p, mode: True
     sweep.subprocess.run = fake_run(LYNIS)
     lines = sweep.check_lynis()
     check("a lynis that runs is read", any("hardening index 64" in line for line in lines), str(lines))
@@ -177,6 +181,7 @@ try:
           "could not be run" in " ".join(sweep.check_lynis()), " ".join(sweep.check_lynis()))
 finally:
     sweep.subprocess.run = real_subprocess_run
+    sweep.os.access = real_access2
 
 print("-- the one test that asks for a password --")
 # Measured: lynis's NETW-2706 runs `resolvectl statistics`, and on this machine polkit
@@ -216,9 +221,12 @@ try:
     check("with nothing to skip, no profile is written at all",
           sweep._lynis_profile() is None)
     config.SWEEP_LYNIS_SKIP_TESTS = ("NETW-2706",)
-    config.STATE_DIR = Path("/proc/nowhere/at/all")
+    import tempfile as _tempfile
+    blocked = Path(_tempfile.mkdtemp()) / "a-file"
+    blocked.write_text("not a directory")
+    config.STATE_DIR = blocked / "inside"          # a file cannot contain a directory
     check("a state directory that cannot be written is not a crash",
-          sweep._lynis_profile() is None)
+          sweep._lynis_profile() is None and not (blocked / "inside").exists())
 finally:
     config.STATE_DIR = real_state
     config.SWEEP_LYNIS_SKIP_TESTS = ("NETW-2706",)
@@ -237,7 +245,7 @@ def stub_check():
     return ["ok: stub"]
 
 
-real_checks, real_deep = sweep.checks, sweep.deep_checks
+real_checks, real_deep, real_supported = sweep.checks, sweep.deep_checks, sweep.supported
 ran = []
 
 
@@ -251,6 +259,7 @@ def recording(name):
 try:
     sweep.checks = lambda: (recording("ordinary"),)
     sweep.deep_checks = lambda: (recording("rkhunter"), recording("lynis"))
+    sweep.supported = lambda: True            # this is about which checks run
     ran.clear()
     report = sweep.run()
     check("an ordinary sweep does not run the deep checks",
@@ -261,7 +270,7 @@ try:
           ran == ["ordinary", "rkhunter", "lynis"], str(ran))
     check("and the report says it was the deeper one", "deeper checks" in report, report[:80])
 finally:
-    sweep.checks, sweep.deep_checks = real_checks, real_deep
+    sweep.checks, sweep.deep_checks, sweep.supported = real_checks, real_deep, real_supported
 
 real_platform = sys.platform
 try:
