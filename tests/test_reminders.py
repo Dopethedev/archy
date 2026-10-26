@@ -209,9 +209,17 @@ check("and the pending list says it is daily",
       "every day at" in reminders.pending()[0], str(reminders.pending()))
 reminders.PATH.write_text(json.dumps([{"label": "Off for days", "due": time.time() - 3 * 86400,
                                        "repeat": "daily"}]))
+# the two rounds are checked apart, and both say what they saw: this one failed on
+# Windows with the item stored a day ahead and nothing to say about which round
+# repeated it, which is a report that costs a round trip to read
+first_round = reminders.due_items()
 check("a daily one missed while the machine was off is announced once",
-      [i["label"] for i in reminders.due_items()] == ["Off for days"]
-      and reminders.due_items() == [], str(reminders.load()))
+      [i["label"] for i in first_round] == ["Off for days"],
+      f"first round said {[i['label'] for i in first_round]}")
+second_round = reminders.due_items()
+check("and is not announced again on the very next check", second_round == [],
+      f"second round said {[(i['label'], round(i['due'] - time.time(), 3)) for i in second_round]}"
+      f", store holds {[(i['label'], round(i['due'] - time.time(), 3)) for i in reminders.load()]}")
 reminders.PATH.write_text(json.dumps([]))
 
 print("-- the store survives a restart --")
@@ -337,6 +345,87 @@ reminders.confirm({"action": "cancel"})
 reminders.undo_intent("undo")
 check("one that is due again comes due, rather than being dropped",
       [i["label"] for i in reminders.due_items()] == ["Overdue one"], str(reminders.load()))
+
+print("-- a rescheduled one lands a day away, not on top of this moment --")
+# The next occurrence is computed from the item's own clock time, and a platform
+# whose clock conversion drops sub-second precision can land that within a second
+# of now: measured on Windows as 1.3 seconds short of a full day, which is the same
+# second the check itself is running in. Whether it landed just before or just
+# after now decided whether the reminder fired once or twice.
+class NearestSecond(datetime):
+    """A clock conversion that rounds to the second, as Windows' does."""
+
+    @classmethod
+    def fromtimestamp(cls, ts, tz=None):
+        base = super().fromtimestamp(ts, tz)
+        return (base + timedelta(microseconds=500_000)).replace(microsecond=0)
+
+
+real_datetime = reminders.datetime
+real_path = reminders.PATH
+real_state_dir = config.STATE_DIR
+try:
+    config.STATE_DIR = Path(tempfile.mkdtemp(prefix="jarvis-daily-"))
+    reminders.PATH = config.STATE_DIR / "reminders.json"
+    reminders.datetime = NearestSecond
+    now = time.time()
+    # its clock time is the same second as now, so the reschedule lands inside it
+    reminders.PATH.write_text(json.dumps([{"label": "Daily one",
+                                           "due": now - 3 * 86400, "repeat": "daily"}]))
+    first = reminders.due_items(now=now)
+    nxt = reminders.load()[0]["due"]
+    check("it comes due when it is missed", [i["label"] for i in first] == ["Daily one"],
+          str([i["label"] for i in first]))
+    check("and the next occurrence is not inside this second",
+          nxt - now >= 1.0, f"{nxt - now:.3f}s ahead")
+    # one call, kept, so the report is what this check saw rather than what a
+    # second call saw after the first one had already rescheduled the item
+    again = reminders.due_items(now=now + 1.0)
+    check("so the very next check does not announce it again", again == [],
+          f"it said {[(i['label'], round(i['due'] - now - 1.0, 3)) for i in again]}")
+finally:
+    reminders.datetime = real_datetime
+    reminders.PATH = real_path
+    config.STATE_DIR = real_state_dir
+
+print("-- a daily one keeps the hour it was set for --")
+# The clocks going forward is the case that tells "tomorrow at that time" apart
+# from "this moment plus a day". In New York, a daily 7 pm reminder crossed the
+# spring change and came back as 8 pm, and stayed there.
+if not hasattr(time, "tzset"):
+    print("  [SKIP] this platform has no timezone to change (Windows)")
+else:
+    import os as _os
+    real_tz = _os.environ.get("TZ")
+    real_state = config.STATE_DIR
+    try:
+        _os.environ["TZ"] = "America/New_York"
+        time.tzset()
+        config.STATE_DIR = Path(tempfile.mkdtemp(prefix="jarvis-dst-"))
+        reminders.PATH = config.STATE_DIR / "reminders.json"
+        start = datetime(2026, 3, 7, 19, 0)                 # 7 pm, the day before
+        item = reminders.add("Take medicine", 0.0, repeat="daily", due=start.timestamp())
+        check("set for the hour that was asked for",
+              datetime.fromtimestamp(item["due"]).hour == 19,
+              datetime.fromtimestamp(item["due"]).strftime("%Y-%m-%d %H:%M"))
+        for _ in range(4):                                  # walk past the change
+            due = reminders.load()[0]["due"]
+            reminders.due_items(now=due + 1)
+        after = datetime.fromtimestamp(reminders.load()[0]["due"])
+        check("and still the same hour days later, across the clock change",
+              after.hour == 19 and after.minute == 0, after.strftime("%Y-%m-%d %H:%M %Z"))
+        check("not due again before its next occurrence",
+              len(reminders.due_items(now=after.timestamp() - 1)) == 0)
+        check("and it does fire on the day it is due",
+              len(reminders.due_items(now=after.timestamp() + 1)) == 1)
+    finally:
+        config.STATE_DIR = real_state
+        reminders.PATH = real_state / "reminders.json"
+        if real_tz is None:
+            _os.environ.pop("TZ", None)
+        else:
+            _os.environ["TZ"] = real_tz
+        time.tzset()
 
 print()
 print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)")
