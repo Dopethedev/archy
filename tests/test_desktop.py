@@ -83,8 +83,22 @@ check("sway from its socket",
       desktop.compositor({"SWAYSOCK": "/run/user/1000/sway.sock"}) == desktop.SWAY)
 check("and nothing recognised is not guessed at",
       desktop.compositor({}) == desktop.UNKNOWN)
-check("this machine's environment really is one of them",
-      desktop.compositor() in (desktop.NIRI, desktop.HYPRLAND, desktop.SWAY))
+# The real thing, which is a different check on a runner than on a desktop: the
+# runner has no compositor of these three, and what matters there is that asking
+# gets one honest sentence instead of an exception.
+real = desktop.windows()
+if real:
+    check("reading this machine's windows gives records with what matching needs",
+          all({"id", "title", "app_id", "focused"} <= set(record) for record in real),
+          f"{len(real)} windows")
+    check("and one of them is in front", any(record["focused"] for record in real))
+else:
+    check("a machine with no compositor of these three reads as empty",
+          real == [] and desktop.compositor() == desktop.UNKNOWN, desktop.compositor())
+    check("and asking there is a sentence, not an exception",
+          desktop.focus("brave")["ok"] is False
+          and "niri" in desktop.spoken_focus(desktop.focus("brave")),
+          desktop.spoken_focus(desktop.focus("brave")))
 check("an unknown desktop gets one honest sentence",
       "niri" in desktop.why_not(desktop.UNKNOWN) and desktop.close_command(desktop.UNKNOWN) is None,
       desktop.why_not(desktop.UNKNOWN))
