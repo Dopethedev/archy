@@ -66,6 +66,14 @@ for line in sys.stdin:
     sys.exit(1)                                # dies mid conversation
 """)
 
+# a pi that dies of something specific: the reason it printed for whoever started it
+COMPLAINING = fake_pi("complaining", """
+import sys
+sys.stderr.write("error: no api key is configured for this provider\\n")
+sys.stderr.flush()
+sys.exit(3)
+""")
+
 # a tool that runs long: it starts a tool, goes quiet for longer than the silence
 # deadline while the tool works, and then answers. A twenty second curl looks
 # exactly like this, and it used to be reported as a dropped connection.
@@ -166,6 +174,12 @@ async def main():
     outcome, detail, _ = await drive(DYING, timeout=8)
     check("a process that dies is reported, not hung",
           outcome in ("brainerror", "answered"), f"{outcome}: {detail}")
+
+    # pi's error stream was read all along and never looked at, so a process that
+    # died of a missing key said only that it had ended
+    outcome, detail, _ = await drive(COMPLAINING, timeout=8)
+    check("and it says why, from what pi printed before it died",
+          outcome == "brainerror" and "no api key" in detail, f"{outcome}: {detail}")
 
     # a tool that takes longer than the silence deadline is a working process,
     # not a dead one: killing it here is what turned a slow lookup into "my
