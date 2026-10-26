@@ -191,6 +191,56 @@ check("a missing model directory is a plain no",
       local_model.ensure_running(wait=2.0) is False)
 config.PI_LOCAL_MODELS_DIR, config.PI_LOCAL_SERVER_BIN = saved_dir, saved_bin
 
+print("-- the command the server is started with --")
+# A local model thinks before it speaks, and every one of those tokens is silence
+# in the user's ear: measured on a screen question, 27.4 s to the first spoken word
+# with reasoning on, against 4.7 s for the whole turn with it off. The silence
+# deadline is 25 s, so a reasoning local model was reported as a dropped connection.
+# The flag that switches it off is asserted here, since it is the only part of that
+# which a machine without a model can check.
+saved_url = config.PI_LOCAL_SERVER_URL
+config.PI_LOCAL_SERVER_URL = "http://127.0.0.1:18799"
+config.PI_MODELS_OFFLINE = ("local/Qwen3.5-4B-Q4_K_M",)
+saved_healthy, saved_wait, saved_load = (local_model.healthy, local_model._wait,
+                                         local_model._ensure_loaded)
+local_model.healthy = lambda *a, **k: False
+local_model._wait = lambda *a, **k: True
+local_model._ensure_loaded = lambda *a, **k: True
+
+
+class FakeProc:
+    returncode = None
+    def poll(self):
+        return None
+
+
+class FakeSubprocess:
+    argv: list[str] = []
+    DEVNULL = -3
+    def Popen(self, args, **kwargs):
+        FakeSubprocess.argv = args
+        return FakeProc()
+
+
+real_subprocess = local_model.subprocess
+local_model.subprocess = FakeSubprocess()
+try:
+    started = local_model.ensure_running()
+finally:
+    local_model.subprocess = real_subprocess
+    local_model.healthy, local_model._wait, local_model._ensure_loaded = (
+        saved_healthy, saved_wait, saved_load)
+    config.PI_LOCAL_SERVER_URL = saved_url
+
+argv = FakeSubprocess.argv
+check("the server was started", started is True and argv, " ".join(argv[:4]))
+check("with the no-thinking flag, so speech is not spent on silence",
+      "--reasoning" in argv and argv[argv.index("--reasoning") + 1] == "off",
+      " ".join(argv[argv.index("--reasoning"):]) if "--reasoning" in argv else "missing")
+check("and the flags that make it usable for voice are still there",
+      all(flag in argv for flag in ("--models-dir", "--jinja", "--flash-attn", "-c")),
+      " ".join(argv))
+
 print("-- what counts as a model on disk --")
 with tempfile.TemporaryDirectory() as tmp:
     config.PI_LOCAL_MODELS_DIR = Path(tmp)
