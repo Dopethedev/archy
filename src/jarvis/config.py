@@ -356,6 +356,21 @@ DESKTOP_NOT_A_WINDOW = ("workspace", "monitor", "window", "tab", "screen", "desk
 DESKTOP_TIMEOUT_S = 5.0
 DESKTOP_LIST_LIMIT = 5              # spoken, so short
 
+# Remembering. These shapes are handled in code, without a model and without
+# running memory_store as a command, so "remember that" is a fact stored now
+# rather than a shell command that waits on the permission gate.
+MEMORY_RECALL_PHRASES = (
+    "what do you know about me", "what do you know about me so far",
+    "what do you remember", "what have you remembered", "what do you have on me",
+    "what have you got on me", "list what you know about me",
+    "list what you remember", "read me your memory", "read out your memory",
+    "tell me what you know about me", "tell me what you remember",
+    "what do you know about me now",
+)
+# Anything starting with one of these is the same question with extra words on it.
+MEMORY_RECALL_PREFIXES = ("what do you know about me", "what do you remember",
+                          "list what you know", "list what you remember")
+
 THEMES = {
     "standard": ("standard", "normal", "default", "regular"),
     "stealth":  ("stealth",),

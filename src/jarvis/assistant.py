@@ -30,6 +30,7 @@ from . import local_model
 from . import net
 from . import permissions
 from . import privacy
+from . import memory_store as memory_store_mod
 from . import reminders as reminders_mod
 from . import mic_state
 from . import sweep as sweep_mod
@@ -424,6 +425,22 @@ class Assistant:
                     else:
                         local_reply = ("Done. " + " and ".join(parts)
                                        + " deleted, with a copy kept beside the originals.")
+                elif (fact := memory_store_mod.remember_intent(text)):
+                    # A fact this machine already holds, stored here rather than by
+                    # running memory_store as a command: no model to ask, and with
+                    # the gate on, no approval for saying "remember that".
+                    key, value = fact
+                    memory_store_mod.Memory().set(key, value)
+                    local_reply = memory_store_mod.spoken_remember(key, value)
+                    self.status.note("memory", f"stored {key}")
+                elif memory_store_mod.recall_intent(text):
+                    # Read from the file here, so a question about what is known does
+                    # not become a question to a relay that happens to hold a copy.
+                    local_reply = memory_store_mod.spoken_recall(memory_store_mod.Memory())
+                elif (answer := memory_store_mod.forget_intent(
+                        text, memory_store_mod.Memory())) is not None:
+                    local_reply = answer
+                    self.status.note("memory", answer.rstrip("."))
                 elif desktop_mod.list_request(text):
                     # The compositor is asked on another thread. It answers in about
                     # five milliseconds here, which is why this sat on the voice loop
