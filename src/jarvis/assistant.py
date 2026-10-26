@@ -425,11 +425,18 @@ class Assistant:
                         local_reply = ("Done. " + " and ".join(parts)
                                        + " deleted, with a copy kept beside the originals.")
                 elif desktop_mod.list_request(text):
-                    local_reply = desktop_mod.spoken_list(desktop_mod.windows())
+                    # The compositor is asked on another thread. It answers in about
+                    # five milliseconds here, which is why this sat on the voice loop
+                    # for as long as it did: the cost of a stuck compositor is not
+                    # five milliseconds, it is the turn, and the loop it would hold
+                    # is the one reading the microphone.
+                    windows = await asyncio.to_thread(desktop_mod.windows)
+                    local_reply = desktop_mod.spoken_list(windows)
                 elif desktop_mod.close_request(text):
-                    local_reply = desktop_mod.spoken_close(desktop_mod.close_focused())
+                    closed = await asyncio.to_thread(desktop_mod.close_focused)
+                    local_reply = desktop_mod.spoken_close(closed)
                 elif (name := desktop_mod.focus_request(text)) and (
-                        focused := desktop_mod.focus(name))["ok"]:
+                        focused := await asyncio.to_thread(desktop_mod.focus, name))["ok"]:
                     # Only answers when a window actually came forward. A name that
                     # matches nothing falls through to the model, which can say the
                     # application is not open instead of this refusing in its place.
