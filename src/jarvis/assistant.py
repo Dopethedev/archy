@@ -35,6 +35,7 @@ from . import mic_state
 from . import sweep as sweep_mod
 from .audio import MicCapture, Player
 from .brain import BrainError, PiBrain
+from . import desktop as desktop_mod
 from . import status as status_mod
 from .hud import Hud
 from .stt import DeafTranscriber, Transcriber
@@ -422,6 +423,17 @@ class Assistant:
                     else:
                         local_reply = ("Done. " + " and ".join(parts)
                                        + " deleted, with a copy kept beside the originals.")
+                elif desktop_mod.list_request(text):
+                    local_reply = desktop_mod.spoken_list(desktop_mod.windows())
+                elif desktop_mod.close_request(text):
+                    local_reply = desktop_mod.spoken_close(desktop_mod.close_focused())
+                elif (name := desktop_mod.focus_request(text)) and (
+                        focused := desktop_mod.focus(name))["ok"]:
+                    # Only answers when a window actually came forward. A name that
+                    # matches nothing falls through to the model, which can say the
+                    # application is not open instead of this refusing in its place.
+                    local_reply = desktop_mod.spoken_focus(focused)
+                    self.status.note("desktop", f"focused {focused['window']['app_id']}")
                 elif privacy.asked_to_clear(text):
                     local_reply = self._privacy_confirm.ask()
                 elif privacy.wants_status(text):

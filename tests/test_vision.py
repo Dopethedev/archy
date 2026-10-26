@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import jarvis.assistant as jarvis_assistant
 import jarvis.vision as vision
+from jarvis import status as status_mod
 from jarvis import config, privacy
 from jarvis.assistant import Assistant
 from jarvis.brain import PiBrain
@@ -118,6 +119,7 @@ class ScreenHarness:
 
     def __init__(self, capture_result):
         self._privacy_confirm = privacy.Confirmation()
+        self.status = status_mod.Feed()
         self.captures = 0
         self.capture_result = capture_result
         self.log_lines = []

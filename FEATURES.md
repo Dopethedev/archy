@@ -9,7 +9,7 @@ The full list, including the limits. Kept to one line each.
 - **One breath.** "hey jarvis, what is the weather" is one turn.
 - **Interruption.** Talk over it and it stops, keeps what you said, and answers that.
 - **It gives up on a slow model** if you start talking, not after.
-- **Typed input.** A text box.
+- **Typed input.**
 - **A microphone switch.** Key `M` or the button. Off means off, across a restart.
 - **It says when it cannot hear.** Twenty seconds of digital silence, said once.
 
@@ -21,8 +21,7 @@ Never touch a relay, so these land in about half a second:
   timer for an hour and a half", "what reminders do I have". Parsed on the machine.
 - **A way back from clearing them.** Cancelling keeps what it took for two minutes:
   "undo" brings them back, with their times.
-- **Briefing facts.** Time, date, weather, load, memory, uptime, last sweep, gathered
-  locally and handed to the model, so it reports the machine.
+- **Briefing facts.** Time, date, weather, load, memory, uptime, gathered locally.
 
 ## It knows the machine
 
@@ -33,7 +32,9 @@ Never touch a relay, so these land in about half a second:
   updates, and a bounded ClamAV scan. It reports what is normal as well as what is
   not.
 - **Memory.** Durable facts in a plain file you can edit by hand, given to the model
-  every turn, or kept back from it.
+  every turn.
+- **Windows.** What is open, and bringing one to the front by application name, both
+  answered without the model. Closing only ever closes the window in front.
 - **A permission gate, off by default.** Switched on, every tool call is judged in
   code before it runs: its own directories and commands that only look are allowed,
   everything else waits for your approval, once.
@@ -94,7 +95,6 @@ Interrupt any of it by talking over it, or by saying the wake phrase again.
   answer instead of a sweep.
 - **macOS gates two things.** Screen Recording and Microphone. There is also no
   temperature on Apple Silicon, so the dashboard shows nothing rather than a number.
-- **With the permission gate off, nothing is checked.** It ships off, and `python
-  -m jarvis.permissions status` says so rather than implying enforcement.
+- **With the gate off, nothing is checked**, and `python -m jarvis.permissions status` says so.
 - **Email, calendar and music are not here.** Each needs an account and a
   credential.
