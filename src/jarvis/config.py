@@ -468,35 +468,124 @@ WAKE_DURING_SPEECH = 0.60    # stricter than normal while it is speaking, but no
                              # strict that interrupting becomes hard
 
 
-def _apply_local_overrides() -> None:
+def _coerce(default, value):
+    """One value from the local file, in the shape the setting it replaces has.
+
+    A hand-edited file gets this wrong in one recurring way, and it is the one
+    that says nothing about itself: a single string where a list was meant.
+    `PI_MODELS` written as one model id was turned into a tuple of single
+    characters by the spread, so the model chain became eleven models called "w",
+    "a", "n", and every turn failed with a name nobody could explain. A string
+    with commas in it is read as several items, because that is how people write
+    a list by hand; a string without them is one item.
+
+    Returns (ok, value). Not ok means the setting was left as it was, and why.
+    """
+    if isinstance(default, bool):
+        if isinstance(value, bool):
+            return True, value
+        if isinstance(value, (int, float)):
+            return True, value != 0
+        if isinstance(value, str):
+            spoken = value.strip().lower()
+            if spoken in ("1", "true", "yes", "on"):
+                return True, True
+            if spoken in ("0", "false", "no", "off", ""):
+                return True, False
+        return False, "a yes or a no"
+    if isinstance(default, int) and not isinstance(default, bool):
+        if isinstance(value, (int, float)):
+            return True, int(value)
+        if isinstance(value, str) and value.strip().lstrip("+-").isdigit():
+            return True, int(value.strip())
+        return False, "a whole number"
+    if isinstance(default, float):
+        try:
+            return True, float(value)
+        except (TypeError, ValueError):
+            return False, "a number"
+    if isinstance(default, str):
+        # A number in place of a word is a mistake, not a name: CITY read as "42"
+        # would put a number where a place goes, in a sentence, out loud.
+        return (True, value) if isinstance(value, str) else (False, "text")
+    if isinstance(default, Path):
+        if isinstance(value, (str, Path)):
+            return True, Path(value)
+        return False, "a path"
+    if isinstance(default, tuple):
+        if isinstance(value, str):
+            items = [part.strip() for part in value.split(",")] if "," in value else [value]
+            return True, tuple(part for part in items if part)
+        if isinstance(value, (list, tuple)):
+            return True, tuple(str(item) for item in value)
+        return False, "a list of items, or one item"
+    if isinstance(default, dict):
+        if not isinstance(value, dict):
+            return False, "a group of settings"
+        shaped = {}
+        for name, inner in value.items():
+            template = next(iter(default.values()), None) if default else None
+            if isinstance(template, tuple) and not isinstance(inner, tuple):
+                ok, fixed = _coerce((), inner)
+                if not ok:
+                    return False, f"a group whose {name!r} is a list of items"
+                shaped[name] = fixed
+            else:
+                shaped[name] = inner
+        return True, shaped
+    if default is None:                 # a setting whose default is "not set"
+        return (True, value) if isinstance(value, (str, int, float, bool)) \
+            else (False, "a single value")
+    return (True, value) if isinstance(value, type(default)) else (False, str(type(default)))
+
+
+def apply_local_overrides(path: Path | None = None) -> list[str]:
     """Fold config.local.json in, so personal settings stay out of the repo.
 
     Copy config.local.example.json, fill in your name, city, coordinates and the
     words your recogniser should know, and it is read at import. Keys have to
-    match the upper-case names above; anything else is ignored with a warning
-    rather than silently doing nothing.
+    match the upper-case names above. Anything else, and anything written in a
+    shape the setting cannot use, is reported and left alone rather than silently
+    doing nothing or doing something surprising.
+
+    Returns the lines it would print, so a test can read them.
     """
-    path = LOCAL_CONFIG_FILE
+    path = LOCAL_CONFIG_FILE if path is None else path
+    said: list[str] = []
     if not path.exists():
-        return
+        return said
     try:
         data = json.loads(path.read_text())
     except (OSError, ValueError) as exc:
-        print(f"[config] ignoring config.local.json: {exc}")
-        return
+        said.append(f"[config] ignoring {path.name}: {exc}")
+        print(said[-1])
+        return said
     if not isinstance(data, dict):
-        print("[config] ignoring config.local.json: not an object")
-        return
+        said.append(f"[config] ignoring {path.name}: not an object")
+        print(said[-1])
+        return said
     for key, value in data.items():
         if key.startswith("_"):
             continue                    # a _comment field, by convention
         if not (key.isupper() and key in globals()):
-            print(f"[config] config.local.json: unknown setting {key!r}")
+            said.append(f"[config] {path.name}: unknown setting {key!r}")
+            print(said[-1])
             continue
-        globals()[key] = value
+        default = globals()[key]
+        if isinstance(value, type(default)) and not isinstance(default, dict):
+            globals()[key] = value
+            continue
+        ok, fixed = _coerce(default, value)
+        if not ok:
+            said.append(f"[config] {key} is {value!r}, which is not {fixed}; "
+                        f"using the default ({default!r})")
+            print(said[-1])
+            continue
+        globals()[key] = fixed
+    return said
 
 
-_apply_local_overrides()
+apply_local_overrides()
 
 # Built last, so it carries whatever name the local file set.
 VOICE_RULES = _voice_rules()
