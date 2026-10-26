@@ -178,7 +178,8 @@ class SweepHarness:
 async def run_turn(text, report):
     h = SweepHarness()
     real = sweep.run
-    sweep.run = lambda: report
+    h.deep = None
+    sweep.run = lambda deep=False: (h.__setattr__("deep", deep), report)[1]
     try:
         await Assistant._process(h, text=text)
     finally:
@@ -195,6 +196,12 @@ async def main():
           h.brain.seen and "SECURITY SWEEP RESULTS" in h.brain.seen[0][0]
           and "definitions are 30.7" in h.brain.seen[0][0])
     check("no images on a sweep turn", h.brain.seen and h.brain.seen[0][1] is None)
+    check("an ordinary sweep does not ask for the deeper checks", h.deep is False, str(h.deep))
+
+    h = await run_turn("run a deep sweep", "  ok: nothing bad found")
+    check("a deep sweep is announced as the slower one",
+          h.spoken and "deeper check" in h.spoken[0], str(h.spoken[:1]))
+    check("and the checks that take minutes are the ones it runs", h.deep is True, str(h.deep))
 
     h = await run_turn("what time is it", "should not run")
     check("an ordinary question runs no sweep", h.brain.seen and "SWEEP" not in h.brain.seen[0][0])
