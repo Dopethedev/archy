@@ -54,31 +54,6 @@ _MINUTE_WORDS = ("minute", "minutes", "mins", "min", "m")
 _HOUR_WORDS = ("hour", "hours", "hrs", "hr", "h")
 _DAY_WORDS = ("day", "days", "d")
 # A clock time: "at five", "at 5:30", "at 5pm", "at noon", "at half past five".
-_RE_AT = re.compile(
-    r"\b(?:at|by|around|about|before)\s+"
-    r"(?:(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<meridiem>am|pm|a\.m\.|p\.m\.)?"
-    r"|(?P<named>noon|midnight)"
-    r"|half\s+past\s+(?P<half>\d{1,2})"
-    r"|quarter\s+(?P<quarter>past|to)\s+(?P<quarter_hour>\d{1,2}))", re.I)
-_WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4,
-             "saturday": 5, "sunday": 6}
-_RE_WEEKDAY = re.compile(r"\b(?:(next)\s+)?(" + "|".join(_WEEKDAYS) + r")\b", re.I)
-_RE_TOMORROW = re.compile(r"\b(tomorrow|tonight|today|this evening|this morning)\b", re.I)
-_RE_DAILY = re.compile(r"\b(every\s*day|everyday|daily|each\s+day|every\s+morning|"
-                       r"every\s+night)\b", re.I)
-# Shapes still not served. A model will agree to these out loud and then never fire
-# them, so they get a plain sentence instead of a confident yes.
-_WEEKS = r"(?:\d+|a\s+couple\s+of|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
-_UNSUPPORTED = re.compile(
-    rf"\bnext\s+(week|month|year|weekend)\b|\bon\s+the\s+\d"
-    r"|\bthe\s+\d+(?:st|nd|rd|th)\s+of\b"
-    rf"|\b{_WEEKS}\s*weeks?\b", re.I)
-# "set an alarm for 7am" has no "at" in it, and the am is what makes it a clock time
-_RE_BARE_AMPM = re.compile(
-    r"\b(?P<hour>\d{1,2}|" + "|".join(_WORD_HOURS) + r")\s*(?P<meridiem>am|pm|a\.m\.|p\.m\.)",
-    re.I)
-
-
 def wanted(text: str) -> bool:
     words = text.lower()
     if any(w in words for w in ("remind me", "reminder", "countdown")):
@@ -552,6 +527,13 @@ def due_items(now: float | None = None) -> list[dict]:
     A daily one is not removed but moved on to its next occurrence, so a machine
     that was off for three days announces it once when it comes back rather than
     three times, and then keeps to its clock instead of drifting.
+
+    "Keeps to its clock" is the part that needs care: the next occurrence is that
+    clock time on the next day, not this moment plus twenty four hours. Those are
+    the same thing until the clocks change, and then they are an hour apart for
+    good: measured in New York across the spring change, a daily reminder set for
+    7 pm was rescheduled to 8 pm and stayed there. Adding a day to the local date
+    and reading the clock time off it is what keeps the hour where it was put.
     """
     now = now if now is not None else time.time()
     with _lock:
@@ -563,9 +545,22 @@ def due_items(now: float | None = None) -> list[dict]:
                 if item.get("due", 0) > now:
                     kept.append(item)
                 elif item.get("repeat"):
+                    when = datetime.fromtimestamp(item["due"])
                     nxt = item["due"]
                     while nxt <= now:
-                        nxt += 86400
+                        when += timedelta(days=1)
+                        nxt = when.timestamp()
+                    if nxt - now < 1.0:
+                        # Landed on top of this moment, so the very next check a
+                        # second later would find it due again and announce it
+                        # twice. Measured on Windows, whose clock conversion drops
+                        # sub-second precision: the next occurrence came out
+                        # somewhere within a second of now, and whether it was
+                        # before or after decided whether the reminder fired once
+                        # or twice. A daily reminder is a day ahead, not a moment
+                        # ahead.
+                        when += timedelta(days=1)
+                        nxt = when.timestamp()
                     kept.append({**item, "due": nxt})
             save(kept)
     return ripe
