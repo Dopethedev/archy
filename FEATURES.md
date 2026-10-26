@@ -1,6 +1,6 @@
 # Features
 
-The full list, including the limits. Kept to one line each.
+The full list, including the limits.
 
 ## Talking to it
 
@@ -33,8 +33,9 @@ Never touch a relay, so these land in about half a second:
   not.
 - **A deeper audit on request.** rkhunter and lynis, asked for by name and bounded,
   and honest when a tool needs root and therefore could not run.
-- **Memory.** Durable facts in a plain file you can edit by hand, given to the model
-  every turn.
+- **Memory.** Durable facts in a plain file you can edit by hand and given to the
+  model every turn. Saying "remember that" stores one on the spot; asking what it knows
+  reads them back here, with no model and no shell command.
 - **Windows.** What is open, and bringing one to the front by application name, both
   answered without the model. Closing only ever closes the window in front.
 - **A permission gate, off by default.** Switched on, every tool call is judged in
@@ -72,10 +73,9 @@ Against the actual matchers, so these all work as written:
 | "set a timer for five minutes", "set a timer for an hour and a half" | a timer with an alarm |
 | "what reminders do I have", "cancel my reminders" | the list, or all cleared, with two minutes to undo |
 | "undo", "bring them back" | whatever the last cancel took |
-| "remember that the router is in the hall" | a durable fact, in the memory file |
+| "remember that the router is in the hall" | a durable fact, in the memory file, stored without a model |
+| "what do you know about me", "forget the router location" | read back, or one fact dropped, both answered here |
 | anything else | the model, with shell and file tools |
-
-Interrupt any of it by talking over it, or by saying the wake phrase again.
 
 ## Limits worth knowing
 
