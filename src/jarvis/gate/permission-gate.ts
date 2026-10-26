@@ -102,14 +102,48 @@ const NEVER_READONLY = new Set([
 /** The tools that carry the contents of a file into a request. */
 const FILE_TOOLS = new Set(["read", "write", "edit"]);
 
-/** Flags that turn a looking command into a writing one. */
+/**
+ * Flags that turn a looking command into a writing or an executing one.
+ *
+ * `-x` and `--pre` are here for the same reason `-exec` is: `fd -x rm` and
+ * `rg --pre thing` run another program, and the program they run does not have to
+ * be one this list has heard of. A name-only check cannot see that, so the flag
+ * that carries it is refused instead. Measured before the fix: `env /home/x.sh`,
+ * `command -p /home/x` and `fd -x /home/x` were all allowed.
+ */
 const WRITING_FLAGS = [
 	/^-i$/, /^--in-place/, /^-delete$/, /^-exec(dir)?$/, /^-fprint(f)?$/, /^-fls$/,
-	/^--vacuum/, /^--force$/, /^-s$/,
+	/^--vacuum/, /^--force$/, /^-s$/, /^-x$/, /^-X$/, /^--exec(-batch)?$/,
+	/^-ok(dir)?$/, /^--pre$/, /^--rotate$/, /^--sync$/,
 ];
+
+/**
+ * Flags that only some commands write with, because the same letter is harmless
+ * elsewhere: `ls -o` is a listing, `sort -o file` writes one.
+ */
+const COMMAND_FLAGS: Record<string, RegExp[]> = {
+	sort: [/^-o$/, /^--output(=.*)?$/],
+	journalctl: [/^--setup-keys$/, /^--relinquish-var$/],
+};
+
+/**
+ * Commands that run another program from their arguments. Read-only only while
+ * they are listing: `env` alone prints the environment, `env anything` runs it.
+ */
+const PASS_THROUGH = new Set(["env", "command"]);
+
+/**
+ * niri's `msg` read-outs. `niri msg action ...` is a change (it closes windows,
+ * moves workspaces, quits the compositor), which is why only the listing
+ * subcommands are here: window work in this assistant is done in code.
+ */
+const NIRI_MSG_READS = new Set(["windows", "outputs", "workspaces", "layers",
+	"focused-window", "focused-output", "keyboard-layouts", "version", "validate"]);
 
 /** Second words that are allowed for commands whose second word decides. */
 const SUBCOMMANDS: Record<string, Set<string>> = {
+	busctl: new Set(["list", "tree", "status", "introspect", "get-property",
+		"get-property-type", "capture", "help", "--version"]),
 	git: new Set(["status", "log", "diff", "show", "branch", "remote", "rev-parse",
 		"describe", "ls-files", "blame", "shortlog", "tag", "whatchanged", "grep",
 		"count-objects", "version"]),
@@ -340,8 +374,38 @@ export function readonlyCommand(command: string, extra: string[]): { ok: boolean
 				return { ok: false, why: `${name} ${second} is not one of the read-only ones` };
 			}
 		}
+		if (name === "niri") {
+			// flags may come before the subcommand: `niri msg -j windows` is how the
+			// window list is asked for, and it is the same read as `niri msg windows`.
+			const rest = parts.slice(1).filter((word) => !word.startsWith("-"));
+			if (rest.length) {
+				if (rest[0] !== "msg") {
+					return { ok: false, why: `niri ${rest[0]} is not one of the read-only ones` };
+				}
+				if (rest[1] && !NIRI_MSG_READS.has(rest[1])) {
+					return { ok: false, why: `niri msg ${rest[1]} changes the machine` };
+				}
+			}
+		}
+		if (PASS_THROUGH.has(name)) {
+			// A variable assignment or a flag is fine; a program name is another
+			// program, and this list cannot vouch for a name it has never seen.
+			// `command -v` and `command -V` are the exception: their argument is a
+			// name to look up, not a program to run, and they only print.
+			let looksUp = false;
+			for (const part of parts.slice(1)) {
+				if (part === "-v" || part === "-V") {
+					looksUp = true;
+					continue;
+				}
+				if (part.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(part)) continue;
+				if (looksUp) continue;
+				return { ok: false, why: `${name} would run ${part}` };
+			}
+		}
+		const flags = [...WRITING_FLAGS, ...(COMMAND_FLAGS[name] ?? [])];
 		for (const part of parts.slice(1)) {
-			if (WRITING_FLAGS.some((pattern) => pattern.test(part))) {
+			if (flags.some((pattern) => pattern.test(part))) {
 				return { ok: false, why: `uses ${part}, which writes` };
 			}
 		}
@@ -392,6 +456,23 @@ function writeJson(file: string, body: unknown): boolean {
 }
 
 /**
+ * Merge the tokens we just changed with whatever is on disk now.
+ *
+ * Two writers share this file and neither can lock it: JARVIS writes an approval
+ * when the owner says so, and this file burns one the moment it is used. A plain
+ * "write back what I read" loses whichever of those happened in the microseconds
+ * in between, and losing a burn is the worse half: the same approved action runs
+ * again. So the write-back re-reads, keeps every token for a digest it did not
+ * touch, and keeps our own verdict for the ones it did. Pure, so the rule can be
+ * tested without staging a race.
+ */
+export function mergeTokens(onDisk: Token[], ours: Token[]): Token[] {
+	const mine = new Set(ours.map((token) => token.digest));
+	const others = onDisk.filter((token) => !mine.has(token.digest));
+	return [...others, ...ours];
+}
+
+/**
  * Present an approval. Used once, and the use is written down, so a retried turn
  * or a resend after a dropped connection cannot run the same destructive action
  * twice.
@@ -404,15 +485,24 @@ export function consumeApproval(digest: string, policy: Policy | Unusable): stri
 	const ttl = typeof (policy as Policy).approval_ttl_s === "number"
 		? (policy as Policy).approval_ttl_s! : 300;
 	const now = Date.now() / 1000;
+	// A live token wins over a spent one. Both can be in the file: JARVIS keeps
+	// spent tokens so a burn cannot be forgotten, which means a second, deliberate
+	// approval of the same action has to be found by looking past the first one.
+	let burned = false;
 	for (const token of tokens) {
 		if (token.digest !== digest) continue;
-		if (token.used) return "burned";
-		if (typeof token.granted !== "number" || now - token.granted > ttl) return "expired";
+		if (token.used) { burned = true; continue; }
+		if (typeof token.granted !== "number" || now - token.granted > ttl) {
+			return "expired";
+		}
 		token.used = now;
-		if (!writeJson((policy as Policy).approvals!, { tokens })) return "unusable";
+		const current = readTokens(policy as Policy) ?? [];
+		if (!writeJson((policy as Policy).approvals!, { tokens: mergeTokens(current, tokens) })) {
+			return "unusable";
+		}
 		return "granted";
 	}
-	return "none";
+	return burned ? "burned" : "none";
 }
 
 interface Pending {
