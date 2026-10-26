@@ -47,6 +47,19 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libportaudio2
 
+      # The library is not enough: PortAudio initialises its host APIs at import,
+      # and with no sound server running it raises instead, which takes every
+      # group that imports the assistant down at the import line. The runner has
+      # no audio hardware to open, so a server with nothing behind it is the
+      # point, not a problem: it answers, and PortAudio is happy to have a host
+      # API that opens.
+      - name: Sound server (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y -qq pulseaudio
+          pulseaudio --start --exit-idle-time=-1
+          pactl info | head -4
+
       - name: Install
         run: uv sync
 
