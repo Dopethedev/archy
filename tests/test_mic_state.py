@@ -67,5 +67,36 @@ source = (Path(__file__).resolve().parents[1] / "src/jarvis/assistant.py").read_
 check("the switch writes the state", "mic_state.save(" in source)
 check("and start-up reads it", "mic_state.load()" in source)
 
+print("-- what it says when the microphone gives nothing at all --")
+# A Mac that was never given the Microphone permission looks exactly like a mute
+# microphone from here, and this is the sentence the user actually hears, so the
+# platform switch is named on the platforms that have one.
+import sys as _sys
+from jarvis import audio as _audio
+
+real_platform = _sys.platform
+try:
+    _sys.platform = "darwin"
+    mac = _audio.silence_warning()
+    check("on macOS the silence warning names the setting",
+          "System Settings" in mac and "Microphone" in mac, mac[:80])
+    check("and still says what it heard, which is nothing",
+          mac.startswith("I am not hearing anything"), mac[:50])
+    _sys.platform = "win32"
+    windows = _audio.silence_warning()
+    check("on Windows it names the privacy setting there",
+          "Privacy" in windows and "Microphone" in windows, windows[:80])
+    _sys.platform = "linux"
+    check("on Linux there is no permission to name, so it says what else it could be",
+          "System Settings" not in _audio.silence_warning()
+          and "switched off" in _audio.silence_warning(), _audio.silence_warning()[:80])
+    _sys.platform = "darwin"
+    from jarvis import mictest as _mictest
+    check("the live microphone check points at the same setting",
+          _mictest._permission_note() == _audio.mic_permission_note(),
+          str(_mictest._permission_note()))
+finally:
+    _sys.platform = real_platform
+
 print(f"\n{'ALL PASS' if not failed else str(failed) + ' FAILED'}  ({passed} checks)")
 sys.exit(1 if failed else 0)
