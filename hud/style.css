@@ -444,3 +444,8 @@ body.theme-switch #app { animation: retune 420ms steps(2, jump-none); }
   80%  { opacity: 0.9; }
   100% { filter: none; opacity: 1; }
 }
+
+/* The assistant panel: the same rows as the system panel, plus what happened
+   lately. Kept quiet on purpose, the activity log is where the detail lives. */
+#status-events { margin-top: 8px; font-size: 11px; opacity: .65; line-height: 1.5; }
+#status-events .note { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

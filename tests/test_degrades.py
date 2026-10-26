@@ -18,6 +18,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import jarvis.assistant as assistant_mod  # noqa: E402
+from jarvis import status as status_mod
 from jarvis import config, net, privacy  # noqa: E402
 from jarvis.assistant import Assistant  # noqa: E402
 from jarvis.brain import BrainError  # noqa: E402
@@ -204,6 +205,9 @@ class Harness:
         # Assistant.__init__ is not run, so what it creates has to be here: the
         # confirmation object is reached for on every turn, before anything else.
         self._privacy_confirm = privacy.Confirmation()
+        # Assistant.__init__ is not run, so what it creates has to be here too:
+        # a note about what happened goes into this feed on every failure path.
+        self.status = status_mod.Feed()
         self.brain = StubBrain(errors)
         self.spoken = []
         self.log_lines = []

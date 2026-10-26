@@ -35,5 +35,8 @@
   "PRIVACY_SHARE_FILES": true,
   "PRIVACY_SHARE_SCREENS": true,
   "PRIVACY_SHARE_HISTORY": true,
-  "PRIVACY_KEEP_TRANSCRIPTS": true
+  "PRIVACY_KEEP_TRANSCRIPTS": true,
+  "_comment11": "The dashboard's second panel: which model is answering, the network, what may leave the machine, what waits on approval. Off by default.",
+  "DASHBOARD_STATUS": false,
+  "STATUS_EVERY_TICKS": 3
 }

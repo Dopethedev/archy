@@ -158,6 +158,33 @@ def _write(path: Path, body: dict) -> None:
     os.chmod(path, 0o600)
 
 
+def waiting_count() -> int | None:
+    """How many actions are waiting, or None when the list cannot be read.
+
+    The difference matters on a dashboard: nothing waiting and nothing readable are
+    different facts, and showing the second as the first is a false all-clear.
+    """
+    path = Path(config.PERMISSION_PENDING)
+    if not path.exists():
+        return 0
+    try:
+        entries = json.loads(path.read_text()).get("pending")
+    except (OSError, ValueError):
+        return None
+    if not isinstance(entries, list):
+        return None
+    ttl = float(config.PERMISSION_APPROVAL_TTL_S)
+    now = time.time()
+    live = 0
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if isinstance(entry.get("asked"), (int, float)) and now - entry["asked"] > ttl:
+            continue
+        live += 1
+    return live
+
+
 def pending() -> list[dict]:
     """What the gate blocked and the owner has not answered yet."""
     entries = _read(Path(config.PERMISSION_PENDING)).get("pending")
@@ -317,7 +344,7 @@ def state() -> dict:
         "enabled": enabled(),
         "enforcing": enforcing,
         "gate": str(gate_file()),
-        "waiting": len(pending()),
+        "waiting": waiting_count(),
         "reason": None if enforcing else (
             "the permission gate is switched off, so tool calls are not checked"
             if not enabled() else "the permission gate file is missing, so nothing is enforced"),
