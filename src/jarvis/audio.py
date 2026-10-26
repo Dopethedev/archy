@@ -72,6 +72,36 @@ def resample(audio: np.ndarray, samplerate: int, target: int) -> np.ndarray:
                       dtype=np.float32)
 
 
+def mic_permission_note() -> str | None:
+    """Where the microphone switch is, on a platform that has one.
+
+    One home for it: the live microphone check, the failure to open, and the
+    twenty seconds of silence all point at the same setting on a Mac, and three
+    copies of the same sentence is how they drift apart.
+    """
+    if sys.platform == "darwin":
+        return ("macOS gates the microphone: System Settings, Privacy and Security, "
+                "Microphone, and the terminal needs a tick there before it is started")
+    if sys.platform == "win32":
+        return ("Windows gates the microphone: Settings, Privacy and security, "
+                "Microphone, and 'let desktop apps access your microphone'")
+    return None
+
+
+def silence_warning() -> str:
+    """What is said after twenty seconds of exact digital silence.
+
+    A Mac that was never given the Microphone permission looks exactly like a muted
+    microphone from here, and the permission is the common one by a distance, so it
+    is named rather than left as "it may be switched off".
+    """
+    note = mic_permission_note()
+    if note:
+        return f"I am not hearing anything from the microphone. {note}."
+    return ("I am not hearing anything from the microphone. It may be switched off, "
+            "or the wrong input may be selected.")
+
+
 def open_error(exc: Exception) -> str:
     """A microphone that will not open, in words worth reading.
 

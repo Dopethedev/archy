@@ -49,16 +49,9 @@ def _stream_format():
 
 
 def _permission_note() -> str | None:
-    """Where the microphone switch is on a platform that has one."""
-    import sys
-    if sys.platform == "darwin":
-        return ("macOS gates the microphone: System Settings, Privacy and "
-                "Security, Microphone. The tick has to be there before the "
-                "terminal is started, or the level below stays at zero")
-    if sys.platform == "win32":
-        return ("Windows gates the microphone: Settings, Privacy and security, "
-                "Microphone, and 'let desktop apps access your microphone'")
-    return None
+    """Where the microphone switch is, from the one place that says."""
+    from . import audio
+    return audio.mic_permission_note()
 
 
 async def run(seconds: float | None = None, device: str | None = None, transcribe: bool = True):
