@@ -9,13 +9,13 @@ import asyncio, queue, sys, threading, time
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis import config
+from archy import config
 # this file tests the trained-detector path; speech mode is covered by
 # tests/test_wake_phrase.py
 config.WAKE_MODE = "model"
-from jarvis.assistant import Assistant
-from jarvis.wake import SpeechWake
-from jarvis.assistant import blip
+from archy.assistant import Assistant
+from archy.wake import SpeechWake
+from archy.assistant import blip
 
 print("config: INPUT_BLOCK=%d WAKE_FRAME=%d END_SILENCE_MS=%d" %
       (config.INPUT_BLOCK, config.WAKE_FRAME, config.END_SILENCE_MS))

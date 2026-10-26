@@ -13,8 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import jarvis.reminders as reminders
-from jarvis import config
+import archy.reminders as reminders
+from archy import config
 
 passed = failed = 0
 
@@ -34,7 +34,7 @@ reminders.PATH = tmp / "reminders.json"
 
 print("-- what counts as a reminder request --")
 for text in ("remind me in 20 minutes to check the oven", "set a timer for 5 minutes",
-             "hey jarvis, set a timer for ten minutes", "cancel my reminders",
+             "hey archy, set a timer for ten minutes", "cancel my reminders",
              "what reminders do i have", "how long left on the timer"):
     check(f"wanted {text!r}", reminders.wanted(text))
 for text in ("open the timer app", "remember my birthday", "what time is it"):
@@ -45,7 +45,7 @@ a = reminders.parse("remind me in 20 minutes to check the oven")
 check("twenty minutes, with the label",
       a and a["action"] == "set" and abs(a["delay"] - 1200) < 0.01
       and a["label"] == "Check the oven", str(a))
-a = reminders.parse("hey jarvis remind me in an hour to stand up")
+a = reminders.parse("hey archy remind me in an hour to stand up")
 check("'an hour' is an hour",
       a and a["action"] == "set" and abs(a["delay"] - 3600) < 0.01
       and a["label"] == "Stand up", str(a))
@@ -365,7 +365,7 @@ real_datetime = reminders.datetime
 real_path = reminders.PATH
 real_state_dir = config.STATE_DIR
 try:
-    config.STATE_DIR = Path(tempfile.mkdtemp(prefix="jarvis-daily-"))
+    config.STATE_DIR = Path(tempfile.mkdtemp(prefix="archy-daily-"))
     reminders.PATH = config.STATE_DIR / "reminders.json"
     reminders.datetime = NearestSecond
     now = time.time()
@@ -401,7 +401,7 @@ else:
     try:
         _os.environ["TZ"] = "America/New_York"
         time.tzset()
-        config.STATE_DIR = Path(tempfile.mkdtemp(prefix="jarvis-dst-"))
+        config.STATE_DIR = Path(tempfile.mkdtemp(prefix="archy-dst-"))
         reminders.PATH = config.STATE_DIR / "reminders.json"
         start = datetime(2026, 3, 7, 19, 0)                 # 7 pm, the day before
         item = reminders.add("Take medicine", 0.0, repeat="daily", due=start.timestamp())

@@ -1102,7 +1102,7 @@ def _lynis_profile() -> Path | None:
     try:
         config.STATE_DIR.mkdir(parents=True, exist_ok=True)
         path = config.STATE_DIR / "lynis.prf"
-        body = ["# Written by JARVIS. The tests below are left out because they ask for",
+        body = ["# Written by ARCHY. The tests below are left out because they ask for",
                 "# authentication, which puts a password dialog on the desktop."]
         body += [f"skip-test={name}" for name in config.SWEEP_LYNIS_SKIP_TESTS]
         path.write_text("\n".join(body) + "\n")

@@ -1,4 +1,4 @@
-/* JARVIS dashboard. Dark, instrument-panel styling, one accent colour that
+/* ARCHY dashboard. Dark, instrument-panel styling, one accent colour that
    follows the state. Everything is sized so it reads well in a 900x680 window. */
 
 :root {
@@ -312,10 +312,10 @@ main {
 }
 
 #log .you .who     { color: #79d0ff; }
-#log .jarvis .who  { color: var(--accent); }
+#log .archy .who  { color: var(--accent); }
 #log .doing .who   { color: #ffb347; }
 #log .you          { color: var(--text); }
-#log .jarvis       { color: var(--accent); }
+#log .archy       { color: var(--accent); }
 #log .doing, #log .sys { color: var(--dim); }
 
 /* ----------------------------------------------------------------- footer */

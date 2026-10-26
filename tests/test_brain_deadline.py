@@ -11,11 +11,11 @@ import asyncio, json, os, sys, time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import os, tempfile as _tf
-os.environ["JARVIS_SESSION_DIR"] = _tf.mkdtemp(prefix="jarvis-test-session-")
-os.environ.setdefault("JARVIS_MEMORY_FILE", "/tmp/jarvis-test-memory.json")
+os.environ["ARCHY_SESSION_DIR"] = _tf.mkdtemp(prefix="archy-test-session-")
+os.environ.setdefault("ARCHY_MEMORY_FILE", "/tmp/archy-test-memory.json")
 
-from jarvis import config
-from jarvis.brain import BrainError, PiBrain
+from archy import config
+from archy.brain import BrainError, PiBrain
 
 failures = 0
 def check(label, ok, detail=""):

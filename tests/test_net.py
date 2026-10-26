@@ -15,8 +15,8 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis import config, net  # noqa: E402
-from jarvis.net import CHECKING, DEGRADED, OFFLINE, ONLINE, Connectivity  # noqa: E402
+from archy import config, net  # noqa: E402
+from archy.net import CHECKING, DEGRADED, OFFLINE, ONLINE, Connectivity  # noqa: E402
 
 passed = failed = 0
 

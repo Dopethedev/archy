@@ -68,7 +68,7 @@ function rgba(hex, a) {
 }
 
 /* ------------------------------------------------------------------ events */
-const source = new EventSource("/events?t=" + encodeURIComponent(window.JARVIS_TOKEN));
+const source = new EventSource("/events?t=" + encodeURIComponent(window.ARCHY_TOKEN));
 
 source.onmessage = (event) => {
   let msg;
@@ -126,8 +126,8 @@ source.onmessage = (event) => {
   } else if (msg.type === "log") {
     addLog(msg.who, msg.text);
     if (msg.who === "you") { setLine(heardEl, msg.text); heardEl.classList.remove("partial"); }
-    if (msg.who === "jarvis") setLine(saidEl, msg.text);
-    radarBlip(msg.who === "doing" ? "warn" : msg.who === "jarvis" ? "out" : "mic");
+    if (msg.who === "archy") setLine(saidEl, msg.text);
+    radarBlip(msg.who === "doing" ? "warn" : msg.who === "archy" ? "out" : "mic");
   }
 };
 
@@ -226,10 +226,10 @@ function showMicState() {
   micText.textContent = off ? "mic off" : "mic on";
   /* hud.py swaps the placeholder for the configured phrase before serving the
      page, but a page served without that swap still has to read well: the
-     screenshots are made that way, and a leftover __JARVIS_WAKE__ shown to
+     screenshots are made that way, and a leftover __ARCHY_WAKE__ shown to
      someone is worse than the default phrase. */
   const wake = hintEl.dataset.wake || "";
-  const phrase = /^__.*__$/.test(wake) ? "hey jarvis" : wake || "hey jarvis";
+  const phrase = /^__.*__$/.test(wake) ? "hey archy" : wake || "hey archy";
   hintEl.textContent = off
       ? "microphone is off, press M or click mic"
       : `say \u201c${phrase}\u201d`;
@@ -241,7 +241,7 @@ function toggleMic() {
   micBtn.disabled = true;              // one press, one request
   fetch("/mic", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Jarvis-Token": window.JARVIS_TOKEN },
+    headers: { "Content-Type": "application/json", "X-Archy-Token": window.ARCHY_TOKEN },
     body: JSON.stringify({ on }),
   }).catch(() => {}).finally(() => { micBtn.disabled = false; });
 }
@@ -269,7 +269,7 @@ input.addEventListener("keydown", (e) => {
   // itself served, so a request from any other page cannot get in
   fetch("/say", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Jarvis-Token": window.JARVIS_TOKEN },
+    headers: { "Content-Type": "application/json", "X-Archy-Token": window.ARCHY_TOKEN },
     body: JSON.stringify({ text }),
   }).catch(() => {});
 });
@@ -278,7 +278,7 @@ input.addEventListener("keydown", (e) => {
 /* Typed kernel log, then the panels take over. Skipped with #noboot in the
    address, which is how screenshots of the steady state are taken. */
 const BOOT_LINES = [
-  "initialising jarvis kernel 4.2 .............. <ok>OK</ok>",
+  "initialising archy kernel 4.2 .............. <ok>OK</ok>",
   "audio subsystem, pipewire .................... <ok>OK</ok>",
   "speech recogniser, local ..................... <ok>OK</ok>",
   "voice synthesiser, local ..................... <ok>OK</ok>",

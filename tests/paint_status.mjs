@@ -77,7 +77,7 @@ globalThis.document = {
   documentElement: element("html"),
   hidden: false,
 };
-globalThis.window = { addEventListener: noop, removeEventListener: noop, JARVIS_TOKEN: "test-token" };
+globalThis.window = { addEventListener: noop, removeEventListener: noop, ARCHY_TOKEN: "test-token" };
 globalThis.EventSource = class { constructor() {} close() {} addEventListener() {} };
 globalThis.requestAnimationFrame = noop;
 globalThis.cancelAnimationFrame = noop;

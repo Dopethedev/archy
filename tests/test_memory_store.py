@@ -6,9 +6,9 @@ that never makes it into what the model sees, fails the point of existing.
 import json, os, subprocess, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis import config
-from jarvis.memory_store import Memory
-import jarvis.memory_store as ms
+from archy import config
+from archy.memory_store import Memory
+import archy.memory_store as ms
 
 failures = 0
 def check(label, ok, detail=""):
@@ -66,9 +66,9 @@ with tempfile.TemporaryDirectory() as tmp:
 
     # and the same thing under real concurrency, six processes at once
     rush = Path(tmp) / "rush.json"
-    env = {**os.environ, "JARVIS_MEMORY_FILE": str(rush)}
+    env = {**os.environ, "ARCHY_MEMORY_FILE": str(rush)}
     procs = [subprocess.Popen(
-        [sys.executable, "-m", "jarvis.memory_store", "set", f"k{i}", f"v{i}"],
+        [sys.executable, "-m", "archy.memory_store", "set", f"k{i}", f"v{i}"],
         cwd=str(Path(__file__).resolve().parents[1]), env=env,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for i in range(6)]
     for p in procs:
@@ -155,15 +155,15 @@ with tempfile.TemporaryDirectory() as repltmp:
           Memory(Path(repltmp) / "replacement.json").get("after") == "2")
 
 # the command the model is told to run must actually work
-out = subprocess.run([sys.executable, "-m", "jarvis.memory_store", "list"],
+out = subprocess.run([sys.executable, "-m", "archy.memory_store", "list"],
                      capture_output=True, text=True, cwd=str(Path(__file__).resolve().parents[1]))
 check("module runs as a command", out.returncode == 0, out.stdout.strip().splitlines()[0] if out.stdout else out.stderr[-80:])
 
 # and the prompt building must include the stored facts
-from jarvis.brain import PiBrain
+from archy.brain import PiBrain
 prompt = PiBrain._system_prompt()
 check("prompt explains the store", "memory_store" in prompt)
-check("prompt carries known facts", "What you already know about him" in prompt or "jarvis.memory_store list" in prompt)
+check("prompt carries known facts", "What you already know about him" in prompt or "archy.memory_store list" in prompt)
 
 print(f"\n{'ALL PASS' if failures == 0 else str(failures) + ' FAILED'}")
 sys.exit(1 if failures else 0)

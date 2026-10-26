@@ -8,10 +8,10 @@ readable and editable by hand.
 
 Usage from the shell:
 
-    python -m jarvis.memory_store list
-    python -m jarvis.memory_store set codeword "purple lantern"
-    python -m jarvis.memory_store get codeword
-    python -m jarvis.memory_store forget codeword
+    python -m archy.memory_store list
+    python -m archy.memory_store set codeword "purple lantern"
+    python -m archy.memory_store get codeword
+    python -m archy.memory_store forget codeword
 """
 
 from __future__ import annotations

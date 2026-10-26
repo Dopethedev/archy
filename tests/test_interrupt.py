@@ -17,9 +17,9 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np  # noqa: E402
-from jarvis import config  # noqa: E402
-from jarvis.audio import Player  # noqa: E402
-from jarvis.tts import Speaker, split_ready, clean  # noqa: E402
+from archy import config  # noqa: E402
+from archy.audio import Player  # noqa: E402
+from archy.tts import Speaker, split_ready, clean  # noqa: E402
 
 failures = 0
 def check(label, ok, detail):

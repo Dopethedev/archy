@@ -263,7 +263,7 @@ class Assistant:
     async def _check_wake(self, audio: np.ndarray, transcript: str | None):
         """Speech mode: was that the wake phrase, and did a request arrive with it?
 
-        This is what replaces a trained detector. It also means "hey jarvis, open
+        This is what replaces a trained detector. It also means "hey archy, open
         sober" works in one breath, since anything after the phrase is the
         request.
         """
@@ -568,7 +568,7 @@ class Assistant:
                     deltas.put(None)
 
             if full and not cancel.is_set():
-                self.log("jarvis", full)
+                self.log("archy", full)
             elif not full and not cancel.is_set():
                 self.log("sys", "the model returned nothing")
             await asyncio.to_thread(tts.join, 180)
@@ -643,13 +643,13 @@ class Assistant:
             # blocking the loop here backs up the microphone queue: the pump then
             # replays stale audio as if it were fresh, and the tail of his own
             # voice can come back as a phantom second request
-            self.log("jarvis", message)      # spoken fallbacks belong in the record
+            self.log("archy", message)      # spoken fallbacks belong in the record
             await asyncio.to_thread(self.speaker.say, message)
             await asyncio.to_thread(self.player.wait_drained, 60)
             await self._restart_brain()
         except Exception as exc:
             print(f"[assistant] {type(exc).__name__}: {exc}")
-            self.log("jarvis", "Something went wrong there.")
+            self.log("archy", "Something went wrong there.")
             await asyncio.to_thread(self.speaker.say, "Something went wrong there.")
             await asyncio.to_thread(self.player.wait_drained, 60)
         finally:
@@ -700,7 +700,7 @@ class Assistant:
         self.set_state("speaking")
         try:
             await asyncio.to_thread(self.speaker.say, text)
-            self.log("jarvis", text)
+            self.log("archy", text)
             await asyncio.to_thread(self.player.wait_drained, 30)
         except Exception as exc:
             print(f"[announce] {exc}")
@@ -730,7 +730,7 @@ class Assistant:
                 self.player.write(blip(660.0))
                 self.player.write(blip(990.0))
                 text = reminders_mod.spoken(label)
-                self.log("jarvis", text)
+                self.log("archy", text)
                 try:
                     ok = await asyncio.to_thread(self.speaker.say, text)
                     await asyncio.to_thread(self.player.wait_drained, 60)
@@ -1089,7 +1089,7 @@ class Assistant:
                 self.set_state("speaking")
                 await asyncio.to_thread(self.speaker.say, self.greet)
                 await asyncio.to_thread(self.player.wait_drained, 30)
-                self.log("jarvis", self.greet)
+                self.log("archy", self.greet)
             except Exception as exc:
                 # a greeting is not worth stopping for, and with no output device
                 # this is where it would fail

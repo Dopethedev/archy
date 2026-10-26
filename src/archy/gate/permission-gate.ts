@@ -1,23 +1,23 @@
 /**
  * The permission gate.
  *
- * JARVIS hands the model four tools: read, write, edit and bash. Before this
+ * ARCHY hands the model four tools: read, write, edit and bash. Before this
  * file existed, a sentence in the system prompt was the only thing standing
  * between a wrong answer and `rm -rf`, and a sentence is not a boundary: it is a
  * suggestion to a text predictor that may have just read a webpage telling it to
  * ignore its instructions. Pi 1.4.0 can refuse a tool call in code, so the
  * refusal lives here, where the model cannot argue with it.
  *
- * Loaded only when the owner turned it on. JARVIS passes `--no-extensions` and
+ * Loaded only when the owner turned it on. ARCHY passes `--no-extensions` and
  * names this file with `-e`, so extension discovery stays off (no MCP handshake
  * per turn) while this one file still loads.
  *
  * Three things this file deliberately does not do:
  *
- *   - It never asks a question. JARVIS runs pi in rpc mode over a pipe, and
+ *   - It never asks a question. ARCHY runs pi in rpc mode over a pipe, and
  *     `ctx.ui` there has no one to answer, so a confirmation prompt would hang
  *     the turn until its deadline. A blocked action is written to the pending
- *     file instead, and JARVIS is what asks the owner, out loud or from a
+ *     file instead, and ARCHY is what asks the owner, out loud or from a
  *     terminal.
  *   - It never throws to allow something. Pi blocks a tool call when a handler
  *     fails, so an error here is a block by another name, but the reason would be
@@ -66,7 +66,7 @@ interface Unusable {
 
 type Loaded = Policy | Unusable;
 
-const POLICY_ENV = "JARVIS_PERMISSION_POLICY";
+const POLICY_ENV = "ARCHY_PERMISSION_POLICY";
 
 /**
  * Commands whose *name* is enough to know they only look. Every one of these is
@@ -458,7 +458,7 @@ function writeJson(file: string, body: unknown): boolean {
 /**
  * Merge the tokens we just changed with whatever is on disk now.
  *
- * Two writers share this file and neither can lock it: JARVIS writes an approval
+ * Two writers share this file and neither can lock it: ARCHY writes an approval
  * when the owner says so, and this file burns one the moment it is used. A plain
  * "write back what I read" loses whichever of those happened in the microseconds
  * in between, and losing a burn is the worse half: the same approved action runs
@@ -485,7 +485,7 @@ export function consumeApproval(digest: string, policy: Policy | Unusable): stri
 	const ttl = typeof (policy as Policy).approval_ttl_s === "number"
 		? (policy as Policy).approval_ttl_s! : 300;
 	const now = Date.now() / 1000;
-	// A live token wins over a spent one. Both can be in the file: JARVIS keeps
+	// A live token wins over a spent one. Both can be in the file: ARCHY keeps
 	// spent tokens so a burn cannot be forgotten, which means a second, deliberate
 	// approval of the same action has to be found by looking past the first one.
 	let burned = false;

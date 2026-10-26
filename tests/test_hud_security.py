@@ -9,8 +9,8 @@ import json, socket, sys, time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from jarvis import config
-from jarvis.hud import Hud
+from archy import config
+from archy.hud import Hud
 
 PORT = 8799
 HOST = config.HUD_HOST
@@ -52,7 +52,7 @@ def post(body: str, token=None, origin=None, ctype="application/json",
     head = (f"POST {path} HTTP/1.1\r\nHost: {HOST}:{PORT}\r\n"
             f"Content-Type: {ctype}\r\nContent-Length: {len(body)}\r\n")
     if token is not None:
-        head += f"X-Jarvis-Token: {token}\r\n"
+        head += f"X-Archy-Token: {token}\r\n"
     if origin is not None:
         head += f"Origin: {origin}\r\n"
     return raw(head + "Connection: close\r\n\r\n" + body, settle=0.5)
@@ -127,7 +127,7 @@ resp = raw(f"GET /../hud_evil/secret.txt HTTP/1.1\r\nHost: {HOST}:{PORT}\r\n"
 check("a file next to hud/ cannot be served",
       "served from outside" not in resp,
       resp.splitlines()[0] if resp else "no response")
-resp = raw(f"GET /../src/jarvis/hud.py HTTP/1.1\r\nHost: {HOST}:{PORT}\r\n"
+resp = raw(f"GET /../src/archy/hud.py HTTP/1.1\r\nHost: {HOST}:{PORT}\r\n"
            f"Connection: close\r\n\r\n")
 check("the source cannot be served either",
       "import hmac" not in resp, resp.splitlines()[0] if resp else "no response")
@@ -163,7 +163,7 @@ check("a tab opened now is told the state is idle",
 # the served page carries the token, and it is the real one
 page = raw(f"GET / HTTP/1.1\r\nHost: {HOST}:{PORT}\r\nConnection: close\r\n\r\n")
 check("the served page carries the live token",
-      f'"{hud.token}"' in page and "__JARVIS_TOKEN__" not in page,
+      f'"{hud.token}"' in page and "__ARCHY_TOKEN__" not in page,
       "placeholder replaced" if hud.token in page else "TOKEN MISSING FROM PAGE")
 
 # and it says your wake phrase, not the one the repository was written with
@@ -172,9 +172,9 @@ try:
     config.WAKE_PHRASE = "hey tesla"
     page = raw(f"GET / HTTP/1.1\r\nHost: {HOST}:{PORT}\r\nConnection: close\r\n\r\n")
     check("the page shows the configured wake phrase",
-          "hey tesla" in page and "__JARVIS_WAKE__" not in page
+          "hey tesla" in page and "__ARCHY_WAKE__" not in page
           and page.count("hey tesla") >= 2,
-          f"placeholder left in: {'__JARVIS_WAKE__' in page}")
+          f"placeholder left in: {'__ARCHY_WAKE__' in page}")
 finally:
     config.WAKE_PHRASE = real_phrase
 
@@ -186,15 +186,15 @@ js_path = Path(__file__).resolve().parents[1] / "hud" / "app.js"
 hint_page = page_path.read_text()
 hint_js = js_path.read_text()
 check("the page in the repository carries a placeholder, not a phrase",
-      "__JARVIS_WAKE__" in hint_page and "hey jarvis" not in hint_page,
+      "__ARCHY_WAKE__" in hint_page and "hey archy" not in hint_page,
       "the phrase lives in config.py and the fallback in app.js")
 check("a page served without the swap falls back instead of showing it",
-      "/^__.*__$/" in hint_js and 'dataset.wake || "hey jarvis"' not in hint_js,
+      "/^__.*__$/" in hint_js and 'dataset.wake || "hey archy"' not in hint_js,
       "the script refuses a leftover placeholder")
 
 # ------------------------------------------------------------ a bad body is refused quickly
 resp = raw(f"POST /say HTTP/1.1\r\nHost: {HOST}:{PORT}\r\n"
-           f"X-Jarvis-Token: {hud.token}\r\nContent-Type: application/json\r\n"
+           f"X-Archy-Token: {hud.token}\r\nContent-Type: application/json\r\n"
            f"Content-Length: 9999999\r\nConnection: close\r\n\r\n")
 check("an oversized body is refused instead of blocking a thread",
       resp.startswith("HTTP/1.1 413"), resp.splitlines()[0] if resp else "no response")

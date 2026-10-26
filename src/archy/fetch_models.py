@@ -4,9 +4,9 @@ The install used to end in a table and four hand downloads from two sites, which
 is where most people would stop. Everything here is free, and three of the four
 come from one release.
 
-    python -m jarvis.fetch_models           the models it needs to speak
-    python -m jarvis.fetch_models --all     and the piper fallback voice
-    python -m jarvis.fetch_models --check   say what is here and what is not
+    python -m archy.fetch_models           the models it needs to speak
+    python -m archy.fetch_models --all     and the piper fallback voice
+    python -m archy.fetch_models --check   say what is here and what is not
 
 Each file is downloaded to a `.part` and only renamed into place once the whole
 thing is there and the length matches what the server promised, so an interrupted
@@ -33,7 +33,7 @@ SILERO_URL = ("https://raw.githubusercontent.com/snakers4/silero-vad/master/"
               "src/silero_vad/data/silero_vad.onnx")
 PIPER_VOICE = ("https://huggingface.co/rhasspy/piper-voices/resolve/main/en/"
                "en_GB/alan/medium")
-USER_AGENT = "jarvis-fetch-models/1.0"
+USER_AGENT = "archy-fetch-models/1.0"
 
 
 class FetchError(Exception):
@@ -164,7 +164,7 @@ def report(models: Path, items: list[Item]) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
-    parser = argparse.ArgumentParser(prog="jarvis.fetch_models",
+    parser = argparse.ArgumentParser(prog="archy.fetch_models",
                                      description="fetch the voice models")
     parser.add_argument("--all", action="store_true",
                         help="include the optional piper fallback voice")
@@ -184,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
             print(line)
         missing = [i for i in items if not (models / i.name).exists()]
         if missing:
-            print(f"\n{len(missing)} missing: run python -m jarvis.fetch_models"
+            print(f"\n{len(missing)} missing: run python -m archy.fetch_models"
                   + (" --all" if any(i.optional for i in missing) else ""))
             return 1
         print("\neverything the assistant needs is here")

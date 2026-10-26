@@ -12,8 +12,8 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
-from jarvis import config
-from jarvis.audio import MicCapture
+from archy import config
+from archy.audio import MicCapture
 
 config.SOFT_AGC = True
 rng = np.random.default_rng(11)
@@ -88,7 +88,7 @@ for focused in (False, True):
 # ---------------------------------------------------------------- when it applies
 # The gain must follow the state: on while waiting for a request, off otherwise,
 # so the barge detector never sees a boosted signal while it is talking.
-from jarvis.assistant import Assistant
+from archy.assistant import Assistant
 
 class FakeMic:
     def __init__(self): self.focused = None

@@ -17,13 +17,13 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-import jarvis.assistant as assistant_mod  # noqa: E402
-from jarvis import status as status_mod
-from jarvis import config, net, privacy  # noqa: E402
-from jarvis.assistant import Assistant  # noqa: E402
-from jarvis.brain import BrainError  # noqa: E402
-from jarvis.stt import DeafTranscriber  # noqa: E402
-from jarvis.tts import MuteSpeaker  # noqa: E402
+import archy.assistant as assistant_mod  # noqa: E402
+from archy import status as status_mod
+from archy import config, net, privacy  # noqa: E402
+from archy.assistant import Assistant  # noqa: E402
+from archy.brain import BrainError  # noqa: E402
+from archy.stt import DeafTranscriber  # noqa: E402
+from archy.tts import MuteSpeaker  # noqa: E402
 
 # No test starts a model server: it is a real process holding real VRAM, and the
 # behaviour under test is what the assistant does with its answer.

@@ -11,8 +11,8 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np  # noqa: E402
-from jarvis import config  # noqa: E402
-from jarvis.vad import SpeechVAD  # noqa: E402
+from archy import config  # noqa: E402
+from archy.vad import SpeechVAD  # noqa: E402
 
 failures = 0
 def check(label, ok, detail=""):
@@ -25,7 +25,7 @@ def check(label, ok, detail=""):
 def speech_16k(seconds: float = 2.0) -> np.ndarray:
     """Real speech, synthesised, because synthesised speech is still speech."""
     from kokoro_onnx import Kokoro
-    from jarvis.audio import resample
+    from archy.audio import resample
     kokoro = Kokoro(str(config.MODELS / "kokoro-v1.0.onnx"),
                     str(config.MODELS / "voices-v1.0.bin"))
     samples, sr = kokoro.create(

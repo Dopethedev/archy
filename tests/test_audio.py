@@ -1,12 +1,12 @@
 """Audio path test: mic in, speaker out, and a real acoustic loop.
 
-Play 'Hey Jarvis' out of the speaker while the mic records, then run the
+Play 'Hey Archy' out of the speaker while the mic records, then run the
 wake detector on what the mic actually captured. That exercises the whole
 acoustic chain rather than piping buffers around in memory.
 """
 import time, os, sys
 import numpy as np
-from jarvis.audio import resample
+from archy.audio import resample
 import sounddevice as sd
 import openwakeword
 from openwakeword.model import Model
@@ -25,7 +25,7 @@ print(f"\ncapture: {len(cap)} samples in {time.monotonic()-t:.2f}s, "
 
 # --- 2. make the wake phrase ---
 k = Kokoro("models/kokoro-v1.0.onnx", "models/voices-v1.0.bin")
-samples, sr = k.create("Hey Jarvis", voice="bm_george", speed=1.0, lang="en-gb")
+samples, sr = k.create("Hey Archy", voice="bm_george", speed=1.0, lang="en-gb")
 voice = np.asarray(samples, dtype=np.float32)
 out = resample(voice, sr, 48000)
 

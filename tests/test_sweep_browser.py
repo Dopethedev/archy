@@ -15,8 +15,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import jarvis.sweep as sweep
-from jarvis.sweep import check_browser, check_launchers
+import archy.sweep as sweep
+from archy.sweep import check_browser, check_launchers
 
 passed = failed = 0
 
@@ -281,7 +281,7 @@ finally:
     sweep._clamav_files = real_scan
 
 print("-- both land in the sweep's report --")
-from jarvis.sweep import run
+from archy.sweep import run
 report = run()
 check("the report mentions the browser", "brave" in report.lower()
       or "extension" in report.lower())

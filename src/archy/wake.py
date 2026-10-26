@@ -89,7 +89,7 @@ class SpeechWake:
     def __init__(self, phrase: str = config.WAKE_PHRASE,
                  aliases: tuple[str, ...] = config.WAKE_ALIASES):
         self.phrase = phrase.lower().strip()
-        # the distinctive word, without the greeting: "jarvis" from "hey jarvis"
+        # the distinctive word, without the greeting: "archy" from "hey archy"
         parts = self.phrase.split()
         self.key = parts[-1] if parts else self.phrase
         self.aliases = tuple(a.strip().lower().rstrip("?,.!") for a in aliases)
@@ -102,8 +102,8 @@ class SpeechWake:
         stays itself rather than coming back lowercased.
 
         The phrase is only honoured near the beginning of the utterance. You
-        address the assistant first, so "hey jarvis, open sober" is a call, but
-        "good idea, jarvis" spoken by a video on the desk is not, and without
+        address the assistant first, so "hey archy, open sober" is a call, but
+        "good idea, archy" spoken by a video on the desk is not, and without
         this rule the room answers itself.
         """
         if not text:
@@ -111,7 +111,7 @@ class SpeechWake:
         cleaned = text.strip()
         # the whole phrase, said plainly. matched on the original string so the
         # rest can be sliced out of it directly. it may sit a filler word deep:
-        # "uh hey jarvis" is still a call.
+        # "uh hey archy" is still a call.
         words = cleaned.split()
         head = " ".join(words[:HEAD_WORDS])
         found = re.search(re.escape(self.phrase), head, re.IGNORECASE)
@@ -122,7 +122,7 @@ class SpeechWake:
 
         # any spelling the recogniser produced for the distinctive word, but
         # only right at the front: the name is spoken first when you mean it.
-        # "tell jarvis i said hello" is talk about the assistant, not to it.
+        # "tell archy i said hello" is talk about the assistant, not to it.
         def stem(word: str) -> str:
             return EDGES.sub("", word).lower()
 
