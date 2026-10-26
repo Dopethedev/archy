@@ -302,6 +302,21 @@ SWEEP_CLAMAV_TIMEOUT_S = 45.0
 SWEEP_CLAMAV_MAX_FILES = 400
 SWEEP_CLAMAV_ENUMERATE = 20000      # stop listing after this many, pathological dirs
 
+# The deeper checks, which are asked for rather than run every time: lynis takes
+# about thirty seconds here and rkhunter minutes, and a sweep that makes the user
+# wait two minutes in silence is one they stop asking for.
+SWEEP_DEEP_WORDS = ("deep sweep", "deep scan", "deep check", "full sweep",
+                    "thorough sweep", "deeper sweep", "deeper check", "lynis",
+                    "rootkit check", "check for rootkits", "audit the system",
+                    "audit this machine", "full audit")
+SWEEP_LYNIS_TIMEOUT_S = 240.0
+# Tests skipped by name, written into a lynis profile. NETW-2706 calls
+# `resolvectl statistics`, which asks polkit for authentication on this machine: a
+# deep sweep put a password dialog on the desktop every time it ran. The free lynis
+# has no flag for this, so it is a profile file in the state directory.
+SWEEP_LYNIS_SKIP_TESTS = ("NETW-2706",)
+SWEEP_RKHUNTER_TIMEOUT_S = 300.0
+
 # Dashboard themes, switched by voice: "jarvis, combat mode". The name has to
 # ride along with the word mode or theme, so a passing mention of combat does
 # not repaint the screen.
@@ -410,7 +425,9 @@ def _voice_rules() -> str:
         "(if asked to change it, say that saying it is what changes it); "
         "reminders and timers set by saying remind me or set a timer; a morning "
         "briefing when the user says brief me, with time, weather, machine health "
-        "and the last security sweep; a security sweep when one is asked for; and "
+        "and the last security sweep; a security sweep when one is asked for, and a "
+        "deeper audit of the machine when it is asked for as a deep sweep, which "
+        "takes a minute; and "
         "you can see the screen when the user asks about something on it. When "
         "asked what you can do, list these honestly alongside your tools. "
         "Looking something up costs the user silence, so do it in one or two "
