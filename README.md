@@ -16,7 +16,7 @@ faster-whisper for speech to text, kokoro for speech out. Only the thinking goes
 to a model, through a local [`pi`](https://github.com/badlogic/pi-mono) process,
 so the model is whichever one you point it at.
 
-![the dashboard, standard theme](docs/theme-standard.png)
+![the dashboard mid turn: a typed request, the answer, and the panels that move with it](docs/demo.gif)
 
 ## Install
 
@@ -125,7 +125,7 @@ variants it invents on top. Anything left out falls back to a default.
 src/archy/   the assistant, one module per part, named for what it does
 hud/          the dashboard page, served as static files, so no build step
 tests/        one file per behaviour, none needing a microphone
-docs/         the banner, the theme screenshots, and the scripts that draw them
+docs/         the banner, the demo, the theme screenshots, and the scripts that draw them
 run.sh        the launcher for Linux and macOS, and run.cmd for Windows
 ```
 
