@@ -86,7 +86,7 @@ The default chain is free public relays, so a third party sees your text. Point
 ## Requirements
 
 - **Linux** with PipeWire and a microphone, plus grim and ffmpeg for screen
-  questions. Written on Arch with Hyprland; the voice loop is not desktop-bound.
+  questions. Written on Arch with niri; the voice loop is not desktop-bound.
 - **macOS** for everything, sweep included. Screen questions use `screencapture`.
 - **Windows** for everything except the sweep, which says so rather than reporting
   a clean machine, and screen capture uses Pillow.

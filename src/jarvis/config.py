@@ -308,6 +308,39 @@ SWEEP_CLAMAV_ENUMERATE = 20000      # stop listing after this many, pathological
 # What you say to reach a theme, and the phrases that mean "put it back". The
 # names are the vocabulary the voice matcher listens for; the palettes live in
 # the dashboard.
+# --------------------------------------------------------------- the desktop
+# What "focus the browser" means: the words people use for a program, mapped to the
+# names the window itself carries. Kept here rather than in the matcher so it is
+# yours to extend without touching code.
+DESKTOP_ALIASES = {
+    "browser": ("brave-browser", "firefox", "chromium", "google-chrome", "zen"),
+    "chrome": ("brave-browser", "chromium", "google-chrome"),
+    "code": ("code-oss", "code", "vscodium"),
+    "editor": ("code-oss", "code", "vscodium", "kate", "gedit"),
+    "terminal": ("ghostty", "alacritty", "kitty", "foot", "konsole", "wezterm"),
+    "files": ("org.gnome.nautilus", "nautilus", "dolphin", "thunar", "pcmanfm"),
+    "videos": ("mpv", "vlc", "totem", "haruna"),
+    "music": ("spotify", "amberol", "lollypop"),
+    "steam": ("steam", "steamwebhelper"),
+    "discord": ("discord", "vesktop", "equibop"),
+    "notes": ("obsidian", "logseq", "gnome-text-editor"),
+    "chat": ("discord", "vesktop", "telegram-desktop", "signal"),
+}
+# The words that ask for a window to come to the front, and the name follows them.
+DESKTOP_FOCUS_PHRASES = ("focus", "focus on", "switch to", "bring up", "bring back",
+                         "bring me", "jump to", "put in front")
+DESKTOP_LIST_PHRASES = ("what windows are open", "what's open", "what is open",
+                        "which windows", "list the windows", "list windows",
+                        "what do i have open", "what have i got open")
+DESKTOP_CLOSE_PHRASES = ("close this window", "close the window",
+                         "close the focused window")
+# Words that start something a window is not, so "switch to workspace 3" is left to
+# the model instead of being answered with a window focus that never happened.
+DESKTOP_NOT_A_WINDOW = ("workspace", "monitor", "window", "tab", "screen", "desktop",
+                        "output", "display")
+DESKTOP_TIMEOUT_S = 5.0
+DESKTOP_LIST_LIMIT = 5              # spoken, so short
+
 THEMES = {
     "standard": ("standard", "normal", "default", "regular"),
     "stealth":  ("stealth",),
@@ -366,6 +399,12 @@ def _voice_rules() -> str:
         "launch command straight away rather than checking whether it works or "
         "the machine state first: checking costs the user several seconds of "
         "silence, and a failed launch can be corrected afterwards. "
+        "Window work is done for you in code: saying focus and an application, or "
+        "asking what is open, is answered without a model. If you need a window "
+        "action that is not one of those, the compositor here is niri: niri msg "
+        "windows lists them and niri msg action takes focus-window --id, "
+        "close-window, and workspace moves. Do not use the tools for other "
+        "compositors: this machine does not run them and they fail silently. "
         "You have abilities that run without you: the dashboard has three themes "
         "the user changes by saying stealth mode, combat mode or standard mode "
         "(if asked to change it, say that saying it is what changes it); "

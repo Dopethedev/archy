@@ -18,6 +18,7 @@ import jarvis.assistant as jarvis_assistant
 import jarvis.brain as brain_mod
 import jarvis.reminders as reminders
 import jarvis.briefing as briefing
+from jarvis import status as status_mod
 from jarvis import config, privacy
 from jarvis.assistant import Assistant
 from jarvis.brain import PiBrain
@@ -93,6 +94,7 @@ class Harness:
         # The constructor is not run here, so anything the assistant sets up in it
         # has to be provided, or a turn fails on an attribute that never existed.
         self._privacy_confirm = privacy.Confirmation()
+        self.status = status_mod.Feed()
         self.spoken = []
         self.published = []
         self.log_lines = []
@@ -228,6 +230,70 @@ async def main():
         check("and leaves the store empty", reminders.pending() == [])
     finally:
         config.REMINDER_CHECK_S = real_check_s
+
+    print("-- windows, answered here and not by the model --")
+    # The compositor is stubbed at the seam: real window records from niri, no
+    # window actually moved while the suite runs.
+    import jarvis.desktop as desktop_mod
+    real_windows, real_focus, real_close = (desktop_mod.windows, desktop_mod.focus,
+                                            desktop_mod.close_focused)
+    moved = []
+
+    def stub_windows(env=None, run=None):
+        return [desktop_mod._record(7, "MEGA - Brave", "brave-browser", 1, True, 2341.0),
+                desktop_mod._record(8, "hello.py - code-oss", "code-oss", 2, False, 2300.0)]
+
+    def stub_focus(needle, env=None, run=None, aliases=None):
+        chosen = desktop_mod.match(stub_windows(), needle, aliases)
+        if chosen is None:
+            return {"ok": False, "reason": "no match", "windows": stub_windows(), "asked": needle}
+        moved.append(chosen["app_id"])
+        return {"ok": True, "window": chosen, "already": chosen["focused"], "windows": stub_windows()}
+
+    def stub_close(env=None, run=None):
+        moved.append("close")
+        return {"ok": True, "window": stub_windows()[0]}
+
+    desktop_mod.windows, desktop_mod.focus, desktop_mod.close_focused = (
+        stub_windows, stub_focus, stub_close)
+    try:
+        h = await run_turn("what windows are open")
+        said = " ".join(h.spoken)
+        check("a window list is answered here", "2 windows open" in said, said)
+        check("and it names the applications", "Brave" in said and "Code" in said, said)
+        check("without asking the model", h.brain.seen == [], str(h.brain.seen))
+
+        h = await run_turn("focus the editor")
+        check("focusing an application brings it forward",
+              moved[-1] == "code-oss", str(moved))
+        check("and says so in one sentence", h.spoken == ["Code is in front now."], str(h.spoken))
+        check("and the model was not asked", h.brain.seen == [], str(h.brain.seen))
+
+        h = await run_turn("focus the browser")
+        check("a window already in front is reported as such",
+              h.spoken == ["Brave is already in front."] and moved[-1] == "brave-browser",
+              str(h.spoken))
+
+        h = await run_turn("focus spotify")
+        answered = any(who == "jarvis" and text for who, text in h.log_lines)
+        check("a name that matches nothing is left to the model",
+              h.brain.seen != [] and answered, f"seen={h.brain.seen} spoke={answered}")
+        check("and nothing was moved for it", moved[-1] != "spotify", str(moved))
+
+        h = await run_turn("close this window")
+        check("closing the window in front is answered here", moved[-1] == "close", str(moved))
+        check("and names what it closed", h.spoken == ["Closed Brave."], str(h.spoken))
+
+        h = await run_turn("switch to workspace 3")
+        check("a workspace move is not mistaken for a window",
+              h.brain.seen != [], str(h.brain.seen))
+
+        h = await run_turn("go to stealth mode")
+        check("and a theme is still a theme",
+              h.spoken == ["Stealth mode engaged."], str(h.spoken))
+    finally:
+        desktop_mod.windows, desktop_mod.focus, desktop_mod.close_focused = (
+            real_windows, real_focus, real_close)
 
     print()
     print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)")
