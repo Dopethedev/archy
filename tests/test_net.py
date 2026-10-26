@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from jarvis import config, net  # noqa: E402
-from jarvis.net import Connectivity  # noqa: E402
+from jarvis.net import CHECKING, DEGRADED, OFFLINE, ONLINE, Connectivity  # noqa: E402
 
 passed = failed = 0
 
@@ -182,6 +182,59 @@ check("probe targets are addresses, not names",
       str(config.NET_PROBE_TARGETS))
 check("and there is more than one of them",
       len(config.NET_PROBE_TARGETS) > 1, str(len(config.NET_PROBE_TARGETS)))
+
+print("-- reading the verdict does not wait for itself --")
+
+
+def read_within(obj, call, timeout=2.0):
+    """Run a read in a thread and say whether it came back at all.
+
+    A self-deadlock is not an error and not a slow call, it is a stop, and a test
+    that waits for it looks the same as a test that is slow. So: a thread and a
+    deadline, and the verdict is whether it returned.
+    """
+    box = {}
+    def run():
+        try:
+            box["value"] = call(obj)
+        except Exception as exc:          # an error is a failure, not a hang
+            box["error"] = f"{type(exc).__name__}: {exc}"
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    return (not worker.is_alive()), box
+
+
+returned, box = read_within(Connectivity(probe=lambda: True), lambda obj: obj.snapshot())
+check("a fresh reader gets a snapshot back", returned, box.get("error", ""))
+check("and the snapshot agrees with the verdict it describes",
+      box.get("value", {}).get("mode") == CHECKING, str(box.get("value")))
+returned, box = read_within(net.net, lambda obj: obj.snapshot())
+check("the reader the dashboard uses gets one back too", returned, box.get("error", ""))
+check("and reading it twice in a row still returns",
+      read_within(net.net, lambda obj: obj.snapshot())[0])
+check("and leaves the lock released", net.net._lock.locked() is False)
+
+for internet, provider, wanted in ((None, None, CHECKING), (False, True, OFFLINE),
+                                   (True, False, DEGRADED), (True, True, ONLINE)):
+    link = Connectivity(probe=lambda: True)
+    link._internet, link._provider = internet, provider
+    returned, box = read_within(link, lambda obj: obj.snapshot())
+    got = box.get("value", {})
+    check(f"a {wanted} verdict is read as {wanted}, and read at all",
+          returned and got.get("mode") == wanted and got.get("mode") == link.mode(),
+          f"returned={returned} mode={got.get('mode')}")
+
+link = Connectivity(probe=lambda: False)
+link.note_failure("getaddrinfo ENOTFOUND example.invalid")
+returned, box = read_within(link, lambda obj: obj.snapshot())
+check("a failed turn shows as offline in the snapshot",
+      returned and box.get("value", {}).get("mode") == OFFLINE,
+      f"returned={returned} {box.get('value', {})}")
+check("with the raw text kept, for evidence",
+      "ENOTFOUND" in link.last_error, link.last_error)
+returned, box = read_within(net.net, lambda obj: (obj.mode(), obj.likely_online()))
+check("and the other readers on the same object answer as well", returned, box.get("error", ""))
 
 print()
 print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)")

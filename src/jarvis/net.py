@@ -110,6 +110,20 @@ def _tcp_probe() -> bool:
     return False
 
 
+def mode_of(internet: bool | None, provider: bool | None) -> str:
+    """The verdict in one word, from the two facts behind it.
+
+    Pure on purpose, so a caller already holding the lock can use it without taking
+    the lock again. A method that locks cannot be called from inside another method
+    that locks, and the mistake is invisible until something calls it.
+    """
+    if internet is None:
+        return CHECKING
+    if not internet:
+        return OFFLINE
+    return DEGRADED if provider is False else ONLINE
+
+
 class Connectivity:
     """What is known about the network: cached, refreshed in the background.
 
@@ -153,19 +167,21 @@ class Connectivity:
 
     def mode(self) -> str:
         with self._lock:
-            if self._internet is None:
-                return CHECKING
-            if not self._internet:
-                return OFFLINE
-            return DEGRADED if self._provider is False else ONLINE
+            return mode_of(self._internet, self._provider)
 
     def snapshot(self) -> dict:
         """For the dashboard and the log: no probes, no waiting."""
         with self._lock:
+            # Read the fields once, then judge them with the pure function the mode
+            # uses. The first version of this called self.mode() from inside this
+            # lock, and mode() takes the same lock, so a reader waited for itself
+            # and never returned. Nothing called it until the status panel did,
+            # which is why the dashboard is where it surfaced.
+            internet, provider = self._internet, self._provider
             return {
-                "mode": self.mode(),
-                "internet": self._internet,
-                "provider": self._provider,
+                "mode": mode_of(internet, provider),
+                "internet": internet,
+                "provider": provider,
                 "checked": round(self._checked, 1),
                 "running": self._running,
                 "kind": self.last_kind,
