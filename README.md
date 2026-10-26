@@ -6,7 +6,7 @@
   <a href="https://github.com/Dopethedev/archy/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/Dopethedev/archy/tests.yml?branch=main&label=tests&style=for-the-badge&logo=githubactions&logoColor=white&color=4fe3ff&labelColor=05080c" alt="tests"></a> <a href="https://github.com/Dopethedev/archy/releases"><img src="https://img.shields.io/github/v/release/Dopethedev/archy?style=for-the-badge&label=release&logo=github&logoColor=white&color=4fe3ff&labelColor=05080c" alt="latest release"></a> <img src="https://img.shields.io/badge/licence-MIT-4fe3ff?style=for-the-badge&logo=opensourceinitiative&logoColor=white&labelColor=05080c" alt="MIT licence"> <img src="https://img.shields.io/badge/python-3.12-4fe3ff?style=for-the-badge&logo=python&logoColor=white&labelColor=05080c" alt="python 3.12"> <img src="https://img.shields.io/badge/linux%20%2B%20windows%20%2B%20macos-4fe3ff?style=for-the-badge&logo=linux&logoColor=white&labelColor=05080c" alt="Linux, Windows and macOS">
 </p>
 
-**A voice assistant that runs on your own machine.** Say the wake phrase, ask
+**Archy is a voice assistant that runs on your own machine.** Say the wake phrase, ask
 something, hear the answer. It also reads your screen, sets reminders, briefs you,
 sweeps the machine for anything odd, and drives a dashboard that changes mood by
 voice.
@@ -91,7 +91,7 @@ Optional, per feature, each reported as skipped rather than as a clean machine:
 - `clamscan` for the virus scan, `lynis` for the deeper audit, and `rkhunter` for the
   rootkit check, which is root only on Arch, so the sweep says it could not run.
 - `niri`, `hyprctl` or `swaymsg`, whichever compositor you run, for "focus the
-  browser". A desktop ARCHY does not recognise gets one honest sentence.
+  browser". A desktop Archy does not recognise gets one honest sentence.
 
 Arch: `pacman -S pipewire grim ffmpeg clamav lynis rkhunter`, and Debian the same
 names through `apt install libportaudio2 pipewire grim ffmpeg clamav lynis rkhunter`.
