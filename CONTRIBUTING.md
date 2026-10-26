@@ -2,7 +2,8 @@
 
 A personal assistant that runs on one machine, so the useful contributions are the
 ones that make it work better there: a local intent, a sweep check, a fix to
-something that mishears, another platform's backend.
+something that mishears, another platform's backend, or the integration you want
+for yourself (mail, calendar, music), which is deliberately not in here.
 
 ## Running the tests
 
@@ -28,9 +29,8 @@ should be.
 
 - **A test that cannot fail does not count.** Break the thing it checks and watch
   it fail. If it passes either way it is decoration.
-- **Numbers come from runs, not from reading.** If a change is faster or quieter,
-  the message says what was measured and how, including anything that argues
-  against it.
+- **Numbers come from runs, not from reading.** A change that is faster or quieter
+  says what was measured and how, including what argues against it.
 - **Failure paths first.** A missing tool, a silent microphone, a stalled model, a
   truncated download.
 - **The failure that matters is the quiet one.** Being understood and then silently

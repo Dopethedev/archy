@@ -96,5 +96,5 @@ Interrupt any of it by talking over it, or by saying the wake phrase again.
 - **macOS gates two things.** Screen Recording and Microphone. There is also no
   temperature on Apple Silicon, so the dashboard shows nothing rather than a number.
 - **With the gate off, nothing is checked**, and `python -m jarvis.permissions status` says so.
-- **Email, calendar and music are not here.** Each needs an account and a
-  credential.
+- **Email, calendar and music are not here, and are not planned.** Each needs an
+  account and a credential of your own, so they belong to whoever wants them.
