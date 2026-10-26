@@ -121,6 +121,8 @@ source.onmessage = (event) => {
     setStat("cpu", msg.cpu, "%");
     setStat("mem", msg.mem, "%");
     document.getElementById("temp").textContent = msg.temp != null ? msg.temp + " C" : "--";
+  } else if (msg.type === "status") {
+    paintStatus(msg);
   } else if (msg.type === "log") {
     addLog(msg.who, msg.text);
     if (msg.who === "you") { setLine(heardEl, msg.text); heardEl.classList.remove("partial"); }
@@ -129,7 +131,56 @@ source.onmessage = (event) => {
   }
 };
 
+/* The assistant's own state. Hidden until the server sends one, so a dashboard
+   running without the panel looks exactly as it did before it existed.
+   Unavailable is shown as unavailable, never as zero: "waiting: 0" when the list
+   could not be read would be a false all clear, which is the one thing a status
+   panel must not do. */
+const statusPanel = document.getElementById("status-panel");
+const statusEvents = document.getElementById("status-events");
+
+function paintStatus(msg) {
+  if (!statusPanel) return;
+  statusPanel.hidden = false;
+  const model = msg.model || {};
+  const net = msg.connectivity || {};
+  const perms = msg.permissions || {};
+  const privacy = msg.privacy || {};
+  const local = msg.local_model || {};
+  setText("model-active", model.active || "none");
+  setText("model-where", model.active ? (model.local ? "this machine" : "a relay") : "--");
+  setText("mode", msg.mode || "--");
+  setText("connectivity", net.state === "checking" || !net.state ? "checking" : net.state +
+    (net.provider === false ? " (provider refusing)" : ""));
+  setText("local-model", local.running === true ? "up" : local.running === false ? "down" : "unknown");
+  setText("privacy-online", privacy.online_ai === false ? "nothing" : "the model only");
+  setText("waiting", perms.waiting === null || perms.waiting === undefined
+    ? "unknown" : String(perms.waiting));
+
+  const status = getComputedStyle(document.body).color;
+  statusEvents.textContent = "";
+  for (const ev of (msg.events || []).slice(-3)) {
+    const line = document.createElement("div");
+    line.className = "note";
+    line.style.color = status;
+    line.textContent = ev.kind + ": " + ev.text;
+    statusEvents.appendChild(line);
+  }
+  if (!(msg.events || []).length && !statusEvents.firstChild) {
+    const quiet = document.createElement("div");
+    quiet.className = "note";
+    quiet.textContent = "nothing to report";
+    statusEvents.appendChild(quiet);
+  }
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
 source.onerror = () => { stateText.textContent = "reconnecting"; };
+
 
 function setLine(el, text) {
   el.textContent = text;

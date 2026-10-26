@@ -22,7 +22,7 @@ import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import config, sysinfo
+from . import config, permissions, sysinfo
 
 MIME = {".html": "text/html", ".js": "text/javascript", ".css": "text/css",
         ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
@@ -212,6 +212,10 @@ class Hud:
         self.last_state: dict | None = None   # kept apart: it must never be evicted
         self.on_say = None                    # set by the assistant: callable(str)
         self.on_mic = None                    # set by the assistant: callable(bool)
+        # set by the assistant when the status panel is switched on: callable() -> dict
+        # None means the panel is off, which is the dashboard exactly as it was.
+        self.status_source = None
+        self._ticks = 0
         self._lock = threading.Lock()
         self._server: ThreadingHTTPServer | None = None
         self._stop = threading.Event()
@@ -222,7 +226,7 @@ class Hud:
         with self._lock:
             if kind == "state":
                 self.last_state = event
-            if kind in ("state", "stats"):
+            if kind in ("state", "stats", "status"):
                 # the latest of these is the only one worth replaying
                 self.replay = [e for e in self.replay if e.get("type") != kind]
             # A level is a moment, not history. Keeping them would fill the whole
@@ -273,11 +277,32 @@ class Hud:
         prev = (0, 0)
         self._cpu_percent(prev)
         while not self._stop.wait(1.5):
+            self._ticks += 1
             cpu, prev = self._cpu_percent(prev)
             mem_pct, mem_gb = self._memory()
             temp = self._temp()
             self.publish({"type": "stats", "cpu": round(cpu, 1), "mem": round(mem_pct, 1),
                           "mem_gb": round(mem_gb, 1), "temp": round(temp, 1) if temp else None})
+            self._publish_status()
+
+    def _publish_status(self):
+        """The assistant's own state, on the same clock as the machine's.
+
+        Not every tick: a waiting list read and a privacy state every second and a
+        half is work nobody asked for. Every third tick, and the first one, so a
+        page opened just now is not blank for five seconds.
+
+        A source that fails is reported as unavailable rather than dropped, because
+        a panel that silently stops updating is worse than one that says it cannot
+        read something.
+        """
+        if self.status_source is None or self._ticks % config.STATUS_EVERY_TICKS != 1:
+            return
+        try:
+            reading = self.status_source()
+        except Exception as exc:
+            reading = {"unavailable": permissions.redact(f"{type(exc).__name__}: {exc}")}
+        self.publish({"type": "status", **reading})
 
     # -------------------------------------------------------------------- life
     def start(self):
