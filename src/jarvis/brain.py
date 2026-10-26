@@ -448,6 +448,13 @@ class PiBrain:
     def advance_model(self) -> str | None:
         """Step to the next model in the chain, wrap around, and name it."""
         self.model_index = (self.model_index + 1) % len(self.chain)
+        # Which model is answering is part of what the gate enforces: moving from
+        # the model on this disk to a relay is the moment file contents stop being
+        # local, and the gate judges file tools by reading a file. Without this the
+        # policy on disk still described the model that answered at start-up, so a
+        # chain that moved to a relay kept reading files under a policy written for
+        # the local one. note_for_gate existed for this and nothing called it.
+        self.note_for_gate()
         return self.chain[self.model_index]
 
     def note_for_gate(self) -> None:
@@ -455,15 +462,19 @@ class PiBrain:
 
         The gate runs inside pi and cannot see the chain from there, and a chain
         that moves from a relay to the local model changes whether file contents are
-        leaving the machine at all.
+        leaving the machine at all. Called on every move, including the two that
+        only happen mid-conversation: a fallback down the chain, and the switch to
+        the local model when the network goes. A failure here is reported and not
+        fatal, because the alternative is a turn that dies on a file write.
         """
         if not permissions.enabled():
             return
         permissions.note_model(self.model_name())
         try:
             permissions.write_policy()
-        except permissions.GateMissing:
-            pass
+        except (permissions.GateMissing, OSError) as exc:
+            print(f"[gate] could not write the policy for {self.model_name()}: {exc}",
+                  flush=True)
 
     def model_name(self) -> str:
         return self.chain[self.model_index % len(self.chain)]
@@ -480,6 +491,7 @@ class PiBrain:
         """
         self.chain = model_chain()
         self.model_index = 0
+        self.note_for_gate()            # the gate judges files by which model is answering
         return self.model_name()
 
     async def new_session(self):

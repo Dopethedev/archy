@@ -9,7 +9,13 @@
 // batch and match answers to requests.
 import { createInterface } from "node:readline";
 
-import { actionDigest, consumeApproval, decide, loadPolicy } from "../src/jarvis/gate/permission-gate.ts";
+import {
+	actionDigest,
+	consumeApproval,
+	decide,
+	loadPolicy,
+	mergeTokens,
+} from "../src/jarvis/gate/permission-gate.ts";
 
 const lines = createInterface({ input: process.stdin });
 
@@ -21,7 +27,11 @@ lines.on("line", (line) => {
 		// A path exercises reading the policy off disk, which is how it runs for
 		// real; an inline object keeps the pure decisions readable.
 		const policy = request.policyPath ? loadPolicy(request.policyPath) : request.policy;
-		if (request.mode === "digest") {
+		if (request.mode === "merge") {
+			// the two-writer rule, tested on its own: staging the race the rule is
+			// for would mean winning it, and a pure function is the same rule
+			answer = { merged: mergeTokens(request.onDisk ?? [], request.ours ?? []) };
+		} else if (request.mode === "digest") {
 			answer = { digest: actionDigest(request.toolName, request.input) };
 		} else if (request.mode === "consume") {
 			// The caller may name the digest or the action it belongs to; asking for

@@ -28,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from jarvis import status as status_mod
+from jarvis import brain as brain_mod  # noqa: E402
 from jarvis import config, permissions, privacy  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
@@ -164,6 +165,32 @@ for command in ("rm -rf /home/dope/jarvis", "mv notes.txt /tmp/", "sudo pacman -
     result = gate.decide("bash", {"command": command})
     check(f"denied: {command[:44]}", denied(result))
     check(f"  and offered for approval: {command[:32]}", result.get("approval") is True)
+
+print("-- commands that look, and turn out to run something --")
+# Found by reading the list rather than by the list failing: these all passed the
+# name check because their first word is on it. `env /home/x.sh` is the shape the
+# whole rule is about: one allowed name, and any program at all behind it.
+for command in ("env /home/dope/a-script", "env ls", "command -p /home/dope/a-script",
+                "command ls", "fd -x /home/dope/a-script", "rg --pre /home/dope/a-script x .",
+                "find / -name x -okdir rm {} ;", "sort -o /home/dope/out.txt /etc/hostname",
+                "niri msg action quit", "niri msg action close-window",
+                "niri msg action focus-window --id 3",
+                "busctl call org.freedesktop.systemd1 /org/freedesktop/systemd1 "
+                "org.freedesktop.systemd1.Manager StopUnit ss nginx.service replace",
+                "busctl set-property org.freedesktop.systemd1 /x x x x",
+                "journalctl --rotate", "journalctl --sync"):
+    result = gate.decide("bash", {"command": command})
+    check(f"not allowed to look: {command[:46]}", denied(result))
+
+print("-- and the reads that were being refused along with them --")
+# the other half of the same rule: refusing `command -v ls` or `ls -o` would make
+# the list wrong in the direction that gets a security feature switched off
+for command in ("niri msg windows", "niri msg -j windows", "niri msg focused-window",
+                "busctl list", "busctl tree org.freedesktop.systemd1",
+                "command -v ls", "command -V rg", "env", "env FOO=bar",
+                "sort /etc/hostname", "ls -o", "fd -e py", "journalctl -n 20",
+                "date +%s", "git status --short"):
+    check(f"still allowed: {command}", allowed(gate.decide("bash", {"command": command})))
 
 check("an unknown tool is denied outright, with no approval offered",
       gate.decide("mcp__whatever__run", {"x": 1}).get("approval") is False)
@@ -364,6 +391,90 @@ check("and grants nothing", len(json.loads(
     config.PERMISSION_APPROVALS.read_text())["tokens"]) == 1)
 check("denying something that is not waiting changes nothing",
       permissions.deny("nope") is False)
+
+print("-- a spent approval stays spent --")
+# Two writers share this file and neither can lock it: JARVIS writes an approval,
+# the gate burns it when it is used. A write that drops what it did not read is how
+# a burn gets forgotten, and a forgotten burn is the same approved action running a
+# second time, which is the one thing the burn exists to prevent.
+approvals = {"tokens": [
+    {"digest": "f" * 64, "granted": time.time(), "used": time.time(), "by": "user"},
+    {"digest": "g" * 64, "granted": time.time(), "by": "user"},
+]}
+config.PERMISSION_APPROVALS.write_text(json.dumps(approvals))
+(state / "jarvis-pending.json").write_text(json.dumps({"pending": [
+    {"id": "p4", "digest": "h" * 64, "tool": "bash", "summary": "pacman -Syu",
+     "asked": time.time()}]}))
+permissions.approve("p4")
+kept = json.loads(config.PERMISSION_APPROVALS.read_text())["tokens"]
+check("a burned token is not quietly removed by the next approval",
+      any(token.get("digest") == "f" * 64 and token.get("used") for token in kept),
+      str([(token.get("digest", "")[:4], bool(token.get("used"))) for token in kept]))
+check("and the new approval is in there with it",
+      any(token.get("digest") == "h" * 64 and not token.get("used") for token in kept))
+
+# The gate has to look past a burned token to find a live one for the same action:
+# a second, deliberate approval of the same command is a live token sitting after a
+# spent one in the same file.
+burn_file = state / "burn-approvals.json"
+burn_file.write_text(json.dumps({"tokens": [
+    {"digest": "1" * 64, "granted": time.time(), "used": time.time()},
+    {"digest": "1" * 64, "granted": time.time()},
+]}))
+burn_policy = dict(policy, approvals=str(burn_file))
+check("a live approval behind a burned one is still found",
+      gate.ask(mode="consume", digest="1" * 64, policy=burn_policy)["consumed"] == "granted")
+check("and the second use of it is refused as a repeat",
+      gate.ask(mode="consume", digest="1" * 64, policy=burn_policy)["consumed"] == "burned")
+
+print("-- writing back without losing the other writer's work --")
+# The rule, on its own: what was on disk when we read, what we changed. Anything we
+# did not touch survives; anything we did touch keeps our verdict, because ours is
+# the one that knows the token was just spent.
+merged = gate.ask(mode="merge",
+                  onDisk=[{"digest": "a" * 64, "granted": 1},
+                          {"digest": "b" * 64, "granted": 1}],
+                  ours=[{"digest": "b" * 64, "granted": 1, "used": 2}])["merged"]
+digests = {token["digest"][0]: token for token in merged}
+check("a token added by the other writer after our read is kept", "a" in digests)
+check("and the one we burned is burned", digests.get("b", {}).get("used") == 2)
+
+print("-- the policy follows the model that is answering --")
+# Which model is answering decides whether file contents leave the machine, and the
+# gate reads that from a file. note_for_gate() was written to keep that file current
+# and nothing called it, so a chain that moved kept the policy of the model it
+# started on: starting local (files allowed) and falling back to a relay left the
+# gate still reading files under a local-model policy.
+saved_settings = (config.PERMISSIONS, config.PERMISSION_POLICY, config.PI_MODELS_OFFLINE,
+                  config.PRIVACY_SHARE_FILES, config.PI_CHAIN_MODE)
+try:
+    config.PERMISSIONS = True
+    config.PI_MODELS_OFFLINE = ("local/Qwen3.5-4B-Q4_K_M",)
+    config.PRIVACY_SHARE_FILES = False          # the switch this test is about
+    config.PI_CHAIN_MODE = "auto"
+    config.PERMISSION_POLICY = state / "follow-policy.json"
+    follower = brain_mod.PiBrain()
+    follower.chain = ("wandb/some/relay", "local/Qwen3.5-4B-Q4_K_M")
+    follower.model_index = 1                    # the local model is answering
+    follower.note_for_gate()
+    written = json.loads(config.PERMISSION_POLICY.read_text())
+    check("with the local model answering, the gate is told files stay here",
+          written.get("privacy_remote") is False and written.get("privacy_allow_files") is True,
+          str(written))
+    moved = follower.advance_model()
+    written = json.loads(config.PERMISSION_POLICY.read_text())
+    check("moving to a relay rewrites the policy for that model",
+          moved == "wandb/some/relay" and written.get("privacy_remote") is True
+          and written.get("privacy_allow_files") is False, str(written))
+    follower.chain = ("local/Qwen3.5-4B-Q4_K_M",)
+    follower.model_index = 0
+    follower.note_for_gate()
+    written = json.loads(config.PERMISSION_POLICY.read_text())
+    check("and coming back to the local model allows files again",
+          written.get("privacy_allow_files") is True, str(written))
+finally:
+    (config.PERMISSIONS, config.PERMISSION_POLICY, config.PI_MODELS_OFFLINE,
+     config.PRIVACY_SHARE_FILES, config.PI_CHAIN_MODE) = saved_settings
 
 print("-- the words that are allowed to approve something --")
 # Approving is only meaningful against something that is actually waiting, so the
