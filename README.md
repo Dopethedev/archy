@@ -20,9 +20,6 @@ so the model is whichever one you point it at.
 
 ## Install
 
-Needs [`pi`](https://github.com/badlogic/pi-mono) on `PATH`, a microphone, and
-PipeWire on Linux.
-
 ```
 git clone https://github.com/Dopethedev/jarvis jarvis && cd jarvis
 uv sync
@@ -50,7 +47,7 @@ question.
   extensions, launchers, pending updates.
 - **It can report and remember.** A local briefing, reminders and timers parsed on
   the machine, durable memory, themes, and a model chain that moves on when a relay
-  stalls.
+  stalls. Windows it can list and bring forward, without the model guessing.
 
 The full list, including the limits, is in [FEATURES.md](FEATURES.md).
 
@@ -77,22 +74,27 @@ Say "combat mode" by voice, or open the page with `?theme=combat`.
 - **A picture of your screen**, only when you ask about it. Wayland and Windows
   keep it in memory; macOS writes one file and removes it in the same breath.
 - **The local facts** you asked for: a briefing or a sweep.
-- **What it remembers about you**, and **a weather lookup** to open-meteo for your
-  coordinates. No key, no account.
+- **What it remembers about you**, and **a weather lookup** to open-meteo. No key.
 
 The default chain is free public relays, so a third party sees your text. Point
 `pi` at a model you pay for, or one running here, and that stops being true.
 
 ## Requirements
 
-- **Linux** with PipeWire and a microphone, plus grim and ffmpeg for screen
-  questions. Written on Arch with niri; the voice loop is not desktop-bound.
-- **macOS** for everything, sweep included. Screen questions use `screencapture`.
-- **Windows** for everything except the sweep, which says so rather than reporting
-  a clean machine, and screen capture uses Pillow.
-- **Python 3.12** (which `uv` handles: ctranslate2 has no wheels past it),
-  **[`pi`](https://github.com/badlogic/pi-mono) on `PATH`**, and **clamav** for the
-  virus scan in the sweep, which reports a missing tool as skipped.
+A microphone, **[`pi`](https://github.com/badlogic/pi-mono) on `PATH`**, and
+**Python 3.12** (`uv` handles it: ctranslate2 has no wheels past it). **Linux** with
+PipeWire, **macOS** for everything, **Windows** for everything except the sweep.
+
+Optional, per feature, each reported as skipped rather than as a clean machine:
+
+- `grim` and `ffmpeg` for screen questions on Wayland (`screencapture` on macOS).
+- `clamscan` for the virus scan, `lynis` for the deeper audit, and `rkhunter` for the
+  rootkit check, which is root only on Arch, so the sweep says it could not run.
+- `niri`, `hyprctl` or `swaymsg`, whichever compositor you run, for "focus the
+  browser". A desktop JARVIS does not recognise gets one honest sentence.
+
+Arch: `pacman -S pipewire grim ffmpeg clamav lynis rkhunter`, and Debian the same
+names through `apt install libportaudio2 pipewire grim ffmpeg clamav lynis rkhunter`.
 
 ## Your own settings
 
@@ -120,8 +122,7 @@ variants it invents on top. Anything left out falls back to a default.
 ## Layout
 
 ```
-src/jarvis/   the assistant: config, audio, wake, vad, stt, tts, brain, assistant,
-              sweep, sysinfo, briefing, reminders, vision, memory_store, hud
+src/jarvis/   the assistant, one module per part, named for what it does
 hud/          the dashboard page, served as static files, so no build step
 tests/        one file per behaviour, none needing a microphone
 docs/         the banner, the theme screenshots, and the scripts that draw them
@@ -133,9 +134,8 @@ run.sh        the launcher for Linux and macOS, and run.cmd for Windows
 See [CONTRIBUTING.md](CONTRIBUTING.md): a test that cannot fail does not count,
 numbers come from runs, failure paths first, personal settings never in a tracked
 file, and the suite runs on Linux, macOS and Windows in the workflow behind the
-badge at the top. Built here with an AI assistant doing most of the typing, from
-my direction and against this machine, which is why the history keeps what was
-wrong first.
+badge at the top. An AI assistant did most of the typing here, from my direction
+and against this machine.
 
 ## Licence
 
