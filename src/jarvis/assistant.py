@@ -456,10 +456,16 @@ class Assistant:
                                "what is listening. There is nothing on this one "
                                "for it to read.")
             elif sweep_mod.wanted(text):
-                deltas.put("Running the sweep now, this takes a few seconds.")
+                # The deeper checks are minutes rather than seconds, so they are
+                # said out loud before they start: a minute of silence with no
+                # explanation is how a request like this stops being made.
+                deep = sweep_mod.deep_wanted(text) and bool(sweep_mod.deep_checks())
+                deltas.put("Running the deeper check, this can take a minute." if deep
+                           else "Running the sweep now, this takes a few seconds.")
                 try:
                     sweep_report = await asyncio.wait_for(
-                        asyncio.to_thread(sweep_mod.run), timeout=180.0)
+                        asyncio.to_thread(sweep_mod.run, deep),
+                        timeout=300.0 if deep else 180.0)
                 except asyncio.TimeoutError:
                     sweep_report = None
                     self.log("sys", "the sweep took too long, summarising without it")

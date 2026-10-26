@@ -956,6 +956,212 @@ def check_mac_listeners() -> list[str]:
     return [f"warn: listening beyond loopback: {'; '.join(sorted(odd)[:8])}"]
 
 
+# --------------------------------------------------------- the deeper checks
+# Asked for rather than run every time: lynis takes about thirty seconds on this
+# machine and rkhunter minutes. Both are read as findings, not as walls of text,
+# and both are honest about what they could not reach.
+_LYNIS_INSTALL = "install lynis (pacman -S lynis) and ask again"
+_RKHUNTER_INSTALL = "install rkhunter (pacman -S rkhunter) and ask again"
+
+
+_TOOL_PATHS = ("/usr/bin", "/usr/sbin", "/usr/local/bin", "/usr/local/sbin", "/bin", "/sbin")
+
+
+def _find(tool: str) -> str | None:
+    """Where the tool is, runnable or not.
+
+    shutil.which only finds what this user could run, and rkhunter ships as 0700
+    root on Arch: which() said it was missing, which was a lie, and the report
+    then told the user to install something they already had.
+    """
+    found = shutil.which(tool)
+    if found:
+        return found
+    for directory in _TOOL_PATHS:
+        candidate = os.path.join(directory, tool)
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def _rkhunter_lines(output: str) -> list[str]:
+    """rkhunter's report, read down to what a person needs.
+
+    Measured on this machine as root: 40 seconds and 76 warnings, most of them the
+    same one about a file whose properties have changed, once per upgraded binary.
+    Forty lines of that in a spoken summary is noise, so they are counted and
+    named, and the handful of other warnings are quoted. Its own subshell noise
+    (egrep: warning: egrep is obsolescent) is not a warning about this machine.
+    """
+    warnings, files = [], []
+    for line in output.splitlines():
+        text = line.strip()
+        if text.lower().startswith("warning:"):
+            body = text.split(":", 1)[1].strip()
+            if body:
+                warnings.append(body[:160])
+        elif text.lower().startswith("file:") and warnings:
+            files.append(text.split(":", 1)[1].strip()[:120])
+    found = []
+    if files:
+        found.append(f"warn: rkhunter: {len(files)} file(s) no longer match its "
+                     f"record, which is what a package upgrade looks like: "
+                     + "; ".join(files[:3]))
+    kind = [w for w in warnings if "properties have changed" not in w.lower()]
+    if kind:
+        found.append(f"warn: rkhunter raised {len(kind)} other warning(s)")
+        found += [f"warn: rkhunter: {w}" for w in kind[:6]]
+    if not found:
+        found.append("ok: rkhunter found no warnings on this run")
+    return found
+
+
+def _lynis_lines(output: str) -> list[str]:
+    """lynis's audit, read down to the index and the first few things it suggests.
+
+    Its report counts its own findings, so those numbers are used rather than the
+    lines that were scraped, and the notices it prints about running without root
+    are not findings about this machine.
+    """
+    index = tests = None
+    version = ""
+    warnings: list[str] = []
+    suggestions: list[str] = []
+    declared = {"warn": None, "suggest": None}
+    section = None
+    for line in output.splitlines():
+        text = line.strip()
+        if text.startswith("Lynis") and not version:
+            version = text[:40]
+        if "Hardening index" in text:
+            index = text.split(":", 1)[1].strip().split()[0]
+        elif "Tests performed" in text:
+            tests = text.split(":", 1)[1].strip().split()[0]
+        elif text.startswith("Warnings (") or text.startswith("Suggestions ("):
+            section = "warn" if text.startswith("Warnings") else "suggest"
+            digits = "".join(ch for ch in text if ch.isdigit())
+            declared[section] = int(digits) if digits else None
+        elif line.startswith("  * ") and not line.startswith("      ") and section:
+            body = text[2:].strip()
+            if re.search(r"require root permissions|fail silently", body, re.I):
+                continue                          # a notice about the audit itself
+            tag = body[body.find("["):body.find("]") + 1] if "[" in body else ""
+            entry = body.split("[")[0].strip()[:130] + (" " + tag if tag else "")
+            (warnings if section == "warn" else suggestions).append(entry)
+    found = []
+    if index:
+        found.append(f"ok: lynis audit: hardening index {index}/100, "
+                     f"{tests or '?'} tests performed")
+    else:
+        found.append("warn: lynis ran but its report could not be read")
+    counted = declared["warn"] if declared["warn"] is not None else len(warnings)
+    if counted:
+        found.append(f"warn: lynis raised {counted} warning(s): "
+                     + "; ".join(warnings[:3]))
+    else:
+        found.append("ok: lynis raised no warnings")
+    counted = declared["suggest"] if declared["suggest"] is not None else len(suggestions)
+    if counted:
+        found.append(f"info: lynis suggested {counted} change(s): "
+                     + "; ".join(suggestions[:4]))
+    if "require root permissions" in output:
+        found.append("info: lynis ran as your user, so the tests needing root "
+                     "were skipped")
+    return found
+
+
+def _lynis_profile() -> Path | None:
+    """A profile that leaves out the test that asks the user for their password.
+
+    NETW-2706 runs `resolvectl statistics`, and on a machine where that action is not
+    allowed for the user polkit does not fail quietly: it puts an authentication
+    dialog on the desktop, mid-sweep, every single time. A security check that asks
+    for your password is not one you keep running. The free lynis has no flag for
+    skipping a test, so it is a profile file, and the reason is written in it for
+    whoever reads it next.
+    """
+    if not config.SWEEP_LYNIS_SKIP_TESTS:
+        return None
+    try:
+        config.STATE_DIR.mkdir(parents=True, exist_ok=True)
+        path = config.STATE_DIR / "lynis.prf"
+        body = ["# Written by JARVIS. The tests below are left out because they ask for",
+                "# authentication, which puts a password dialog on the desktop."]
+        body += [f"skip-test={name}" for name in config.SWEEP_LYNIS_SKIP_TESTS]
+        path.write_text("\n".join(body) + "\n")
+        return path
+    except OSError as exc:
+        print(f"[sweep] no lynis profile: {exc}")
+        return None
+
+
+def check_lynis() -> list[str]:
+    tool = _find("lynis")
+    if not tool:
+        return [f"info: lynis is not installed, so the deeper audit was skipped: "
+                f"{_LYNIS_INSTALL}"]
+    argv = [tool, "audit", "system", "--quick", "--no-colors"]
+    profile = _lynis_profile()
+    if profile:
+        argv += ["--profile", str(profile)]
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True,
+                              timeout=config.SWEEP_LYNIS_TIMEOUT_S)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return [f"warn: lynis could not be run here: {type(exc).__name__}"]
+    output = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode not in (0, 1) or not output.strip():
+        return [f"warn: lynis exited {proc.returncode} without a report"]
+    lines = _lynis_lines(output)
+    if "timed out" in output.lower() or "killed" in output.lower():
+        lines.append(f"warn: the audit was cut off at "
+                     f"{config.SWEEP_LYNIS_TIMEOUT_S:.0f}s, so it covered part of "
+                     "the machine")
+    return lines
+
+
+def check_rkhunter() -> list[str]:
+    tool = _find("rkhunter")
+    if not tool:
+        return [f"info: rkhunter is not installed, so the rootkit check was skipped: "
+                f"{_RKHUNTER_INSTALL}"]
+    if not os.access(tool, os.X_OK):
+        # measured on this machine: /usr/bin/rkhunter is 0700 root, so it cannot
+        # be run by anyone else, and its log is 0600 for the same reason. Saying
+        # "no rootkits" from a check that never ran is the one answer worse than
+        # saying nothing, so this says exactly what happened and what to run.
+        return ["warn: rkhunter is installed but only root can run it, so the "
+                "rootkit check did not run: run sudo rkhunter --check --sk yourself",
+                "info: rkhunter's log is root only too, so it cannot be read from here"]
+    try:
+        proc = subprocess.run([tool, "--check", "--sk", "--nocolors",
+                               "--report-warnings-only"],
+                              capture_output=True, text=True,
+                              timeout=config.SWEEP_RKHUNTER_TIMEOUT_S)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return [f"warn: rkhunter could not be run here: {type(exc).__name__}"]
+    output = (proc.stdout or "") + (proc.stderr or "")
+    if not output.strip():
+        return ["warn: rkhunter exited without a report"]
+    lines = _rkhunter_lines(output)
+    if proc.returncode != 0 and "warning:" not in output.lower():
+        lines.append(f"warn: rkhunter exited {proc.returncode} without saying what "
+                     "it found")
+    return lines
+
+
+def deep_checks() -> tuple:
+    """The checks that only make sense when asked for, on the machine they fit."""
+    return DEEP_CHECKS if sys.platform.startswith("linux") else ()
+
+
+def deep_wanted(text: str) -> bool:
+    words = text.lower()
+    return any(w in words for w in config.SWEEP_DEEP_WORDS)
+
+
+DEEP_CHECKS = (check_rkhunter, check_lynis)
+
 CHECKS = (check_processes, check_uid_zero, check_hosts, check_world_writable,
           check_listeners, check_ssh, check_user_units, check_browser,
           check_launchers, check_updates, check_clamav)
@@ -988,13 +1194,18 @@ def checks() -> tuple:
     return MAC_CHECKS if sys.platform == "darwin" else CHECKS
 
 
-def run() -> str:
-    """Run every check and return a compact plain-text report for the model."""
+def run(deep: bool = False) -> str:
+    """Run every check and return a compact plain-text report for the model.
+
+    The deeper checks are added only when asked for, because they are minutes
+    rather than seconds, and the ordinary sweep is meant to be one breath.
+    """
     if not supported():
         return ("security sweep: this machine is neither Linux nor macOS, so "
                 "there is nothing here these checks know how to read.")
-    lines = [f"security sweep of {os.uname().nodename}, {time.strftime('%H:%M')}:"]
-    for check in checks():
+    lines = [f"security sweep of {os.uname().nodename}, {time.strftime('%H:%M')}"
+             + (", with the deeper checks:" if deep else ":")]
+    for check in checks() + (deep_checks() if deep else ()):
         try:
             lines += [f"  {f}" for f in check()]
         except Exception as exc:                      # a check must never sink the sweep

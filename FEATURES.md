@@ -31,6 +31,8 @@ Never touch a relay, so these land in about half a second:
   writable paths, user services, browser extensions, launcher entries, pending
   updates, and a bounded ClamAV scan. It reports what is normal as well as what is
   not.
+- **A deeper audit on request.** rkhunter and lynis, asked for by name and bounded,
+  and honest when a tool needs root and therefore could not run.
 - **Memory.** Durable facts in a plain file you can edit by hand, given to the model
   every turn.
 - **Windows.** What is open, and bringing one to the front by application name, both
@@ -90,8 +92,7 @@ Interrupt any of it by talking over it, or by saying the wake phrase again.
   assistant is a call as far as it is concerned.
 - **On a scrolling layout the dashboard can open off the edge**, since a Wayland
   client cannot place its own window.
-- **The sweep reads Linux and macOS, not Windows.** Asking there gets a plain
-  answer instead of a sweep.
+- **The sweep reads Linux and macOS, not Windows**, which gets a plain answer instead.
 - **macOS gates two things.** Screen Recording and Microphone. There is also no
   temperature on Apple Silicon, so the dashboard shows nothing rather than a number.
 - **With the gate off, nothing is checked**, and `python -m jarvis.permissions status` says so.
