@@ -8,15 +8,17 @@ Windows, and reading the code did not notice. So each shape is checked here.
 Nothing in this file needs a microphone, a model or a compositor.
 """
 import os
+import json
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from jarvis import sweep, vision                      # noqa: E402
+from jarvis import config, sweep, vision               # noqa: E402
 from jarvis.vision import ScreenError                 # noqa: E402
 
 passed = failed = skipped = 0
@@ -138,6 +140,72 @@ if cmd.exists():
           f"{raw.count(b'\r\n')} lines, {bare} bare")
     text = raw.decode()
     check("it starts the assistant", "-m jarvis" in text and "uv" in text)
+
+print("-- a run that was asked to stop after a while --")
+# `--seconds` was documented as "stop after this many seconds" and then ignored for
+# every run that was not the microphone check: a flag that silently does nothing is
+# worse than no flag, because the help text is where someone reads what it does.
+import asyncio  # noqa: E402
+
+import jarvis.__main__ as entry  # noqa: E402
+
+
+class FakeAssistant:
+    def __init__(self):
+        self.started = False
+        self.finished = False
+        self.cancelled = False
+
+    async def run(self):
+        self.started = True
+        try:
+            await asyncio.sleep(30)              # a run that would go on all day
+            self.finished = True
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+
+
+bounded = FakeAssistant()
+started_at = time.monotonic()
+asyncio.run(entry.run_limited(bounded, 0.3))
+took = time.monotonic() - started_at
+check("it stops when it was told to", took < 5, f"{took:.2f}s")
+check("and it was running first", bounded.started is True)
+
+whole = FakeAssistant()
+asyncio.run(entry.run_limited(whole, None))
+check("with no limit it runs to the end", whole.finished is True)
+
+print("-- the waiting list, read once --")
+from jarvis import permissions  # noqa: E402
+
+saved_state = config.STATE_DIR
+try:
+    config.STATE_DIR = Path(tempfile.mkdtemp(prefix="jarvis-reading-"))
+    config.PERMISSION_PENDING = config.STATE_DIR / "pending.json"
+    check("a missing list is nothing waiting, not an error",
+          permissions.reading() == {"waiting": 0, "pending": []},
+          str(permissions.reading()))
+    config.PERMISSION_PENDING.write_text("{ this is not json")
+    check("an unreadable list says it cannot be read, not that it is empty",
+          permissions.reading()["waiting"] is None, str(permissions.reading()))
+    entries = [{"id": f"p{i}", "tool": "bash", "summary": f"action {i}",
+                "asked": time.time()} for i in range(3)]
+    entries.append({"id": "old", "tool": "bash", "summary": "stale",
+                    "asked": time.time() - 10_000})
+    config.PERMISSION_PENDING.write_text(json.dumps({"pending": entries}))
+    reading = permissions.reading()
+    check("the count and the list come from the same read",
+          reading["waiting"] == 3 and len(reading["pending"]) == 3,
+          f"{reading['waiting']} and {len(reading['pending'])}")
+    check("and an old one is not counted", all(e["id"] != "old" for e in reading["pending"]))
+    check("the two older views still agree with it",
+          permissions.waiting_count() == reading["waiting"]
+          and permissions.pending() == reading["pending"])
+finally:
+    config.STATE_DIR = saved_state
+    config.PERMISSION_PENDING = saved_state / "permission-pending.json"
 
 print()
 print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)"

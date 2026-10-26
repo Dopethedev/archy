@@ -55,15 +55,34 @@ def read_until(kind, timeout):
             return first_delta, text, tools, True
     return first_delta, text, tools, False
 
-send({"type": "prompt", "message": "what is my cpu usage right now"})
-fd, text, tools, done = read_until("agent_end", 90)
+def ask(message: str):
+    """One turn, and the empty one is retried once.
+
+    This is the only group that talks to a real relay, and a free relay sometimes
+    ends a turn having said nothing at all. That happened once in a full suite run
+    and passed immediately when run on its own, which is the shape of a red result
+    that teaches people to ignore red. One retry, and the second empty answer is
+    still a failure: the point of this group is that pi really answers, not that
+    it eventually did.
+    """
+    for attempt in (1, 2):
+        send({"type": "prompt", "message": message})
+        fd, text, tools, done = read_until("agent_end", 90)
+        if text.strip():
+            return fd, text, tools, done, attempt
+        if attempt == 1:
+            print("the relay answered with nothing at all; asking the same thing again")
+    return fd, text, tools, done, attempt
+
+
+fd, text, tools, done, attempt = ask("what is my cpu usage right now")
 print(f"startup+first token : {fd:.2f}s" if fd else "no text received")
 print(f"total to agent_end  : {time.monotonic()-t0:.2f}s  (done={done})")
 print(f"tools used          : {tools or 'none'}")
-print(f"reply               : {text.strip()[:300]!r}")
+print(f"reply               : {text.strip()[:300]!r}" + ("   (second attempt)" if attempt == 2 else ""))
 
 if not text.strip():
-    print("FAIL: no reply")
+    print("FAIL: no reply, twice")
     proc.kill(); sys.exit(1)
 
 # does memory persist across turns in one process?

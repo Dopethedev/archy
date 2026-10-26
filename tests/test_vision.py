@@ -117,16 +117,28 @@ print("-- the turn attaches the screen when asked --")
 class ScreenHarness:
     """Enough of an Assistant for _process to run end to end with stubs."""
 
-    def __init__(self, capture_result):
+    def __init__(self, capture_result, stream: tuple = ()):
         self._privacy_confirm = privacy.Confirmation()
         self.status = status_mod.Feed()
         self.captures = 0
         self.capture_result = capture_result
         self.log_lines = []
-        self.brain = FakeBrain()
+        self.brain = FakeBrain(stream)
+        self.spoken: list[str] = []
+        harness = self
+
+        # staticmethod, so these take what the assistant passes and nothing more:
+        # an instance-bound one takes an extra self, which is silently one argument
+        # short and raised inside the thread rather than at the call
+        def say_stream(deltas, on_spoken, _cancel):
+            spoken = consume(deltas)
+            harness.spoken.extend(spoken)
+            if on_spoken and spoken:
+                on_spoken()
+
         self.speaker = type("S", (), {
-            "say_stream": lambda s, it, cb, c: consume(it),
-            "say": lambda s, t: None})()
+            "say_stream": staticmethod(say_stream),
+            "say": staticmethod(lambda text: harness.spoken.append(text))})()
         self._theme_intent = Assistant._theme_intent
         self.player = type("P", (), {"wait_drained": lambda s, t=None: None})()
         self.mic_enabled = True
@@ -151,22 +163,45 @@ class ScreenHarness:
 
 
 class FakeBrain:
-    def __init__(self):
+    """Answers either streaming or in one piece, so both paths are covered.
+
+    A relay streams: pi hands the assistant the reply a token at a time. A model
+    that does not stream is the case that had nothing spoken at all, so the same
+    fake does both.
+    """
+
+    def __init__(self, stream: tuple = ()):
         self.seen = []
+        self.stream = stream
     def model_name(self):
         return "some-relay/large-model"      # a remote model, so the switches apply
     async def ask(self, text, images=None):
         self.seen.append((text, images))
-        yield "done", "ok"
+        for piece in self.stream:
+            yield "delta", piece
+        yield "done", "".join(self.stream) or "ok"
 
 
 def consume(deltas):
-    while deltas.get() is not None:
-        pass
+    """Drain what the speaker is handed, and keep it.
+
+    A queue was what this took when the streaming voice was written, and the
+    assistant hands say_stream an iterator now, so every one of these turns ended
+    in an AttributeError inside a thread: the traceback went to the console, the
+    turn was never asserted on, and the checks below passed because nothing had
+    been fed to anything. What it reads is returned now, so the turn can say
+    whether the words it was supposed to speak arrived.
+    """
+    said = []
+    for delta in deltas:
+        if delta is None:
+            continue
+        said.append(delta)
+    return said
 
 
-async def run_turn(text, capture_result):
-    h = ScreenHarness(capture_result)
+async def run_turn(text, capture_result, stream: tuple = ()):
+    h = ScreenHarness(capture_result, stream)
     # patch where the assistant looks the name up, not on the class
     real = jarvis_assistant.capture
     jarvis_assistant.capture = h.fake_capture
@@ -175,6 +210,24 @@ async def run_turn(text, capture_result):
     finally:
         jarvis_assistant.capture = real
     return h
+
+
+async def voice_checks():
+    """The stub is only worth having if the turn really reaches it.
+
+    A turn that never hands the speaker anything is a turn that says nothing out
+    loud, and nothing above can see that from the outside: the previous version of
+    this stub was handed a queue where an iterator arrives, so it raised inside a
+    thread and every check here passed while nothing was spoken at all.
+    """
+    print("-- and the turn reaches the voice --")
+    h = await run_turn("what's on my screen right now", b"\xff\xd8fakejpeg")
+    check("an answered turn is fed to the speaker", h.spoken == ["ok"], str(h.spoken))
+    h = await run_turn("what time is it", b"\xff\xd8fakejpeg")
+    check("so is an ordinary one", bool(h.spoken), str(h.spoken))
+    h = await run_turn("hello", b"", stream=("One. ", "Two. "))
+    check("a streamed reply is spoken once, piece by piece",
+          h.spoken == ["One. ", "Two. "], str(h.spoken))
 
 
 async def main():
@@ -193,6 +246,9 @@ async def main():
     check("a failed capture still asks the model",
           h.brain.seen and h.brain.seen[0][1] is None and h.captures == 1)
     check("a failed capture is reported", any("could not capture" in s for s in h.log_lines))
+
+
+    await voice_checks()
 
     print()
     print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)")

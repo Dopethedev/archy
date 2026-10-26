@@ -283,7 +283,7 @@ def _name(record: dict) -> str:
 
 def spoken_list(records: list[dict], limit: int | None = None) -> str:
     if not records:
-        return "No windows are open." if not records else ""
+        return "No windows are open."
     limit = config.DESKTOP_LIST_LIMIT if limit is None else limit
     names: list[str] = []
     for record in records:

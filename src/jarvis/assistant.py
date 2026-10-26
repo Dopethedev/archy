@@ -491,8 +491,17 @@ class Assistant:
             tts.start()
 
             full = ""
+            # Whether the speaker has been handed anything yet. A model that
+            # streams gives it sentence by sentence; a model that answers in one
+            # piece gives it nothing, and before this the whole reply was read into
+            # `full`, logged, and never spoken: the queue was closed with nothing
+            # in it and the voice thread exited. Latent until the test harness
+            # answered in one piece, which is what every non-streaming provider
+            # would do.
+            queued = False
             if local_reply is not None:
                 deltas.put(local_reply)
+                queued = True
                 deltas.put(None)
                 full = local_reply
             else:
@@ -523,11 +532,15 @@ class Assistant:
                             break
                         if kind == "delta":
                             deltas.put(payload)
+                            queued = True
                         elif kind == "tool":
                             self.log("doing", payload)
                         elif kind == "done":
                             full = payload
                 finally:
+                    if not queued and full:
+                        # nothing streamed, so say the whole answer as one piece
+                        deltas.put(full)
                     deltas.put(None)
 
             if full and not cancel.is_set():
