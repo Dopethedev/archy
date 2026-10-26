@@ -156,6 +156,13 @@ PI_LOCAL_LOAD_WAIT_S = 90.0
 PI_LOCAL_SERVER_ARGS = (
     "--no-models-autoload", "--jinja", "-ngl", "999", "-c", "32768",
     "--flash-attn", "on",
+    # No hidden reasoning. A small local model thinks before it speaks, and every
+    # one of those tokens is silence in the user's ear: measured on a screen
+    # question, 27.4 seconds to the first spoken word with thinking on, and the
+    # same question answered in under a second with it off. The silence deadline
+    # is 25 seconds, so a thinking local model was reported as a dropped
+    # connection, which is exactly what it looked like from the outside.
+    "--reasoning", "off",
 )
 # The local model is small and its prompt is paid for in seconds, so the voice
 # path hands it this instead of pi's coding-assistant prompt: measured, 966
