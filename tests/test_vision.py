@@ -74,9 +74,30 @@ print("-- the second backend --")
 # Windows, macOS and X11 have no grim. The fallback is one frame from Pillow, and
 # it is tested for real here too, because Pillow can grab an X11 session as well
 # as a Windows one.
-check("the backend is chosen by what is installed", vision.backend() in ("grim", "grab"),
-      vision.backend())
+check("it names a backend this machine has",
+      vision.backend() in ("grim", "screencapture", "grab"), vision.backend())
+
+# Which one, though, is not this machine's business: asked whether its choice
+# follows what is installed, this read "grim or the Pillow fallback", and a Mac
+# answers screencapture because that is the platform's own tool there. So the
+# tools and the platform are both stubbed and the priority is asserted instead.
 real_which = vision.shutil.which
+real_platform = vision.sys.platform
+try:
+    vision.shutil.which = lambda name: f"/usr/bin/{name}"
+    vision.sys.platform = "darwin"
+    check("grim outranks the platform's own tool", vision.backend() == "grim",
+          vision.backend())
+    vision.shutil.which = lambda name: "/usr/bin/screencapture" if name == "screencapture" else None
+    check("a Mac without grim uses screencapture", vision.backend() == "screencapture",
+          vision.backend())
+    vision.sys.platform = "linux"
+    check("no grim and not a Mac uses the Pillow frame", vision.backend() == "grab",
+          vision.backend())
+finally:
+    vision.shutil.which = real_which
+    vision.sys.platform = real_platform
+
 vision.shutil.which = lambda name: None
 try:
     check("with grim hidden it moves to the other backend", vision.backend() == "grab")
