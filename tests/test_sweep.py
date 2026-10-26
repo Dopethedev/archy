@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import jarvis.assistant as jarvis_assistant
+from jarvis import status as status_mod
 from jarvis import privacy
 import jarvis.sweep as sweep
 from jarvis.assistant import Assistant
@@ -149,6 +150,7 @@ class FakeBrain:
 class SweepHarness:
     def __init__(self):
         self._privacy_confirm = privacy.Confirmation()
+        self.status = status_mod.Feed()
         self.spoken = []
         self.log_lines = []
         self.brain = FakeBrain()
