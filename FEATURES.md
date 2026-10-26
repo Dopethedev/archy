@@ -85,8 +85,8 @@ Against the actual matchers, so these all work as written:
   measured here at 0.7 s cold; llama.cpp and a model fetched by hand are needed.
 - **The fallback voice is an extra.** `uv sync --extra fallback-voice` adds piper;
   without kokoro's files it says so rather than speaking with something worse.
-- **Screen questions need a seeing model and a willing compositor.** A text only
-  model answers without the picture, and some NVIDIA and Wayland pairs refuse the
+- **Screen questions need a seeing model and a willing compositor.** A model without
+  vision answers without the picture, and some NVIDIA and Wayland pairs refuse the
   screenshot.
 - **Talking about it can wake it.** The wake phrase in a sentence about the
   assistant is a call as far as it is concerned.
