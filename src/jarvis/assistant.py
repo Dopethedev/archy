@@ -675,7 +675,8 @@ class Assistant:
             except Exception as exc:
                 print(f"[reminders] {exc}")
                 continue
-            for label in ripe:
+            for item in ripe:
+                label = item["label"]
                 while (self.state in ("thinking", "speaking", "listening")
                        and not self._stopping):
                     await asyncio.sleep(1.0)
@@ -696,7 +697,7 @@ class Assistant:
                     # the label was already removed from the store; a reminder
                     # that could not be spoken must come back, not vanish
                     print("[reminders] will retry in 60s")
-                    reminders_mod.add(label, 60.0)
+                    reminders_mod.add(label, 60.0, repeat=item.get("repeat"))
                 self._back_to_idle()
 
     async def _restart_brain(self):
