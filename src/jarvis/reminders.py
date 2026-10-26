@@ -6,6 +6,7 @@ was restarted in between, because the due time lives on disk.
 """
 import json
 import re
+from datetime import datetime, time as dtime, timedelta
 import threading
 import time
 
@@ -33,6 +34,10 @@ _COMPOUND = rf"(?:{_WORD})(?:[\s-]{_WORD})?"
 _AND_HALF = r"(?:\s+and\s+a\s+(?:half|quarter))"
 _AMOUNT = (rf"(?:an?|half\s+an?|a\s+quarter(?:\s+of\s+an?)?"
            rf"|{_COMPOUND}{_AND_HALF}?|\d+)")
+# The hours people say, next to the digits they write.
+_WORD_HOURS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+               "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+               "twelve": 12}
 _RE_IN = re.compile(
     rf"\bin\s+({_AMOUNT})\s*{_UNIT}", re.I)
 _TO = re.compile(r"\bto\s+(?:remember\s+)?(.+?)[.?!]?\s*$", re.I)
@@ -48,12 +53,30 @@ _TIMER = re.compile(rf"(?:set\s+)?(?:a\s+)?timer\s+for\s+({_AMOUNT})\s*"
 _MINUTE_WORDS = ("minute", "minutes", "mins", "min", "m")
 _HOUR_WORDS = ("hour", "hours", "hrs", "hr", "h")
 _DAY_WORDS = ("day", "days", "d")
-# an absolute time is the one reminder shape this cannot serve, and the shape a
-# model will happily agree to out loud. Better to say so plainly
-_ABSOLUTE = re.compile(
-    r"\b(at|by|around|before)\s+\d|\d\s*(am|pm)\b|\b(tomorrow|tonight|"
-    r"noon|midnight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
-    r"\b|\bnext\s+(week|month|monday|tuesday|wednesday|thursday|friday)", re.I)
+# A clock time: "at five", "at 5:30", "at 5pm", "at noon", "at half past five".
+_RE_AT = re.compile(
+    r"\b(?:at|by|around|about|before)\s+"
+    r"(?:(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<meridiem>am|pm|a\.m\.|p\.m\.)?"
+    r"|(?P<named>noon|midnight)"
+    r"|half\s+past\s+(?P<half>\d{1,2})"
+    r"|quarter\s+(?P<quarter>past|to)\s+(?P<quarter_hour>\d{1,2}))", re.I)
+_WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4,
+             "saturday": 5, "sunday": 6}
+_RE_WEEKDAY = re.compile(r"\b(?:(next)\s+)?(" + "|".join(_WEEKDAYS) + r")\b", re.I)
+_RE_TOMORROW = re.compile(r"\b(tomorrow|tonight|today|this evening|this morning)\b", re.I)
+_RE_DAILY = re.compile(r"\b(every\s*day|everyday|daily|each\s+day|every\s+morning|"
+                       r"every\s+night)\b", re.I)
+# Shapes still not served. A model will agree to these out loud and then never fire
+# them, so they get a plain sentence instead of a confident yes.
+_WEEKS = r"(?:\d+|a\s+couple\s+of|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
+_UNSUPPORTED = re.compile(
+    rf"\bnext\s+(week|month|year|weekend)\b|\bon\s+the\s+\d"
+    r"|\bthe\s+\d+(?:st|nd|rd|th)\s+of\b"
+    rf"|\b{_WEEKS}\s*weeks?\b", re.I)
+# "set an alarm for 7am" has no "at" in it, and the am is what makes it a clock time
+_RE_BARE_AMPM = re.compile(
+    r"\b(?P<hour>\d{1,2}|" + "|".join(_WORD_HOURS) + r")\s*(?P<meridiem>am|pm|a\.m\.|p\.m\.)",
+    re.I)
 
 
 def wanted(text: str) -> bool:
@@ -79,10 +102,10 @@ def cannot_do(text: str) -> str | None:
     words = text.lower()
     if not any(w in words for w in ("remind", "reminder", "timer", "alarm")):
         return None
-    if not _ABSOLUTE.search(words):
+    if not _UNSUPPORTED.search(words):
         return None
-    return ("I can only set that from a delay, like in twenty minutes. "
-            "Tell me how long and I will hold it.")
+    return ("I can do a clock time, a delay, or every day at a time, but not a date "
+            "like that. Give me an hour and I will hold it.")
 
 
 def _number(amount: str) -> float | None:
@@ -138,6 +161,219 @@ def _first_match(text: str, pattern: re.Pattern):
     return pattern.search(text)
 
 
+# ------------------------------------------------------------ clock times
+_RE_AT = re.compile(
+    r"\b(?:at|by|around|about|before)\s+"
+    r"(?:(?P<hour>\d{1,2}|" + "|".join(_WORD_HOURS) + r")"
+    r"(?::(?P<minute>\d{2}))?\s*(?P<meridiem>am|pm|a\.m\.|p\.m\.)?"
+    r"|(?P<named>noon|midnight)"
+    r"|half\s+past\s+(?P<half>\d{1,2}|" + "|".join(_WORD_HOURS) + r")"
+    r"|quarter\s+(?P<quarter>past|to)\s+(?P<quarter_hour>\d{1,2}|"
+    + "|".join(_WORD_HOURS) + r"))", re.I)
+_WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4,
+             "saturday": 5, "sunday": 6}
+_RE_WEEKDAY = re.compile(r"\b(?:(next)\s+)?(" + "|".join(_WEEKDAYS) + r")\b", re.I)
+_RE_DAY_WORD = re.compile(r"\b(tomorrow|tonight|today|this evening|this morning|"
+                          r"this afternoon)\b", re.I)
+_RE_EVENING = re.compile(r"\b(evening|night|tonight|afternoon)\b", re.I)
+_RE_MORNING = re.compile(r"\b(morning|breakfast)\b", re.I)
+_RE_DAILY = re.compile(r"\b(every\s*day|everyday|daily|each\s+day|every\s+morning|"
+                       r"every\s+night)\b", re.I)
+# Shapes still not served. A model agrees to these out loud and then never fires
+# them, so they get a plain sentence instead of a confident yes.
+_WEEKS = r"(?:\d+|a\s+couple\s+of|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
+_UNSUPPORTED = re.compile(
+    rf"\bnext\s+(week|month|year|weekend)\b|\bon\s+the\s+\d"
+    r"|\bthe\s+\d+(?:st|nd|rd|th)\s+of\b"
+    rf"|\b{_WEEKS}\s*weeks?\b", re.I)
+# "set an alarm for 7am" has no "at" in it, and the am is what makes it a clock time
+_RE_BARE_AMPM = re.compile(
+    r"\b(?P<hour>\d{1,2}|" + "|".join(_WORD_HOURS) + r")\s*(?P<meridiem>am|pm|a\.m\.|p\.m\.)",
+    re.I)
+
+
+def _spoken_hour(hour: int, minute: int) -> str:
+    """A time as a person says it out loud, because it is spoken back as it is set."""
+    if minute == 0 and hour == 0:
+        return "midnight"
+    if minute == 0 and hour == 12:
+        return "noon"
+    suffix = "am" if hour < 12 else "pm"
+    twelve = hour % 12 or 12
+    if minute == 0:
+        return f"{twelve} {suffix}"
+    if minute == 30:
+        return f"half past {twelve} {suffix}"
+    if minute == 15:
+        return f"quarter past {twelve} {suffix}"
+    if minute == 45:
+        return f"quarter to {(twelve % 12) + 1} {suffix}"
+    return f"{twelve}:{minute:02d} {suffix}"
+
+
+def _day_phrase(when: datetime, now: datetime) -> str:
+    days = (when.date() - now.date()).days
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "tomorrow"
+    if 2 <= days <= 6:
+        return when.strftime("%A")
+    return f"{when.strftime('%A')} the {when.day}"
+
+
+def _describe(when: datetime, now: datetime | None = None) -> str:
+    """The moment as it will be spoken back, day included unless it is every day."""
+    if now is None:
+        return f"at {_spoken_hour(when.hour, when.minute)}"
+    return f"at {_spoken_hour(when.hour, when.minute)} {_day_phrase(when, now)}"
+
+
+_CLOCK_WORDS = set(_WORD_HOURS) | set(_WEEKDAYS) | {
+    "at", "to", "past", "half", "quarter", "in", "on", "a", "an", "and", "every",
+    "day", "daily", "today", "tomorrow", "tonight", "noon", "midnight", "am", "pm",
+    "this", "morning", "evening", "afternoon", "night", "around", "about", "by",
+    "before", "o", "clock", "for", "remind", "reminder", "me", "please", "its", "it"}
+
+
+def _strip_clock_words(text: str) -> str:
+    """What is left of a sentence once the time is taken out of it.
+
+    "remind me at quarter to six" leaves nothing, and an empty label reads better as
+    "Reminder" than as "Six": the six is the hour, not the thing being remembered.
+    """
+    text = re.sub(r"\b(in|at|this)\s+the\s+(morning|evening|afternoon|night)\b", " ",
+                  text, flags=re.I)
+    text = re.sub(r"\bthis\s+(morning|evening|afternoon)\b", " ", text, flags=re.I)
+    text = re.sub(r"\bo'?\s?clock\b", " ", text, flags=re.I)
+    kept = [word for word in re.split(r"\s+", text.strip(" ,.-")) if word
+            and word.lower().strip(".,!?") not in _CLOCK_WORDS]
+    return " ".join(kept).strip(" ,.-")
+
+
+def _hour_of(value: str) -> int | None:
+    value = (value or "").strip().lower()
+    if value.isdigit():
+        return int(value)
+    return _WORD_HOURS.get(value)
+
+
+def _forced_meridiem(words: str) -> str | None:
+    """"in the evening" and "tonight" are not ambiguous, so they decide it."""
+    if _RE_EVENING.search(words):
+        return "pm"
+    if _RE_MORNING.search(words):
+        return "am"
+    return None
+
+
+def _clock_target(hour: int, minute: int, meridiem: str | None, day_offset: int,
+                  now: datetime, same_weekday: bool = False) -> datetime | None:
+    """The next moment at that clock time, on or after the day asked for.
+
+    With no am or pm the answer is this half of the day: someone setting an evening
+    reminder says "at seven" meaning the evening. The sentence that confirms it names
+    the time it chose, so a wrong reading is visible at the moment it is set.
+    """
+    if not (0 <= hour <= 23) or not (0 <= minute <= 59):
+        return None
+    base = now.date() + timedelta(days=day_offset)
+    if meridiem:
+        hour = hour % 12 + (12 if meridiem == "pm" else 0)
+        target = datetime.combine(base, dtime(hour=hour, minute=minute))
+        if target <= now:
+            target += timedelta(days=7 if same_weekday else 1)
+        return target
+    if hour > 12:                                   # a 24 hour clock time
+        target = datetime.combine(base, dtime(hour=hour, minute=minute))
+        if target <= now:
+            target += timedelta(days=7 if same_weekday else 1)
+        return target
+    prefer_pm = now.hour >= 12
+    first = hour + 12 if prefer_pm else hour
+    second = hour if prefer_pm else hour + 12
+    if same_weekday:
+        # "on Monday at nine" said on a Monday, once nine has gone, means the next
+        # Monday at nine rather than nine tonight: the day was named for a reason.
+        target = datetime.combine(base, dtime(hour=first, minute=minute))
+        return target if target > now else target + timedelta(days=7)
+    target = datetime.combine(base, dtime(hour=first, minute=minute))
+    if target <= now:
+        target = datetime.combine(base, dtime(hour=second, minute=minute))
+    if target <= now:
+        target += timedelta(days=1)
+    return target
+
+
+def parse_clock(text: str, now: datetime | None = None) -> dict | None:
+    """A reminder at a clock time: "at 5pm", "tomorrow at nine", "every day at 7"."""
+    words = text.lower().strip()
+    if not any(w in words for w in ("remind", "reminder", "timer", "alarm")):
+        return None
+    now = now or datetime.now()
+    found = _RE_AT.search(words) or _RE_BARE_AMPM.search(words)
+    if not found:
+        return None
+    # read by name, because the two patterns that find a time do not carry the same
+    # groups: "at five" has an hour, "5pm" has one and a meridiem, "at noon" has
+    # neither, and asking for a group that is not there is an error, not a None
+    groups = found.groupdict()
+    named_meridiem = None
+    if groups.get("named"):
+        if groups["named"] == "noon":
+            hour, minute, named_meridiem = 12, 0, "pm"
+        else:
+            hour, minute, named_meridiem = 0, 0, "am"
+    elif groups.get("half"):
+        hour, minute = _hour_of(groups["half"]), 30
+    elif groups.get("quarter"):
+        hour = _hour_of(groups["quarter_hour"])
+        if groups["quarter"] == "to":
+            hour, minute = hour - 1, 45
+        else:
+            minute = 15
+    else:
+        hour, minute = _hour_of(groups.get("hour")), int(groups.get("minute") or 0)
+    if hour is None:
+        return None
+
+    meridiem = groups.get("meridiem") or named_meridiem or _forced_meridiem(words)
+    day_offset, same_weekday = 0, False
+    weekday = _RE_WEEKDAY.search(words)
+    day_word = _RE_DAY_WORD.search(words)
+    if weekday:
+        wanted = _WEEKDAYS[weekday.group(2).lower()]
+        ahead = (wanted - now.weekday()) % 7
+        if weekday.group(1):                      # "next monday" is the week after
+            ahead = ahead + 7 if ahead else 7
+        day_offset, same_weekday = ahead, ahead == 0
+    elif day_word:
+        word = day_word.group(1)
+        day_offset = 1 if word == "tomorrow" else 0
+        if word == "tonight":
+            meridiem = meridiem or "pm"
+
+    target = _clock_target(hour, minute, meridiem, day_offset, now, same_weekday)
+    if target is None:
+        return None
+    repeat = "daily" if _RE_DAILY.search(words) else None
+    if repeat and target <= now:
+        target += timedelta(days=1)
+
+    label_match = _NAMED.search(text) or _TO.search(text)
+    label = ""
+    if label_match:
+        label = _DURATION_IN_LABEL.sub("", label_match.group(1).strip())
+        label = _RE_AT.sub("", label)
+        label = _strip_clock_words(label)
+    if not label:
+        label = "Timer" if "timer" in words else "Reminder"
+    label = label[0].upper() + label[1:] if label and label[0].isalpha() else label
+    return {"action": "set", "due": target.timestamp(), "label": label[:120],
+            "repeat": repeat,
+            "described": _describe(target, None if repeat else now)}
+
+
 def parse(text: str) -> dict | None:
     """What he asked for: a set, a list, or a cancel. None if it is none of
     those, in which case the sentence goes to the model as usual."""
@@ -151,6 +387,9 @@ def parse(text: str) -> dict | None:
     if re.search(r"\b(what|show|list|any|how long)\b", words) and \
             any(w in words for w in ("reminder", "reminders", "timer", "left")):
         return {"action": "list"}
+    at = parse_clock(text)
+    if at:
+        return at
     m = _first_match(words, _RE_IN) or _TIMER.search(words)
     if not m:
         return None
@@ -197,8 +436,12 @@ def save(items: list[dict]):
     tmp.replace(PATH)
 
 
-def add(label: str, delay_s: float) -> dict:
-    item = {"label": label, "due": time.time() + delay_s}
+def add(label: str, delay_s: float, repeat: str | None = None,
+        due: float | None = None) -> dict:
+    """A reminder that fires once at a moment, or every day at a clock time."""
+    item = {"label": label, "due": float(due) if due is not None else time.time() + delay_s}
+    if repeat:
+        item["repeat"] = repeat
     with _lock:
         save(load() + [item])
     return item
@@ -303,15 +546,29 @@ def _spoken_names(labels: list[str]) -> str:
     return ", ".join(named[:-1]) + " and " + named[-1]
 
 
-def due_items(now: float | None = None) -> list[str]:
-    """Everything that has come due, removed from the file as it is returned."""
+def due_items(now: float | None = None) -> list[dict]:
+    """Everything that has come due, removed from the file as it is returned.
+
+    A daily one is not removed but moved on to its next occurrence, so a machine
+    that was off for three days announces it once when it comes back rather than
+    three times, and then keeps to its clock instead of drifting.
+    """
     now = now if now is not None else time.time()
     with _lock:
         items = load()
         ripe = [i for i in items if i.get("due", 0) <= now]
         if ripe:
-            save([i for i in items if i.get("due", 0) > now])
-    return [i["label"] for i in ripe]
+            kept = []
+            for item in items:
+                if item.get("due", 0) > now:
+                    kept.append(item)
+                elif item.get("repeat"):
+                    nxt = item["due"]
+                    while nxt <= now:
+                        nxt += 86400
+                    kept.append({**item, "due": nxt})
+            save(kept)
+    return ripe
 
 
 def _spoken_gap(seconds: float) -> str:
@@ -357,7 +614,12 @@ def pending() -> list[str]:
     items = sorted(load(), key=lambda i: i.get("due", 0))
     out = []
     for i in items:
-        left = max(0, i.get("due", 0) - now)
+        due = i.get("due", 0)
+        if i.get("repeat"):
+            when = datetime.fromtimestamp(due)
+            out.append(f"{i['label']} every day at {_spoken_hour(when.hour, when.minute)}")
+            continue
+        left = max(0, due - now)
         out.append(f"{i['label']} in {_spoken_gap(left)}")
     return out
 
@@ -379,6 +641,16 @@ def confirm(action: dict) -> str:
         if not items:
             return "Nothing pending."
         return "Pending: " + "; ".join(items[:4]) + "."
+    if action["action"] == "set" and action.get("due") is not None:
+        add(action["label"], 0.0, repeat=action.get("repeat"), due=action["due"])
+        when = action.get("described", "")
+        daily = action.get("repeat") is not None
+        if daily:
+            when = f"every day {when}"
+        if action["label"] in GENERIC:
+            return (f"Done, {when}." if action["label"] == "Reminder"
+                    else f"Done, a timer {when}.")
+        return f"Done, {when}: {action['label']}."
     if action["action"] == "set":
         add(action["label"], action["delay"])
         gap = _spoken_gap(action["delay"])
