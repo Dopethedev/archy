@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from jarvis import status as status_mod
 from jarvis import config, permissions, privacy  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
@@ -423,6 +424,9 @@ class Silence:
         self.speaker = self                    # the same trick test_degrades uses
         self.brain = self                      # so a fall-through still answers
         self._privacy_confirm = privacy.Confirmation()
+        # Assistant.__init__ is not run, so what it creates has to be here too:
+        # a note about what happened goes into this feed on every failure path.
+        self.status = status_mod.Feed()
         self.player = type("P", (), {"wait_drained": lambda s, *a, **k: None})()
         self.hud = None
         self.mic_enabled = True

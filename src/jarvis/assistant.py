@@ -35,6 +35,7 @@ from . import mic_state
 from . import sweep as sweep_mod
 from .audio import MicCapture, Player
 from .brain import BrainError, PiBrain
+from . import status as status_mod
 from .hud import Hud
 from .stt import DeafTranscriber, Transcriber
 from .tts import MuteSpeaker, Speaker
@@ -88,6 +89,11 @@ class Assistant:
         self._levels_at = 0.0
         self.last_heard = ""
         self.turn_latency = 0.0               # spoken delay of the last turn
+        # What the dashboard's status panel reads. The assistant is the only
+        # writer, so the panel reports what happened instead of guessing at it.
+        self.status = status_mod.Feed(brain=self.brain)
+        if self.hud is not None:
+            self.hud.status_source = self.status.as_source()
         self.mic_enabled = True               # what the dashboard's toggle controls
         self._deaf_warned = False             # said once, not every twenty seconds
         self._hang_count = 0                  # silent turns in a row on this model
@@ -333,6 +339,7 @@ class Assistant:
                 net.net.note_success()
                 self._speaking_since = loop.time()
                 self.turn_latency = loop.time() - turn_started
+                self.status.note_turn(self.turn_latency)
                 self.log("sys", f"answered in {self.turn_latency:.1f}s")
                 if self.hud:
                     self.hud.publish({"type": "turn", "latency": round(self.turn_latency, 2)})
@@ -395,6 +402,8 @@ class Assistant:
                     local_reply = ("Approved once, for that exact action." if digest
                                    else "Nothing is waiting on your approval.")
                     self.log("sys", f"permission approved: {digest[:8] if digest else 'nothing'}")
+                    self.status.note("permission", "approved once, for one action"
+                                     if digest else "asked to approve, nothing waiting")
                 elif permissions.enabled() and permissions.deny_intent(text):
                     waiting = permissions.pending()
                     permissions.deny(waiting[-1]["id"]) if waiting else None
@@ -518,6 +527,7 @@ class Assistant:
             # is wrong in the first case at the level of the fact and useless in
             # the second, where a refused name is not a connection problem at all.
             kind = net.net.note_failure(str(exc))
+            self.status.note(kind, str(exc))
             # A dead relay deserves the next one in the chain. A silent model is
             # not proof on its own that the model died, because a slow tool run
             # looks the same from here, so it gets one retry before the chain
@@ -571,6 +581,8 @@ class Assistant:
                 moved = None
                 self.log("sys", "the model connection dropped, restarting it")
                 message = "My connection to the model dropped. Ask me again."
+            if moved:
+                self.status.note("fallback", f"moved to {moved.split('/')[-1]}")
             # both of these block for seconds while they synthesise, and
             # blocking the loop here backs up the microphone queue: the pump then
             # replays stale audio as if it were fresh, and the tail of his own

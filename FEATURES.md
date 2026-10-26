@@ -6,31 +6,28 @@ The full list, including the limits. Kept to one line each.
 
 - **Any wake phrase.** Recognised, not matched against a trained model, so you set
   your own words and no training is involved.
-- **One breath.** "hey jarvis, what is the weather" is one turn, not two.
+- **One breath.** "hey jarvis, what is the weather" is one turn.
 - **Interruption.** Talk over it and it stops, keeps what you said, and answers that.
 - **It gives up on a slow model** if you start talking, not after.
 - **Typed input.** A text box.
 - **A microphone switch.** Key `M` or the button. Off means off, across a restart.
-- **It says when it cannot hear.** Twenty seconds of exact digital silence and it
-  says so, once.
+- **It says when it cannot hear.** Twenty seconds of digital silence, said once.
 
 ## Answered locally, without the model
 
 Never touch a relay, so these land in about half a second:
 
-- **Reminders and timers.** "Remind me in twenty minutes to check the oven", "set
-  a timer for an hour and a half", "what reminders do I have". Parsed on the
-  machine, confirmed in one breath.
-- **A way back from clearing them.** Cancelling keeps what it took for two
-  minutes: "undo" brings them back, with their times.
-- **Themes.** Three, by voice.
+- **Reminders and timers.** "Remind me in twenty minutes to check the oven", "set a
+  timer for an hour and a half", "what reminders do I have". Parsed on the machine.
+- **A way back from clearing them.** Cancelling keeps what it took for two minutes:
+  "undo" brings them back, with their times.
 - **Briefing facts.** Time, date, weather, load, memory, uptime, last sweep, gathered
   locally and handed to the model, so it reports the machine.
 
 ## It knows the machine
 
 - **Screen vision.** It captures the screen and hands the picture over, so the answer
-  is about the window that is open, not what a model remembers.
+  is about the window that is open.
 - **Security sweep.** Processes, listening sockets, SSH config, hosts file, world
   writable paths, user services, browser extensions, launcher entries, pending
   updates, and a bounded ClamAV scan. It reports what is normal as well as what is
@@ -39,7 +36,7 @@ Never touch a relay, so these land in about half a second:
   every turn, or kept back from it.
 - **A permission gate, off by default.** Switched on, every tool call is judged in
   code before it runs: its own directories and commands that only look are allowed,
-  everything else waits for your approval, once, for that exact action.
+  everything else waits for your approval, once.
 - **Privacy switches for online models.** What it remembers, the files you ask
   about, screenshots, earlier conversation and transcripts, each one switchable,
   each enforced where the request is built rather than asked for in a prompt. All
@@ -49,11 +46,14 @@ Never touch a relay, so these land in about half a second:
 ## The dashboard
 
 - **Live state.** What it heard, is doing, said, and every tool it used, streamed
-  as it happens; the server is the source of truth, so two tabs agree.
-- **Three themes.** Standard, stealth and combat, repainting the orb, the rings,
-  the radar and every panel. Also `?theme=combat` on the URL.
+  as it happens; two tabs agree.
+- **Three themes.** Standard, stealth and combat, repainting the orb, the radar and
+  every panel. Also `?theme=combat` on the URL.
 - **It tells you where the turn is.** Thinking, listening, speaking and muted are
   distinct states, not one blinking light.
+- **What the assistant itself is doing.** Which model is answering and whether it is
+  this machine's, the network verdict, the local server, what may leave the machine,
+  and what waits on your approval. Off by default, so the panel appears when asked.
 
 ## What you can say
 
@@ -81,11 +81,11 @@ Interrupt any of it by talking over it, or by saying the wake phrase again.
   worse than a plain no.
 - **It works with no internet.** A small local model answers instead of a relay,
   measured here at 0.7 s cold; llama.cpp and a model fetched by hand are needed.
-- **The fallback voice is an extra.** Without kokoro's files it says so rather
-  than speaking with something worse; `uv sync --extra fallback-voice` adds piper.
+- **The fallback voice is an extra.** `uv sync --extra fallback-voice` adds piper;
+  without kokoro's files it says so rather than speaking with something worse.
 - **Screen questions need a seeing model and a willing compositor.** A text only
-  model answers without the picture, and some NVIDIA and Wayland pairs refuse a
-  screenshot, which it retries three times.
+  model answers without the picture, and some NVIDIA and Wayland pairs refuse the
+  screenshot.
 - **Talking about it can wake it.** The wake phrase in a sentence about the
   assistant is a call as far as it is concerned.
 - **On a scrolling layout the dashboard can open off the edge**, since a Wayland

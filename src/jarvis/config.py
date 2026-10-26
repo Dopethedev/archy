@@ -232,6 +232,15 @@ PRIVACY_SHARE_FILES = True          # file tools are usable at all
 PRIVACY_SHARE_SCREENS = True        # a screenshot may be attached to a request
 PRIVACY_SHARE_HISTORY = True        # earlier conversation is resumed
 PRIVACY_KEEP_TRANSCRIPTS = True     # pi keeps its session files on disk
+
+# ---------------------------------------------------------------------- dashboard
+# The status panel: which model is answering, whether the network is up, what may
+# leave the machine, what is waiting on approval. Off by default, because the
+# dashboard before this showed the machine and nothing else, and a switch whose
+# default changes what people already have is not a switch. Turning it on adds
+# events to the same stream the dashboard already receives.
+DASHBOARD_STATUS = False
+STATUS_EVERY_TICKS = 3              # the panel refreshes every third stats tick
 # If pi says nothing at all for this long the turn is abandoned and the model
 # While a tool call is running, and for the rest of that turn, the process is
 # doing more work than an ordinary question: a twenty second curl is a slow
