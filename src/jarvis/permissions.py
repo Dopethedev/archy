@@ -227,12 +227,22 @@ def approve(entry_id: str) -> str | None:
         return None
     path = Path(config.PERMISSION_APPROVALS)
     tokens = _read(path).get("tokens")
-    tokens = tokens if isinstance(tokens, list) else []
+    tokens = [token for token in (tokens if isinstance(tokens, list) else [])
+              if isinstance(token, dict)]
     # One live token per action: approving twice is the same approval.
-    live = [token for token in tokens if isinstance(token, dict) and not token.get("used")]
-    if not any(token.get("digest") == digest for token in live):
-        live.append({"digest": digest, "granted": time.time(), "id": entry_id, "by": "user"})
-    _write(path, {"tokens": live})
+    if not any(token.get("digest") == digest and not token.get("used") for token in tokens):
+        tokens.append({"digest": digest, "granted": time.time(), "id": entry_id,
+                       "by": "user"})
+    # Used tokens are kept, not filtered out. Dropping them was a way to forget
+    # that an approval had already been spent: the gate reads this file to decide
+    # whether a burned token is a second run of something already done, and a file
+    # that has quietly lost that line answers "nothing was ever approved". Keeping
+    # them also means the gate has to prefer a live token over a burned one, which
+    # it now does. Bounded, because this file is not a history: the newest live
+    # ones matter and the oldest spent ones do not.
+    live = [token for token in tokens if not token.get("used")]
+    spent = [token for token in tokens if token.get("used")][-100:]
+    _write(path, {"tokens": live + spent})
     _drop_pending(entry_id)
     return digest
 
@@ -366,7 +376,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  gate:      {current['gate']}")
         print(f"  policy:    {config.PERMISSION_POLICY}")
         print(f"  roots:     {', '.join(policy()['roots'])}")
-        print(f"  waiting:   {current['waiting']}")
+        waiting = current["waiting"]
+        print(f"  waiting:   {'cannot read the list' if waiting is None else waiting}")
         return 0
 
     command = args[0]
@@ -387,8 +398,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"approved once: {digest[:8]}")
         return 0
     if command == "deny" and len(args) >= 2:
-        print("denied" if deny(args[1]) else f"nothing is waiting under {args[1]}")
-        return 0 if deny(args[1]) or True else 1
+        # one call, one answer: this asked deny() twice, and the second answer was
+        # thrown away by `or True`, so the exit code said success either way
+        dropped = deny(args[1])
+        print("denied" if dropped else f"nothing is waiting under {args[1]}")
+        return 0 if dropped else 1
     if command == "log":
         count = int(args[1]) if len(args) > 1 and args[1].isdigit() else 20
         for entry in recent_log(count):
