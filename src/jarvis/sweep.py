@@ -36,6 +36,7 @@ assistant could not even start.
 """
 import json
 import os
+import platform
 import plistlib
 import re
 
@@ -1203,7 +1204,10 @@ def run(deep: bool = False) -> str:
     if not supported():
         return ("security sweep: this machine is neither Linux nor macOS, so "
                 "there is nothing here these checks know how to read.")
-    lines = [f"security sweep of {os.uname().nodename}, {time.strftime('%H:%M')}"
+    # platform.node() rather than os.uname(), which Windows does not have at all:
+    # supported() keeps this line out of reach there today, and a line that throws on
+    # a platform is a trap for whoever makes that platform work tomorrow
+    lines = [f"security sweep of {platform.node()}, {time.strftime('%H:%M')}"
              + (", with the deeper checks:" if deep else ":")]
     for check in checks() + (deep_checks() if deep else ()):
         try:
