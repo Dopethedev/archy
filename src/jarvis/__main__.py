@@ -85,10 +85,33 @@ def open_dashboard(url: str):
     return None
 
 
+async def run_limited(assistant, seconds: float | None):
+    """Run the assistant, and stop it after this long if asked.
+
+    `--seconds` was accepted, documented as "stop after this many seconds", and
+    then ignored on every run that was not the microphone check: the flag did
+    nothing at all outside it. What it is for is a bounded smoke test, so it now
+    bounds the run.
+    """
+    if seconds is None:
+        await assistant.run()
+        return
+    try:
+        await asyncio.wait_for(assistant.run(), timeout=seconds)
+    except asyncio.TimeoutError:
+        print(f"stopped after {seconds:g}s")
+
+
 async def one_shot(text: str):
     assistant = Assistant(hud=None)
     await assistant.start_brain()
-    assistant.player.start()
+    # guarded, so a machine with no output device still gets its answer printed
+    # instead of a traceback out of the constructor: the rest of the assistant is
+    # built to carry on without a part that will not start
+    try:
+        assistant.player.start()
+    except Exception as exc:
+        print(f"no speaker: {type(exc).__name__}: {exc}", flush=True)
     await assistant._process(text=text)
     assistant.shutdown()
 
@@ -105,7 +128,8 @@ def main():
     parser.add_argument("--mic-test", action="store_true",
                         help="live microphone check: watch the level while you talk")
     parser.add_argument("--input", help="input device name substring, for example Fifine")
-    parser.add_argument("--seconds", type=float, help="stop after this many seconds")
+    parser.add_argument("--seconds", type=float,
+                        help="stop after this many seconds (the run, or the mic check)")
     args = parser.parse_args()
 
     if args.engine:
@@ -151,7 +175,7 @@ def main():
         print(f"opened dashboard in {opened}" if opened else "no browser found to open the dashboard")
 
     try:
-        asyncio.run(assistant.run())
+        asyncio.run(run_limited(assistant, args.seconds))
     except KeyboardInterrupt:
         print("\ninterrupted")
     except Exception as exc:

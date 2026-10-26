@@ -158,42 +158,40 @@ def _write(path: Path, body: dict) -> None:
     os.chmod(path, 0o600)
 
 
-def waiting_count() -> int | None:
-    """How many actions are waiting, or None when the list cannot be read.
+def reading() -> dict:
+    """The waiting list, read once: how many, and which ones.
 
-    The difference matters on a dashboard: nothing waiting and nothing readable are
-    different facts, and showing the second as the first is a false all-clear.
+    One read rather than three, because a panel that shows a count and a list is
+    showing two facts that have to agree with each other, and they cannot if they
+    come from different moments. `waiting` is None when the list exists but cannot
+    be read: nothing waiting and nothing readable are different facts, and showing
+    the second as the first is a false all-clear.
     """
     path = Path(config.PERMISSION_PENDING)
     if not path.exists():
-        return 0
+        return {"waiting": 0, "pending": []}
     try:
         entries = json.loads(path.read_text()).get("pending")
     except (OSError, ValueError):
-        return None
+        return {"waiting": None, "pending": []}
     if not isinstance(entries, list):
-        return None
+        return {"waiting": None, "pending": []}
     ttl = float(config.PERMISSION_APPROVAL_TTL_S)
     now = time.time()
-    live = 0
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        if isinstance(entry.get("asked"), (int, float)) and now - entry["asked"] > ttl:
-            continue
-        live += 1
-    return live
+    live = [entry for entry in entries if isinstance(entry, dict)
+            and not (isinstance(entry.get("asked"), (int, float))
+                     and now - entry["asked"] > ttl)]
+    return {"waiting": len(live), "pending": live}
+
+
+def waiting_count() -> int | None:
+    """How many actions are waiting, or None when the list cannot be read."""
+    return reading()["waiting"]
 
 
 def pending() -> list[dict]:
     """What the gate blocked and the owner has not answered yet."""
-    entries = _read(Path(config.PERMISSION_PENDING)).get("pending")
-    if not isinstance(entries, list):
-        return []
-    ttl = float(config.PERMISSION_APPROVAL_TTL_S)
-    now = time.time()
-    return [entry for entry in entries if isinstance(entry, dict)
-            and not (isinstance(entry.get("asked"), (int, float)) and now - entry["asked"] > ttl)]
+    return reading()["pending"]
 
 
 def _drop_pending(entry_id: str) -> bool:

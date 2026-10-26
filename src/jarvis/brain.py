@@ -517,4 +517,12 @@ class PiBrain:
                 self._proc.wait(timeout=5)
             except Exception:
                 self._proc.kill()
+                # and wait for it. A killed child that is never waited for stays a
+                # zombie until this process exits, and this restarts the brain
+                # rather than exiting: one zombie per hard restart, each holding a
+                # process slot, on a machine that runs for days.
+                try:
+                    self._proc.wait(timeout=5)
+                except Exception:
+                    pass
             self._proc = None

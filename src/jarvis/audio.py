@@ -356,6 +356,8 @@ class Player:
             outdata[:] = out[:, None]
 
     def start(self):
+        if self._stream is not None:              # same guard as the microphone
+            self.stop()
         self._stream = sd.OutputStream(
             samplerate=self.samplerate,
             channels=self._channels,
@@ -403,7 +405,6 @@ class Player:
 
     def wait_drained(self, timeout: float = 60.0) -> bool:
         """Block until everything queued has actually left the speaker."""
-        import time
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if not self.playing():

@@ -278,12 +278,25 @@ class Hud:
         self._cpu_percent(prev)
         while not self._stop.wait(1.5):
             self._ticks += 1
-            cpu, prev = self._cpu_percent(prev)
-            mem_pct, mem_gb = self._memory()
-            temp = self._temp()
-            self.publish({"type": "stats", "cpu": round(cpu, 1), "mem": round(mem_pct, 1),
-                          "mem_gb": round(mem_gb, 1), "temp": round(temp, 1) if temp else None})
-            self._publish_status()
+            # One reading that raises used to end this thread for good: the dials
+            # would freeze at their last numbers and the status panel would stop
+            # updating, with nothing on the page saying anything had stopped. A
+            # dashboard that lies by standing still is worse than one that skips a
+            # tick, so a failure is reported and the loop carries on.
+            try:
+                cpu, prev = self._cpu_percent(prev)
+                mem_pct, mem_gb = self._memory()
+                temp = self._temp()
+                self.publish({"type": "stats", "cpu": round(cpu, 1),
+                              "mem": round(mem_pct, 1), "mem_gb": round(mem_gb, 1),
+                              "temp": round(temp, 1) if temp else None})
+            except Exception as exc:
+                print(f"[hud] could not read the machine: {type(exc).__name__}: {exc}",
+                      flush=True)
+            try:
+                self._publish_status()
+            except Exception as exc:
+                print(f"[hud] could not publish the status: {exc}", flush=True)
 
     def _publish_status(self):
         """The assistant's own state, on the same clock as the machine's.
