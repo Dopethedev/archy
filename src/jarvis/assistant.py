@@ -35,6 +35,7 @@ from . import mic_state
 from . import sweep as sweep_mod
 from .audio import MicCapture, Player
 from .brain import BrainError, PiBrain
+from . import audio as audio_mod
 from . import desktop as desktop_mod
 from . import status as status_mod
 from .hud import Hud
@@ -809,9 +810,7 @@ class Assistant:
                 self._deaf_warned = True
                 self.log("sys", "the microphone is delivering silence: no "
                                 "signal at all for twenty seconds")
-                self._spawn(self._announce(
-                    "I am not hearing anything from the microphone. "
-                    "It may be switched off."))
+                self._spawn(self._announce(audio_mod.silence_warning()))
 
             try:
                 frame = self.mic.frames.get_nowait()
