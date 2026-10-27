@@ -41,7 +41,7 @@ SPEECH_ON_FOCUSED = 0.22     # softer speech counts as speech while waiting
 # ------------------------------------------------------------- wake word
 # "speech" understands the phrase with whisper, so any phrase works and no
 # training is needed. "model" uses openWakeWord's pretrained detector, which
-# only exists for hey_archy, hey_mycroft, hey_marvin, alexa, timer, weather.
+# only exists for hey_jarvis, hey_mycroft, hey_marvin, alexa, timer, weather.
 WAKE_MODE = "speech"
 WAKE_PHRASE = "hey archy"
 # Extra spellings the recogniser may produce for the distinctive word, which is
