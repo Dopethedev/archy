@@ -32,7 +32,7 @@ WMO = (
 
 def wanted(text: str) -> bool:
     words = text.lower()
-    if any(w in words for w in config.BRIEF_WORDS):
+    if any(w in words for w in config.BRIEF_WORDS) or clock_ask(words):
         return True
     # Two words this microphone turns this into, measured rather than guessed:
     # spoken at headset level, "brief me" comes back as "brief main", "brief man"
@@ -44,17 +44,43 @@ def wanted(text: str) -> bool:
     return bool(re.search(r"\bbr(?:ief|eath|eathe)\s+(?:me|main|man|may)\b", words))
 
 
-# questions answerable without the sky: fetching weather for "what time is it"
-# turned a 1.4 s answer into a 9 s one on a cold cache
-_LIGHT_ONLY = ("what time is it", "what day is it", "today's date", "todays date")
+# The clock and the calendar, asked the ways they get asked. The list in the
+# config holds the phrases this microphone has been measured on; this holds the
+# shape of the question itself, because the two questions the project's own demo
+# film types were neither: "what is the time" and "what's the time" went to the
+# model with no facts at all, so the one thing a machine can answer exactly was
+# the one thing it was left to guess at.
+_CLOCK_ASK = re.compile(
+    r"\b(?:"
+    r"what(?:'?s| is)? (?:the )?time(?: is it| now)?|what time is it|"
+    r"tell me the time|the time please|got the time|do you have the time|"
+    r"what(?:'?s| is)? (?:the |today'?s )?date|what day is (?:it|today)|"
+    r"what(?:'?s| is)? the day today|tell me the date|today'?s date"
+    r")\b")
+
+# "what is the time complexity of this" is a question about code, not about the
+# clock, and the model is the right thing to ask. So are the ones that ask about a
+# place, which need an offset this machine does not know.
+_NOT_A_CLOCK = ("complexity", "difference", "zone", "limit", " in ", " it takes")
+
+# A clock ask with any of these in it is a briefing that happens to start with the
+# clock: "what day is it going to rain" is a weather question, and "what is the
+# date and how is the machine" wants the machine report as well.
+_ALSO_MORE = ("weather", "rain", "forecast", "temperature", "brief", "machine",
+              "status", "sweep", "system")
+
+
+def clock_ask(text: str) -> bool:
+    """A time or date question, as opposed to a question containing those words."""
+    words = text.lower()
+    return bool(_CLOCK_ASK.search(words)) \
+        and not any(w in words for w in _NOT_A_CLOCK)
 
 
 def wants_light(text: str) -> bool:
-    """A time or date ask: facts from this machine only, no network."""
+    """A time or date ask and nothing else: no weather fetch, no machine report."""
     words = text.lower()
-    return any(w in words for w in _LIGHT_ONLY) \
-        and not any(w in words for w in
-                    ("weather", "rain", "forecast", "temperature", "brief"))
+    return clock_ask(words) and not any(w in words for w in _ALSO_MORE)
 
 
 def _weather() -> str:
@@ -120,12 +146,22 @@ def _last_sweep() -> str:
     return f"the last sweep, at {when}, came back clean"
 
 
-def gather(weather: bool = True) -> str:
+def clock() -> str:
+    """Just the clock and the calendar, for a question that asked for those.
+
+    The same facts block, with one line in it. Asked what the time is, the model
+    was handed the machine report and the last sweep too, and read all of it out:
+    three sentences of uptime after the time nobody asked about.
+    """
+    return ("LOCAL FACTS, gathered just now. Do not search the web for these.\n"
+            f"Time: {time.strftime('%H:%M on %A, %d %B %Y')}.\n")
+
+
+def gather() -> str:
     """The facts block, in plain sentences a model can read aloud from."""
-    lines = [f"Time: {time.strftime('%H:%M on %A, %d %B %Y')}."]
-    if weather:
-        lines.append(f"Weather in {config.CITY or 'your area'}: {_weather()}.")
-    lines.append(f"This machine: {_machine()}.")
-    lines.append(f"Security: {_last_sweep()}.")
+    lines = [f"Time: {time.strftime('%H:%M on %A, %d %B %Y')}.",
+             f"Weather in {config.CITY or 'your area'}: {_weather()}.",
+             f"This machine: {_machine()}.",
+             f"Security: {_last_sweep()}."]
     return ("LOCAL FACTS, gathered just now. Do not search the web for these.\n"
             + "\n".join(lines) + "\n")
