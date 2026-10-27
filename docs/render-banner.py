@@ -8,11 +8,20 @@ banner cannot fall back to something else on a machine that lacks the font. The
 file that ships is the SVG; nothing here needs to run again unless the header
 changes.
 
+Every outlined letter carries the character it draws, so the name in the picture
+can be read back out of the file without the font, and the checks in
+tests/test_docs_assets.py compare that name with the one in pyproject.toml. The
+picture said the old name for a week because those letters are outlines: the
+word had been replaced in the title text and nowhere else, and no search for the
+name finds a drawing.
+
     python3 docs/render-banner.py
     rsvg-convert -w 2800 docs/banner.svg -o /tmp/banner.png   # to look at it
 """
 import sys
+import tomllib
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 from fontTools.misc.transform import Transform
 from fontTools.pens.svgPathPen import SVGPathPen
@@ -20,6 +29,10 @@ from fontTools.pens.transformPen import TransformPen
 from fontTools.ttLib import TTFont
 
 ROOT = Path(__file__).resolve().parents[1]
+NAME = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["name"]
+OWNER = "Dopethedev"
+TAGLINE = "a voice assistant that runs on your own machine"
+CAPTION = "local speech in   local speech out   nothing to sign up for"
 OUT = ROOT / "docs" / "banner.svg"
 
 # The first of these that exists wins. Both are widely packaged, so whoever
@@ -48,21 +61,37 @@ class Outliner:
         self.advance = self.font["hmtx"]
 
     def text(self, s: str, size: float, x: float, y: float,
-             tracking: float = 0.0) -> tuple[str, float]:
-        """Path data for s with its baseline at y, and the width it used."""
+             tracking: float = 0.0) -> tuple[list[tuple[str, str]], float]:
+        """One (character, path data) per drawn letter, baseline at y, and the width."""
         scale = size / self.upem
-        parts, pen_x = [], x
+        drawn, pen_x = [], x
         for ch in s:
             name = self.cmap.get(ord(ch))
             if name is None:
                 pen_x += self.advance["space"][0] * scale + tracking
                 continue
-            pen = SVGPathPen(self.glyphs)
-            self.glyphs[name].draw(TransformPen(
-                pen, Transform(scale, 0, 0, -scale, pen_x, y)))
-            parts.append(pen.getCommands())
-            pen_x += self.advance[name][0] * scale + tracking
-        return " ".join(parts), pen_x - x
+            advance = self.advance[name][0] * scale + tracking
+            if not ch.isspace():            # a space moves the pen and draws nothing
+                pen = SVGPathPen(self.glyphs)
+                self.glyphs[name].draw(TransformPen(
+                    pen, Transform(scale, 0, 0, -scale, pen_x, y)))
+                drawn.append((ch, pen.getCommands()))
+            pen_x += advance
+        return drawn, pen_x - x
+
+
+def attr(value: str) -> str:
+    """Text for an XML attribute: quotes and angle brackets cannot be literal."""
+    return escape(value, {'"': "&quot;", "'": "&apos;"})
+
+
+def outlined(outliner: Outliner, s: str, size: float, x: float, y: float,
+             fill: str, tracking: float = 0.0, attrs: str = "") -> tuple[str, float]:
+    """A group of letters, each one naming the character it draws."""
+    drawn, width = outliner.text(s, size, x, y, tracking)
+    glyphs = "\n".join(
+        f'    <path data-char="{attr(ch)}" d="{d}"/>' for ch, d in drawn)
+    return (f'  <g data-text="{attr(s)}" fill="{fill}"{attrs}>\n{glyphs}\n  </g>', width)
 
 
 def radar(cx: float, cy: float) -> str:
@@ -90,16 +119,15 @@ def main() -> int:
         return 1
 
     outliner = Outliner(font_path)
-    wordmark, width = outliner.text("archy", 148, 68, 196, tracking=-4)
-    tagline, _ = outliner.text("a voice assistant that runs on your own machine", 27, 72, 250)
-    caption, _ = outliner.text("local speech in   local speech out   nothing to sign up for",
-                               18, 72, 292)
+    wordmark, width = outlined(outliner, NAME, 148, 68, 196, INK, tracking=-4)
+    tagline, _ = outlined(outliner, TAGLINE, 27, 72, 250, ACCENT, attrs=' fill-opacity="0.82"')
+    caption, _ = outlined(outliner, CAPTION, 18, 72, 292, DIM)
     # The URL is outlined like the rest: a self contained file should not render
     # differently because of whatever monospace font the reader happens to have.
-    url, url_width = outliner.text("github.com/Dopethedev/archy", 17, 0, H - 26)
+    url, url_width = outlined(outliner, f"github.com/{OWNER}/{NAME}", 17, 0, H - 26, DIM)
 
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">
-  <title>archy</title>
+  <title>{NAME}</title>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="{BG_TOP}"/>
@@ -124,11 +152,13 @@ def main() -> int:
   <circle cx="1150" cy="170" r="200" fill="url(#glow)"/>
   {radar(1150, 170)}
 
-  <path d="{wordmark}" fill="{INK}"/>
-  <path d="{tagline}" fill="{ACCENT}" fill-opacity="0.82"/>
-  <path d="{caption}" fill="{DIM}"/>
+  {wordmark}
+  {tagline}
+  {caption}
 
-  <g transform="translate({W - 40 - url_width:.1f} 0)"><path d="{url}" fill="{DIM}"/></g>
+  <g transform="translate({W - 40 - url_width:.1f} 0)">
+  {url}
+  </g>
 </svg>
 """
     OUT.write_text(svg)
