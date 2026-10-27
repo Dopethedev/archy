@@ -5,7 +5,7 @@ local port as a "simple request" that skips the preflight, and the assistant
 runs shell commands. These are the guards, plus the check that a legitimate
 page still gets through.
 """
-import json, socket, sys, time
+import json, re, socket, sys, time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -188,6 +188,17 @@ hint_js = js_path.read_text()
 check("the page in the repository carries a placeholder, not a phrase",
       "__ARCHY_WAKE__" in hint_page and "hey archy" not in hint_page,
       "the phrase lives in config.py and the fallback in app.js")
+
+# The rename was a blanket one and it missed this page: the boot title and the
+# header brand still said the old name, which is the name every picture of the
+# page carried into the README, the release page and the demo film. It was spaced
+# out letter by letter, so the whitespace comes out before matching: the literal
+# text was "J A R V I S", which a search for the name does not find.
+old_name = [path.name for path in sorted(page_path.parent.glob("*"))
+            if path.suffix in (".html", ".js", ".css")
+            and "jarvis" in re.sub(r"\s+", "", path.read_text()).lower()]
+check("nothing in the dashboard answers to the old name", not old_name,
+      ", ".join(old_name))
 check("a page served without the swap falls back instead of showing it",
       "/^__.*__$/" in hint_js and 'dataset.wake || "hey archy"' not in hint_js,
       "the script refuses a leftover placeholder")
@@ -211,6 +222,31 @@ for body in ('["a", "list"]', '"a bare string"', "42"):
 resp = post('{"text": "hello"}', token=hud.token)
 check("a well formed request is accepted", resp.startswith("HTTP/1.1 200"),
       resp.splitlines()[0] if resp else "no response")
+
+# ------------------------------------------------------------ a port already in use
+# The failure a second copy hits, and the advice it prints. The advice has to name
+# a command that matches how this program is actually started, which is what the
+# old name stopped doing: it told the reader to kill a process that does not exist.
+taken = socket.socket()
+taken.bind((HOST, 0))
+taken.listen(1)
+taken_port = taken.getsockname()[1]
+try:
+    notice = None
+    try:
+        Hud(port=taken_port).start()
+    except RuntimeError as exc:
+        notice = str(exc)
+    check("a taken port is reported, not swallowed", notice is not None, str(notice))
+    check("and it names the program, not its old name",
+          bool(notice) and "archy" in notice and "jarvis" not in notice.lower(),
+          str(notice))
+    suggested = re.search(r"pkill -f '([^']+)'", notice or "")
+    check("the pattern it suggests matches the way this runs",
+          bool(suggested) and bool(re.search(suggested.group(1), "python -m archy")),
+          str(suggested and suggested.group(1)))
+finally:
+    taken.close()
 
 hud.stop()
 (sibling / "secret.txt").unlink(missing_ok=True)
