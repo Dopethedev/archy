@@ -88,5 +88,30 @@ check("date is light", briefing.wants_light("what day is it"))
 check("weather is not light", not briefing.wants_light("what's the weather like"))
 check("a briefing is not light", not briefing.wants_light("brief me"))
 
+print("-- the clock, asked the ways it gets asked --")
+# Including the two the project's own demo film types. It asks "what is the
+# time", and that went to the model with no facts at all: the one thing a machine
+# can answer exactly was the one thing left to be guessed at.
+CLOCK = ["what time is it", "what is the time", "what's the time", "whats the time",
+         "what time is it now", "what is the time now", "tell me the time",
+         "the time please", "got the time", "do you have the time",
+         "what day is it", "what day is today", "what is the day today",
+         "what is the date", "what's the date", "what is the date today",
+         "what's today's date", "tell me the date", "today's date", "todays date",
+         "hey archy, what is the time"]
+wrong = [t for t in CLOCK if not (briefing.wanted(t) and briefing.wants_light(t))]
+check(f"{len(CLOCK)} ways to ask the time or the date", not wrong, str(wrong))
+
+print("-- and a question that only mentions the time is not one --")
+MENTIONS = ["what is the time complexity of quicksort",
+            "what is the time difference between here and tokyo",
+            "what is the time zone of kathmandu",
+            "what is the time limit on that",
+            "what is the timestamp",
+            "what times table is that"]
+fired = [t for t in MENTIONS if briefing.wanted(t) or briefing.wants_light(t)]
+check(f"{len(MENTIONS)} about code or a place, not about the clock",
+      not fired, str(fired))
+
 print(f"\n{'ALL PASS' if not failed else str(failed) + ' FAILED'}  ({passed} checks)")
 sys.exit(1 if failed else 0)
