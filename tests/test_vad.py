@@ -14,6 +14,10 @@ import numpy as np  # noqa: E402
 from archy import config  # noqa: E402
 from archy.vad import SpeechVAD  # noqa: E402
 
+import voice_models  # noqa: E402
+
+voice_models.require("this group scores speech, and the speech it scores is its own")
+
 failures = 0
 def check(label, ok, detail=""):
     global failures
@@ -26,8 +30,7 @@ def speech_16k(seconds: float = 2.0) -> np.ndarray:
     """Real speech, synthesised, because synthesised speech is still speech."""
     from kokoro_onnx import Kokoro
     from archy.audio import resample
-    kokoro = Kokoro(str(config.MODELS / "kokoro-v1.0.onnx"),
-                    str(config.MODELS / "voices-v1.0.bin"))
+    kokoro = Kokoro(str(voice_models.MODEL), str(voice_models.VOICES))
     samples, sr = kokoro.create(
         "Systems online. Your cpu usage is twelve percent, and the terminal is open now.",
         voice=config.TTS_VOICE, speed=config.TTS_SPEED, lang=config.TTS_LANG)

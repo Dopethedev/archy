@@ -152,10 +152,17 @@ SIM = Path(__file__).resolve().parent / "sim"
 
 
 def temp_ground():
-    """A scratch area for planted persistence that is not itself in /tmp, so
-    the scratch-path rule cannot fire on the test's own fixtures."""
-    SIM.mkdir(parents=True, exist_ok=True)
-    return tempfile.TemporaryDirectory(dir=SIM)
+    """A scratch area for planted persistence that is not itself a scratch path,
+    so the scratch-path rule cannot fire on the test's own fixtures. The copy of
+    the repository can be in one, though: /tmp is where most people clone, and
+    then every fixture here would come back as an alert about /tmp instead of the
+    line under test. The ground moves out in that case, and both copies are held
+    to the same checks."""
+    base = SIM
+    if any(part in str(base).lower() for part in sweep.SCRATCH_PARTS):
+        base = Path.home() / ".local" / "share"     # not one, by the same list
+    base.mkdir(parents=True, exist_ok=True)
+    return tempfile.TemporaryDirectory(dir=base)
 
 
 print("-- launchers: planted persistence, on copies --")

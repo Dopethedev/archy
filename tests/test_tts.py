@@ -9,6 +9,8 @@ import os, shutil, tempfile, time, wave, subprocess, sys
 import numpy as np
 from archy.audio import resample
 
+import voice_models
+
 TEXT = "Systems online. Your cpu usage is twelve percent and I have opened it for you."
 
 def save(path, int16, sr):
@@ -46,24 +48,32 @@ else:
         print(f"piper : {dt:.2f}s for {dur:.2f}s audio  ({dur/dt:.1f}x realtime)")
 
 # ---------- kokoro ----------
-try:
-    from kokoro_onnx import Kokoro
-    t = time.monotonic()
-    k = Kokoro("models/kokoro-v1.0.onnx", "models/voices-v1.0.bin")
-    load = time.monotonic() - t
-    voice = "bm_george"          # British male
+# the default voice. Absent is a skip that names the fetch, installed and broken
+# is a failure: it used to be a printed line either way, so a broken kokoro left
+# this group passing with nothing spoken in it
+kokoro_broken = None
+if not voice_models.ready():
+    print(f"kokoro: skipped, its models are not fetched ({voice_models.FETCH})")
+else:
     try:
-        samples, sr = k.create(TEXT, voice=voice, speed=1.0, lang="en-gb")
-    except TypeError:            # older/newer signature
-        samples, sr = k.create(TEXT, voice=voice, speed=1.0)
-    dt = time.monotonic() - t
-    audio = np.asarray(samples, dtype=np.float32)
-    save("/tmp/out_kokoro.wav", (audio * 32767).astype(np.int16), sr)
-    dur = len(audio) / sr
-    results["kokoro"] = (dt, dur, "/tmp/out_kokoro.wav")
-    print(f"kokoro: load {load:.2f}s, then {dt:.2f}s for {dur:.2f}s audio ({dur/dt:.1f}x realtime)")
-except Exception as e:
-    print(f"kokoro FAILED: {type(e).__name__}: {e}")
+        from kokoro_onnx import Kokoro
+        t = time.monotonic()
+        k = Kokoro(str(voice_models.MODEL), str(voice_models.VOICES))
+        load = time.monotonic() - t
+        voice = "bm_george"          # British male
+        try:
+            samples, sr = k.create(TEXT, voice=voice, speed=1.0, lang="en-gb")
+        except TypeError:            # older/newer signature
+            samples, sr = k.create(TEXT, voice=voice, speed=1.0)
+        dt = time.monotonic() - t
+        audio = np.asarray(samples, dtype=np.float32)
+        save("/tmp/out_kokoro.wav", (audio * 32767).astype(np.int16), sr)
+        dur = len(audio) / sr
+        results["kokoro"] = (dt, dur, "/tmp/out_kokoro.wav")
+        print(f"kokoro: load {load:.2f}s, then {dt:.2f}s for {dur:.2f}s audio ({dur/dt:.1f}x realtime)")
+    except Exception as e:
+        kokoro_broken = f"{type(e).__name__}: {e}"
+        print(f"kokoro FAILED: {kokoro_broken}")
 
 # ---------- intelligibility round trip ----------
 print("\n--- whisper reading each back ---")
@@ -87,6 +97,8 @@ for name, (dt, dur, path) in results.items():
     if miss:
         print(f"          missing: {miss}")
 
+
+allok &= kokoro_broken is None
 
 # ---------- the failure path, now that the fallback voice is optional ----------
 # piper is not installed by default and kokoro needs its model files, so this is
