@@ -32,6 +32,7 @@ from PIL import Image                                # noqa: E402
 
 import archy.__main__ as main_mod                    # noqa: E402
 import archy.audio as audio                          # noqa: E402
+import archy.config as config                        # noqa: E402
 import archy.sweep as sweep                          # noqa: E402
 import archy.sysinfo as sysinfo                      # noqa: E402
 import archy.vision as vision                        # noqa: E402
@@ -529,6 +530,56 @@ try:
               expected in said and "device unavailable" in said, said[:55])
 finally:
     audio.sys = real_audio_sys
+
+print("-- a microphone that opens and then will not start --")
+
+
+class HalfStream:
+    """A device that opens and then refuses to start, and remembers being closed."""
+
+    def __init__(self):
+        self.closed = False
+        self.stopped = False
+
+    def start(self):
+        raise OSError("device is busy")
+
+    def stop(self):
+        self.stopped = True
+
+    def close(self):
+        self.closed = True
+
+
+class FakeSd:
+    def __init__(self, stream):
+        self.stream = stream
+
+    def InputStream(self, **kwargs):          # noqa: N802
+        return self.stream
+
+
+real_sd = audio.sd
+real_hw_agc = config.HARDWARE_AGC
+stream = HalfStream()
+audio.sd = FakeSd(stream)
+config.HARDWARE_AGC = True                    # no amixer subprocess on the way in
+try:
+    # device=1 rather than the default: an int is passed straight through, so this
+    # does not ask sounddevice to enumerate anything
+    mic = audio.MicCapture(device=1)
+    try:
+        mic.start()
+        check("a microphone that will not start fails the open", False, "it returned")
+    except RuntimeError as exc:
+        check("a microphone that will not start fails the open",
+              "would not open" in str(exc), str(exc)[:50])
+    check("and the stream it opened on the way in is closed, not dropped",
+          stream.closed, "PortAudio holds the device until it is closed")
+    check("and the microphone keeps no reference to it", mic._stream is None)
+finally:
+    audio.sd = real_sd
+    config.HARDWARE_AGC = real_hw_agc
 
 print("-- the dashboard window, on a Mac --")
 real_dirs = main_mod.MAC_APP_DIRS

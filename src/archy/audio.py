@@ -258,6 +258,18 @@ class MicCapture:
             )
             self._stream.start()
         except Exception as exc:
+            # The constructor has already opened the device by the time it returns,
+            # so a stream that then fails to start has to be closed rather than
+            # dropped: PortAudio holds the device until it is, and every later
+            # attempt to open it fails with the device busy, which reads like a
+            # microphone that has stopped working rather than a stray handle.
+            if self._stream is not None:
+                try:
+                    self._stream.close()
+                except Exception:
+                    # a close that fails is not worth replacing the reason the
+                    # open did
+                    pass
             self._stream = None
             raise RuntimeError(open_error(exc)) from exc
 
