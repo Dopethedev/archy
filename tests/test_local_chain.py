@@ -16,6 +16,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -104,6 +106,14 @@ class Silent(http.server.BaseHTTPRequestHandler):
         return self._answer(b"{}")
 
     def do_POST(self):                                 # noqa: N802
+        # The request body has to be read before the answer, the way a server does
+        # it. Answering and closing with the body still unread makes the close a
+        # reset: the client sees a load request refused that the stand-in answered
+        # with 200, which is what one windows run reported here. With a body bigger
+        # than the socket buffer it fails every time on this machine.
+        length = int(self.headers.get("Content-Length") or 0)
+        if length:
+            self.rfile.read(length)
         Silent.loads.append(self.path)
         if Silent.state == "empty":
             # what a real router does when asked for a model it does not have:
@@ -152,6 +162,20 @@ check("and the request went to the load endpoint",
       Silent.loads == ["/models/load"], str(Silent.loads))
 check("only once, however often it is asked",
       (local_model.ensure_running(), len(Silent.loads))[1] == 1, str(Silent.loads))
+
+print("-- the stand-in reads its request, like the router it stands in for --")
+# A body that does not fit in the socket buffers, so an answer written before it is
+# read cannot work by luck on a fast machine
+big = urllib.request.Request(f"{config.PI_LOCAL_SERVER_URL}/models/load",
+                             data=b"x" * 200_000,
+                             headers={"Content-Type": "application/json"})
+try:
+    with urllib.request.urlopen(big, timeout=10) as resp:
+        status = resp.status
+except (urllib.error.URLError, OSError) as exc:
+    status = f"{type(exc).__name__}: {exc}"
+check("a load request with a body is answered, not dropped", status == 200, str(status))
+Silent.loads[:] = []
 
 print("-- a router that never finishes loading --")
 Silent.state, Silent.loads[:], Silent.sticks = "unloaded", [], False
