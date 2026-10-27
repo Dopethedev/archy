@@ -33,7 +33,8 @@ from archy.assistant import Assistant  # noqa: E402
 from archy.brain import PiBrain  # noqa: E402
 from archy.memory_store import Memory  # noqa: E402
 
-REPO = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+REPO = ROOT
 HARNESS = Path(__file__).resolve().parent / "gate_decide.mjs"
 
 passed = failed = 0
@@ -61,12 +62,17 @@ inside = work_root / "diary.txt"
 inside.write_text("private things\n")
 
 saved = {name: getattr(config, name) for name in (
-    "MEMORY_FILE", "SESSION_DIR", "PI_MODELS_OFFLINE", "PI_CHAIN_MODE", "PI_CONTINUE",
+    "MEMORY_FILE", "SESSION_DIR", "LOCAL_CONFIG_FILE", "PI_MODELS_OFFLINE",
+    "PI_CHAIN_MODE", "PI_CONTINUE",
     "PERMISSION_POLICY", "PERMISSION_PENDING", "PERMISSION_APPROVALS", "PERMISSION_LOG",
     "PRIVACY_ONLINE_AI", "PRIVACY_SHARE_MEMORY", "PRIVACY_SHARE_FILES",
     "PRIVACY_SHARE_SCREENS", "PRIVACY_SHARE_HISTORY", "PRIVACY_KEEP_TRANSCRIPTS")}
 
 config.MEMORY_FILE = work / "memory.json"
+# Switching a privacy setting writes it down so it survives a restart, and the
+# setting this file switches is the owner's if the file is the live one. It is
+# not: the switches are written into the temporary directory with everything else.
+config.LOCAL_CONFIG_FILE = work / "config.local.json"
 config.SESSION_DIR = work / "sessions"
 config.SESSION_DIR.mkdir()
 (config.SESSION_DIR / "2026-01-01.jsonl").write_text('{"role":"user","content":"yesterday"}\n')

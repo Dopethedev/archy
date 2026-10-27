@@ -21,6 +21,11 @@ sys.path.insert(0, str(ROOT / "src"))
 from archy import config, sweep, vision               # noqa: E402
 from archy.vision import ScreenError                 # noqa: E402
 
+# The sweep writes its report into the state directory, and a report on disk is
+# what the briefing reads out as the last sweep. Run from the repository that is
+# the live one, so the checks here go to a temporary directory instead.
+config.STATE_DIR = Path(tempfile.mkdtemp(prefix="archy-platform-"))
+
 passed = failed = skipped = 0
 
 

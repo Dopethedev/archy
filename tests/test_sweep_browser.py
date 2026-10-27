@@ -4,6 +4,12 @@ Nothing here touches the live Brave profile or the live launcher directories:
 every scenario is built in a temporary tree, the way malware would actually
 appear, and the sweep is pointed at the copy. The live run in run_all is the
 reverse: the checks must stay quiet on a clean machine.
+
+The live sweep at the end of this file writes its report into the state
+directory, and that is the report the briefing reads out. Run from the
+repository it was writing the live one, so a suite run left a report of a sweep
+nobody asked for on disk. It goes to a temporary directory here, and the live
+copy is compared at the end.
 """
 import json
 import os
@@ -13,10 +19,14 @@ import tempfile
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
-import archy.sweep as sweep
-from archy.sweep import check_browser, check_launchers
+import archy.sweep as sweep  # noqa: E402
+from archy import config  # noqa: E402
+from archy.sweep import check_browser, check_launchers  # noqa: E402
+
+config.STATE_DIR = Path(tempfile.mkdtemp(prefix="archy-browser-"))
 
 passed = failed = 0
 
@@ -288,6 +298,9 @@ check("the report mentions the browser", "brave" in report.lower()
 check("the report mentions launchers", "launcher" in report.lower())
 check("the summary line is still last",
       report.rstrip().splitlines()[-1].strip().startswith("summary:"))
+check("and the report is written where the sweep was pointed",
+      (config.STATE_DIR / "last-sweep.txt").is_file(),
+      str(config.STATE_DIR / "last-sweep.txt"))
 
 import shutil
 if SIM.exists():

@@ -11,15 +11,23 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
 import archy.assistant as archy_assistant
 from archy import status as status_mod
 from archy import privacy
 import archy.sweep as sweep
+from archy import config
 from archy.assistant import Assistant
 from archy.sweep import (check_hosts, check_listeners, check_processes,
                           check_uid_zero, check_world_writable, run, wanted)
+
+# A sweep writes its report into the state directory, and that report is what the
+# briefing reads out as the last sweep. Run from the repository that is the live
+# one, so the checks below used to leave a report of a sweep nobody asked for on
+# disk. They run against a temporary directory instead.
+config.STATE_DIR = Path(tempfile.mkdtemp(prefix="archy-sweep-"))
 
 passed = failed = 0
 
