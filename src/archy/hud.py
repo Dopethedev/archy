@@ -324,7 +324,11 @@ class Hud:
         except OSError as exc:
             raise RuntimeError(
                 f"dashboard port {self.port} is already in use ({exc}). "
-                f"Another copy of archy is probably running: pkill -f '[j]arvis'"
+                # both ways this runs: ./run.sh, which is python -m archy, and the
+                # console script. The bracket is so the pattern does not match the
+                # shell that is running the command, which is how it kills itself.
+                f"Another copy of archy is probably running: "
+                f"pkill -f '[p]ython -m archy|[b]in/archy'"
             ) from exc
         self._server.hud = self                                # type: ignore[attr-defined]
         self._server.daemon_threads = True
