@@ -94,7 +94,7 @@ class Harness(Assistant):
     def _back_to_idle(self):
         self.state = "idle"
         self.trace.append("state=idle")
-    async def _process(self, audio=None, text=None):
+    async def _process(self, audio=None, text=None, pending=None):
         self.processed.append(text)
 
 
