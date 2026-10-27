@@ -66,6 +66,30 @@ try:
 finally:
     sweep._proc_entries = real
 
+print("-- the readable count comes from the walk that made it --")
+reads = []
+
+def half_readable():
+    reads.append(1)
+    # The second pass is a different list, which is what the process list really
+    # does while it is being read: one process ended between the two.
+    yield ("200", None, "[kthreadd]")
+    yield ("201", "/usr/bin/kitty", "kitty")
+    if len(reads) == 1:
+        yield ("202", "/usr/bin/brave", "brave")
+
+
+sweep._proc_entries = half_readable
+try:
+    out = check_processes()
+    check("the process list is read once", len(reads) == 1, f"{len(reads)} reads")
+    check("and the count it prints is the count it saw",
+          "none of the 2 readable" in out[0], out[0][:70])
+    check("with the unreadable ones counted too", "1 could not be read" in out[0],
+          out[0][-40:])
+finally:
+    sweep._proc_entries = real
+
 print("-- accounts --")
 real_pwall = sweep.pwd.getpwall
 sweep.pwd.getpwall = lambda: [

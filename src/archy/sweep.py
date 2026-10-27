@@ -120,6 +120,7 @@ def _proc_entries():
 def check_processes() -> list[str]:
     findings = []
     unreadable = 0
+    readable = 0
     for pid, exe, cmdline in _proc_entries():
         if exe is None:
             # kernel threads, and every process belonging to someone else: this
@@ -128,6 +129,7 @@ def check_processes() -> list[str]:
             # is a claim about the processes this check could see.
             unreadable += 1
             continue
+        readable += 1
         low = exe.lower()
         if "/tmp/" in low or "/dev/shm/" in low:
             findings.append(f"alert: pid {pid} runs from {exe}: {cmdline[:80]}")
@@ -138,9 +140,12 @@ def check_processes() -> list[str]:
     if findings:
         return findings
     if unreadable:
-        return [f"ok: none of the {len(list(_proc_entries())) - unreadable} readable "
-                f"process(es) runs from /tmp, /dev/shm or a deleted file; {unreadable} "
-                f"could not be read (kernel threads, or another user's processes)"]
+        # counted while walking, not by walking again: a second pass is a second
+        # sample of a process list that changes as it is read, so the number it
+        # printed need not be the number this loop just saw
+        return [f"ok: none of the {readable} readable process(es) runs from /tmp, "
+                f"/dev/shm or a deleted file; {unreadable} could not be read "
+                f"(kernel threads, or another user's processes)"]
     return ["ok: no process runs from /tmp, /dev/shm or a deleted file"]
 
 
