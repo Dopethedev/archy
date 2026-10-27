@@ -14,10 +14,14 @@ from kokoro_onnx import Kokoro
 from faster_whisper import WhisperModel
 from archy import config
 
+import voice_models                              # noqa: E402
+
+voice_models.require("this group measures whisper against speech at microphone level")
+
 PHRASE = "Archy, open Sober and tell me my cpu usage"
 WANT = {"archy", "open", "sober", "cpu", "usage"}
 
-kokoro = Kokoro("models/kokoro-v1.0.onnx", "models/voices-v1.0.bin")
+kokoro = Kokoro(str(voice_models.MODEL), str(voice_models.VOICES))
 samples, sr = kokoro.create(PHRASE, voice="bm_george", speed=1.0, lang="en-gb")
 clean = resample(np.asarray(samples, dtype=np.float32), sr, 16000)
 clean = clean / np.abs(clean).max()

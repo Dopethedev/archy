@@ -5,13 +5,17 @@ import openwakeword
 from openwakeword.model import Model
 from kokoro_onnx import Kokoro
 
+import voice_models
+
+voice_models.require("this group needs speech to wake on, and to stay quiet on")
+
 MODELS = os.path.join(os.path.dirname(openwakeword.__file__), "resources", "models")
 HEY = os.path.join(MODELS, "hey_jarvis_v0.1.onnx")
 oww = Model(wakeword_model_paths=[HEY])
 LABEL = list(oww.models.keys())[0]
 print(f"wake model: {LABEL}")
 
-k = Kokoro("models/kokoro-v1.0.onnx", "models/voices-v1.0.bin")
+k = Kokoro(str(voice_models.MODEL), str(voice_models.VOICES))
 
 def say(text):
     samples, sr = k.create(text, voice="bm_george", speed=1.0, lang="en-gb")

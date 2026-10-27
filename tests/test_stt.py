@@ -12,17 +12,20 @@ _shipped = Path(tempfile.mkdtemp(prefix="archy-stt-")) / "config.local.json"
 _shipped.write_text("{}")
 os.environ["ARCHY_LOCAL_CONFIG"] = str(_shipped)
 
-import numpy as np
-from archy import config
-from archy.audio import resample
-from archy.wake import SpeechWake
-from faster_whisper import WhisperModel
-from kokoro_onnx import Kokoro
+import voice_models                              # noqa: E402
+import numpy as np                               # noqa: E402
+from archy import config                         # noqa: E402
+from archy.audio import resample                 # noqa: E402
+from archy.wake import SpeechWake                # noqa: E402
+from faster_whisper import WhisperModel          # noqa: E402
+from kokoro_onnx import Kokoro                   # noqa: E402
+
+voice_models.require("this group measures whisper against speech it speaks itself")
 
 PHRASE = "Archy, what is the cpu usage and open sober for me"
 WANT = {"cpu", "usage", "sober"}
 
-kokoro = Kokoro("models/kokoro-v1.0.onnx", "models/voices-v1.0.bin")
+kokoro = Kokoro(str(voice_models.MODEL), str(voice_models.VOICES))
 samples, sr = kokoro.create(PHRASE, voice="bm_george", speed=1.0, lang="en-gb")
 audio = resample(np.asarray(samples, dtype=np.float32), sr, 16000)
 audio = (audio / max(1e-6, np.abs(audio).max())).astype(np.float32)
