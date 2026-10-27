@@ -234,9 +234,13 @@ class PiBrain:
             args.append("--no-extensions")
         # The permission gate, when the owner turned it on. It raises here rather
         # than later if the file that enforces it is not there: starting pi with
-        # the promise of a gate and no gate is worse than not starting it.
-        permissions.note_model(model)
-        permissions.write_policy()
+        # the promise of a gate and no gate is worse than not starting it. With
+        # the gate off there is no gate, no policy and no enforcement, and the
+        # policy is the rulebook a running gate reads: writing one anyway, on
+        # every start, rewrote the rules for a gate that was not running.
+        if permissions.enabled():
+            permissions.note_model(model)
+            permissions.write_policy()
         args += permissions.gate_args()
 
         environment = dict(os.environ, **permissions.gate_env())
