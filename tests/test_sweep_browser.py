@@ -10,6 +10,11 @@ directory, and that is the report the briefing reads out. Run from the
 repository it was writing the live one, so a suite run left a report of a sweep
 nobody asked for on disk. It goes to a temporary directory here, and the live
 copy is compared at the end.
+
+The scratch area those planted copies go into is made by this file, because it is
+not in the repository: on a fresh clone this file died at the first planted copy
+with no such directory, so the suite only passed on a machine where something had
+already left one behind.
 """
 import json
 import os
@@ -149,6 +154,7 @@ SIM = Path(__file__).resolve().parent / "sim"
 def temp_ground():
     """A scratch area for planted persistence that is not itself in /tmp, so
     the scratch-path rule cannot fire on the test's own fixtures."""
+    SIM.mkdir(parents=True, exist_ok=True)
     return tempfile.TemporaryDirectory(dir=SIM)
 
 
@@ -303,9 +309,7 @@ check("and the report is written where the sweep was pointed",
       str(config.STATE_DIR / "last-sweep.txt"))
 
 import shutil
-if SIM.exists():
-    for child in SIM.iterdir():
-        shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink()
+shutil.rmtree(SIM, ignore_errors=True)
 
 print()
 print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)")
