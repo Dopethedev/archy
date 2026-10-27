@@ -15,7 +15,7 @@ from archy import config
 config.WAKE_MODE = "model"
 from archy.assistant import Assistant
 from archy.wake import SpeechWake
-from archy.assistant import blip
+from archy.assistant import blip, words_heard
 
 print("config: INPUT_BLOCK=%d WAKE_FRAME=%d END_SILENCE_MS=%d" %
       (config.INPUT_BLOCK, config.WAKE_FRAME, config.END_SILENCE_MS))
@@ -46,6 +46,17 @@ class FakeTranscriber:
     def transcribe(self, audio):
         self.calls += 1
         return "speculative words"
+
+
+class SlowTranscriber(FakeTranscriber):
+    """A recogniser slow enough to still be running when the speech stops."""
+    def __init__(self, seconds=0.2):
+        super().__init__()
+        self.seconds = seconds
+    def transcribe(self, audio):
+        self.calls += 1
+        time.sleep(self.seconds)
+        return "the words that were said"
 
 
 class Harness(Assistant):
@@ -87,16 +98,16 @@ class Harness(Assistant):
         self.state = s
     def _publish_levels(self):
         pass
-    def _start_utterance(self, audio, speech_ms, transcript=None):
+    def _start_utterance(self, audio, speech_ms, transcript=None, pending=None):
         # call the real one, so its too-short guard is what is being tested
-        Assistant._start_utterance(self, audio, speech_ms, transcript)
+        Assistant._start_utterance(self, audio, speech_ms, transcript, pending)
         if self.state == "thinking":      # the real code accepted it
             self.ended = (len(audio), speech_ms)
             # deliberately left in "thinking": the pump drains audio in that
             # state, which is what stops one recording being handled twice
-    async def _process(self, audio=None, text=None):
+    async def _process(self, audio=None, text=None, pending=None):
         self.processed.append(text)               # None means it transcribed normally
-    async def _check_wake(self, audio, transcript):
+    async def _check_wake(self, audio, transcript, pending=None):
         self.wake_audio.append(len(audio))
         self._back_to_idle()
     def _back_to_idle(self):
@@ -117,7 +128,7 @@ class TurnHarness(Harness):
         self.peak = 0
         self.turns = []
         self.durations = []
-    async def _process(self, audio=None, text=None):
+    async def _process(self, audio=None, text=None, pending=None):
         # like the real one: claim a fresh token for this turn, which is what
         # makes an interruption unable to touch the turn that replaces it
         token = threading.Event()
@@ -207,6 +218,62 @@ async def scenario_speech_while_thinking(name, enabled, frames=16, expect_interr
     print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: state={state} interrupted={aborted} "
           f"after {frames * 30}ms of speech (BARGE_ON_THINKING={enabled})")
     config.BARGE_ON_THINKING = True
+    return ok
+
+
+class AdoptingHarness(Harness):
+    """A turn that gets its words the way the real one does."""
+    async def _process(self, audio=None, text=None, pending=None):
+        self.processed.append(await words_heard(self, audio, text, pending))
+
+
+async def scenario_one_transcription_per_request(name):
+    """Speech that stops while the speculative pass is still running.
+
+    The recogniser is serialised, so a dropped speculation is not free: the worker
+    keeps the lock until it finishes and the turn then waits for it and transcribes
+    the same audio a second time. The words were already on their way, so the turn
+    takes them and the recogniser is asked once.
+    """
+    h = AdoptingHarness()
+    h.transcriber = SlowTranscriber(0.2)          # still running when speech stops
+    h.state = "idle"
+    h.wake.fire_at = h.wake.pushes + 1
+
+    async def feed():
+        h.mic.frames.put(np.full(config.INPUT_BLOCK, 100, dtype=np.int16))
+        await asyncio.sleep(0.1)                  # the wake arms listening
+        for _ in range(16):                       # 480ms of speech
+            h.mic.frames.put(np.full(config.INPUT_BLOCK, 900, dtype=np.int16))
+            await asyncio.sleep(0)
+        for _ in range(int(config.SPECULATE_AT_MS / 30) + 1):
+            h.mic.frames.put(np.full(config.INPUT_BLOCK, 100, dtype=np.int16))
+            await asyncio.sleep(0)
+        # Long enough for the recogniser to be in the middle of it, short enough
+        # that it is still going when the speech is judged to have stopped. That
+        # is the case this is about: without the wait the pump reaches the end of
+        # the utterance first and drops a speculation that never started, which
+        # costs nothing and proves nothing.
+        await asyncio.sleep(0.05)
+        for _ in range(30):                       # silence, past the end threshold
+            h.mic.frames.put(np.full(config.INPUT_BLOCK, 100, dtype=np.int16))
+            await asyncio.sleep(0)
+
+    task = asyncio.create_task(h._pump())
+    await feed()
+    await asyncio.sleep(0.6)                      # the turn finishes, or does not
+    calls, heard = h.transcriber.calls, list(h.processed)
+    h._stopping = True
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    ok = calls == 1 and heard == ["the words that were said"]
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: transcriptions={calls} "
+          f"(2 means the same audio was done twice) heard={heard}")
     return ok
 
 
@@ -606,6 +673,8 @@ async def main():
         "microphone off -> loud speech does nothing"))
     results.append(await scenario_armed_while_queue_is_empty(
         "armed while no audio is queued -> deadline still measured from the arm"))
+    results.append(await scenario_one_transcription_per_request(
+        "speech that stops while the recogniser is still going -> one pass"))
     results.append(await scenario_too_short_keeps_listening(
         "a blip while listening -> keeps waiting instead of giving up"))
     results.append(await scenario_typed_while_replying(
