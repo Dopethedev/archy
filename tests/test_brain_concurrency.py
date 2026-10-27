@@ -22,6 +22,10 @@ os.environ["ARCHY_SESSION_DIR"] = tempfile.mkdtemp(prefix="archy-concurrency-")
 from archy import config  # noqa: E402
 from archy.brain import PiBrain  # noqa: E402
 
+# Starting a brain writes the policy a running gate reads, and that file is the
+# owner's if nothing says otherwise. This check starts three of them.
+config.PERMISSION_POLICY = Path(tempfile.mkdtemp(prefix="archy-concurrency-")) / "policy.json"
+
 passed = failed = 0
 
 

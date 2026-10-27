@@ -4,12 +4,22 @@ What matters is that "off" really means off: the stream closed, the dashboard
 saying so, and no path quietly treating it as a live microphone. The failure
 case matters too, because a device that will not reopen must not leave the
 assistant claiming it can hear you.
+
+Turning the switch is also remembered across restarts, in a file. Pointed at the
+live one, this check left the owner's own switch wherever it stopped: the suite
+ran the microphone off and on again, and that file is the one the next start
+reads. It goes to a temporary directory instead.
 """
 from pathlib import Path
 import sys
+import tempfile
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 from archy.assistant import Assistant  # noqa: E402
+from archy import config  # noqa: E402
+
+config.STATE_DIR = Path(tempfile.mkdtemp(prefix="archy-mic-toggle-"))
 
 failures = 0
 def check(label, ok, detail=""):
@@ -57,6 +67,8 @@ a = build()
 a.set_mic_enabled(False)
 check("turning it off closes the stream", a.mic.running is False and a.mic.stops == 1,
       f"running={a.mic.running} stops={a.mic.stops}")
+check("and the switch is written where the state directory points",
+      (config.STATE_DIR / "microphone.json").exists(), str(config.STATE_DIR))
 check("the dashboard is told it is off", a.state == "muted", f"state={a.state}")
 
 # a turn finishing while muted must not claim it can hear you

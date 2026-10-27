@@ -13,11 +13,19 @@ the honest answer is that the check did not run. A sweep that says "no rootkits"
 a check that never executed is worse than one that says nothing.
 """
 import sys
+import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 import archy.sweep as sweep  # noqa: E402
 from archy import config  # noqa: E402
+
+# The lynis profile and the sweep report are written into the state directory, and
+# a real lynis check in this file writes the profile. Left alone that is the
+# repository's own state: a suite run rewrote the profile lynis reads, and the
+# report the briefing reads was written by a sweep nobody asked for.
+config.STATE_DIR = Path(tempfile.mkdtemp(prefix="archy-deep-"))
 
 passed = failed = 0
 

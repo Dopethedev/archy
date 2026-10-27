@@ -12,7 +12,8 @@ import threading
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
 import archy.assistant as archy_assistant
 import archy.brain as brain_mod
@@ -22,6 +23,11 @@ from archy import status as status_mod
 from archy import config, privacy
 from archy.assistant import Assistant
 from archy.brain import PiBrain
+
+# Starting a brain writes the policy a running gate reads, and that file is the
+# owner's if nothing says otherwise: the starts below used to rewrite it, with
+# whatever the checks had configured at the time.
+config.PERMISSION_POLICY = Path(tempfile.mkdtemp(prefix="archy-intents-")) / "policy.json"
 
 passed = failed = 0
 
