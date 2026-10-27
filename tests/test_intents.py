@@ -77,6 +77,24 @@ try:
     check("the chain entry chosen is the one on the command line",
           "--model" in args and args[args.index("--model") + 1] == "model/a-second",
           str(args[-2:]))
+
+    # The policy is the rulebook a running gate reads. With the gate off there is
+    # no gate to read it, and a file written anyway is one whose contents nothing
+    # keeps up to date: every start rewrote it, which is how the checks came to
+    # rewrite the live copy of a file that only a gate should care about.
+    saved_gate = config.PERMISSIONS
+    config.PERMISSION_POLICY.unlink(missing_ok=True)
+    try:
+        config.PERMISSIONS = False
+        asyncio.run(PiBrain().start())
+        check("with the gate off, no policy is written",
+              not config.PERMISSION_POLICY.exists(), str(config.PERMISSION_POLICY))
+        config.PERMISSIONS = True
+        asyncio.run(PiBrain().start())
+        check("with the gate on it is written where the gate will look",
+              config.PERMISSION_POLICY.is_file(), str(config.PERMISSION_POLICY))
+    finally:
+        config.PERMISSIONS = saved_gate
 finally:
     brain_mod.subprocess.Popen = real_popen
 config.PI_MODELS = real_models
