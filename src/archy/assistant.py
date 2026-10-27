@@ -507,8 +507,13 @@ class Assistant:
                 except (ScreenError, OSError) as exc:
                     self.log("sys", f"could not capture the screen: {exc}")
             elif briefing.wanted(text):
-                brief_facts = await asyncio.to_thread(
-                    briefing.gather, not briefing.wants_light(text))
+                # A clock ask gets the clock and nothing besides. Handed the whole
+                # facts block it read the machine report out after the time, which
+                # is three sentences about uptime nobody asked for.
+                if briefing.wants_light(text):
+                    brief_facts = await asyncio.to_thread(briefing.clock)
+                else:
+                    brief_facts = await asyncio.to_thread(briefing.gather)
 
             tts = threading.Thread(target=self.speaker.say_stream,
                                    args=(delta_iter(), on_first_audio, cancel), daemon=True)

@@ -217,8 +217,10 @@ async def main():
               for e in h.published))
 
     real_gather = briefing.gather
-    briefing.gather = lambda include_weather=True: ("LOCAL FACTS.\nTime: 09:00.\nWeather in "
+    briefing.gather = lambda: ("LOCAL FACTS.\nTime: 09:00.\nWeather in "
                                "Berlin: 24 degrees, clear.\n")
+    real_clock = briefing.clock
+    briefing.clock = lambda: "LOCAL FACTS.\nTime: 09:00.\n"
     try:
         h = await run_turn("brief me")
         check("the briefing carries the facts to the model",
@@ -230,8 +232,20 @@ async def main():
               h.brain.seen and "read just now" in h.brain.seen[0][0]
               and "out of date" in h.brain.seen[0][0],
               f"prompt said: {h.brain.seen[0][0][-90:]!r}" if h.brain.seen else "no prompt")
+        # A clock ask is one line, not the machine report read out after the time
+        h = await run_turn("what is the time")
+        check("the clock is answered with the clock alone",
+              h.brain.seen and "LOCAL FACTS" in h.brain.seen[0][0]
+              and "Berlin" not in h.brain.seen[0][0],
+              f"prompt said: {h.brain.seen[0][0][:90]!r}" if h.brain.seen else "no prompt")
+        # and a briefing that happens to start with the clock still gets all of it
+        h = await run_turn("what is the date and how is the machine")
+        check("but a question with more in it gets the whole block",
+              h.brain.seen and "Berlin" in h.brain.seen[0][0],
+              f"prompt said: {h.brain.seen[0][0][:90]!r}" if h.brain.seen else "no prompt")
     finally:
         briefing.gather = real_gather
+        briefing.clock = real_clock
 
     print("-- a due reminder is spoken, whatever the state was --")
     real_check_s = config.REMINDER_CHECK_S
