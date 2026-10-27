@@ -65,8 +65,9 @@ async def words_heard(voice, audio: np.ndarray | None, text: str | None,
     ones, and waiting for it costs what transcribing would cost and no more.
     Dropping it instead was the expensive choice: the recogniser is serialised, so
     a dropped worker keeps the lock until it finishes, and the turn then waits for
-    it and transcribes the same audio again behind it. Measured at 0.4s of a 1.4s
-    turn on this machine.
+    it and transcribes the same audio again behind it. One pass over a request this
+    long measures 0.4s on this machine, and the turn was paying for two of them
+    inside a turn of about 1.4s.
 
     This takes the assistant as an argument instead of being one of its methods:
     the harnesses in the tests build one with __new__ and stub its collaborators, so
