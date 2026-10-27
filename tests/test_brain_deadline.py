@@ -17,6 +17,10 @@ os.environ.setdefault("ARCHY_MEMORY_FILE", "/tmp/archy-test-memory.json")
 from archy import config
 from archy.brain import BrainError, PiBrain
 
+# Starting a brain writes the policy a running gate reads, and that file is the
+# owner's if nothing says otherwise. This check starts one.
+config.PERMISSION_POLICY = Path(_tf.mkdtemp(prefix="archy-deadline-")) / "policy.json"
+
 failures = 0
 def check(label, ok, detail=""):
     global failures
