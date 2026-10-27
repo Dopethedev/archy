@@ -37,8 +37,15 @@ def model_chain() -> tuple[str, ...]:
     first would spend a silence deadline per question on a connection that is not
     coming back, which is the failure this whole path exists to avoid.
 
-    With no local chain configured this returns exactly the old tuple, so an
-    install that never fetched a model behaves as it always did.
+    Offline-only means offline-only, so with nothing local configured the chain is
+    empty and the brain refuses to start rather than reaching for a relay. Handing
+    back the relays made the mode a suggestion: the one setting whose whole purpose
+    is to keep a question on this machine quietly did the opposite. The refusal
+    names the setting to fill in.
+
+    With no local chain configured and the mode left on auto this returns exactly
+    the old tuple, so an install that never fetched a model behaves as it always
+    did.
     """
     local = tuple(config.PI_MODELS_OFFLINE)
     if not privacy.on("online_ai"):
@@ -47,12 +54,28 @@ def model_chain() -> tuple[str, ...]:
         # privacy setting that has to hold in every branch below.
         return local or ()
     if config.PI_CHAIN_MODE == "offline":
-        return local or tuple(config.PI_MODELS)     # forced local, or nothing to do
+        return local
     if config.PI_CHAIN_MODE == "online":
         return tuple(config.PI_MODELS)
     if local and not net.net.likely_online():
         return local
     return tuple(config.PI_MODELS) + local
+
+
+def no_model_reason() -> str:
+    """Why there is no chain to ask, in words that name the setting to change.
+
+    Two mistakes end up here and they have different fixes, so the generic "no
+    model is configured" sent half the readers to the wrong one. This text is all
+    the owner has to go on when the assistant refuses to start.
+    """
+    if not privacy.on("online_ai"):
+        return "online AI is switched off and no local model is configured"
+    if config.PI_CHAIN_MODE == "offline":
+        return ("PI_CHAIN_MODE is offline and PI_MODELS_OFFLINE is empty, so there "
+                "is no model to ask: fill in PI_MODELS_OFFLINE in config.local.json, "
+                "or set PI_CHAIN_MODE back to auto")
+    return "no model is configured"
 
 
 class BrainError(RuntimeError):
@@ -205,10 +228,9 @@ class PiBrain:
 
         self.chain = model_chain()
         if not self.chain:
-            # Online AI switched off with nothing local to fall back on. There is no
-            # honest way to answer, so it says that instead of quietly reloading a
-            # relay and calling the setting respected.
-            raise BrainError("online AI is switched off and no local model is configured")
+            # There is no honest way to answer with nothing to ask, so it says why
+            # instead of quietly reloading a relay and calling the setting respected.
+            raise BrainError(no_model_reason())
         if self.model_index >= len(self.chain):
             self.model_index = 0
         model = self.chain[self.model_index]
