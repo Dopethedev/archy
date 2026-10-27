@@ -62,6 +62,16 @@ check("offline-only never calls a relay",
 check("and it is how the local path gets tested without unplugging anything",
       config.PI_CHAIN_MODE in ("auto", "online", "offline"))
 
+config.PI_MODELS_OFFLINE = ()
+check("offline-only with nothing local does not quietly go back to a relay",
+      brain.model_chain() == (), str(brain.model_chain()))
+reason = brain.no_model_reason()
+check("and refusing names both settings to change",
+      "PI_MODELS_OFFLINE" in reason and "PI_CHAIN_MODE" in reason, reason[:64])
+check("and it does not blame a setting that is not the problem",
+      "online AI is switched off" not in reason, reason[:64])
+config.PI_MODELS_OFFLINE = ("llama.cpp/Qwen3.5-4B",)
+
 config.PI_CHAIN_MODE, config.PI_MODELS, config.PI_MODELS_OFFLINE = saved
 
 print("-- the server, when it is already running --")
