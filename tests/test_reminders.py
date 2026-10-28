@@ -120,6 +120,27 @@ for text in ("remind me to buy milk", "what reminders do i have", "open the time
     check(f"no refusal where none is needed: {text!r}",
           reminders.cannot_do(text) is None)
 
+print("-- an alarm is a reminder under another name --")
+# "alarm" was read by parse_clock and by cannot_do but not by the gate standing
+# in front of them, so "set an alarm for 7am" was claimed by nothing, reached a
+# model that has no reminder tool, and was agreed with out loud and never set.
+for text in ("set an alarm for 7am", "set an alarm for 6:30am",
+             "set an alarm for 6:30 am", "set an alarm in ten minutes"):
+    a = reminders.parse(text)
+    check(f"an alarm is set here, not agreed with: {text!r}",
+          a is not None and a["action"] == "set", str(a))
+check("and the alarm keeps the clock time it was given",
+      (reminders.parse_clock("set an alarm for 6:30am", now=CLOCK_NOW) or {}
+       ).get("described") == "at half past 6 am tomorrow")
+check("and asking about the alarms lists them",
+      (reminders.parse("what alarms do I have") or {}).get("action") == "list")
+# and the word on its own is not a request: nobody is asking for a reminder in
+# these, so they have to fall through to the model rather than clear anything
+for text in ("turn off my alarm", "my alarm went off", "the alarm clock is broken",
+             "the alarm will stop soon"):
+    check(f"and an alarm being talked about is not one being set: {text!r}",
+          reminders.parse(text) is None, str(reminders.parse(text)))
+
 print("-- a clock time, which is a time and not a delay --")
 # The day the time falls on changes between runs, so every case is read against a
 # fixed morning: a Monday at eleven, which is the awkward one for "at nine".

@@ -679,6 +679,13 @@ def _newest_files(dirs: list[str], limit: int) -> tuple[list[str], int, int]:
 
 def check_clamav() -> list[str]:
     findings = []
+    # Taken once, at the top, because there are four ways out of this check early
+    # and three of them never reached the line that used to tidy up. The launcher
+    # check hands over its unowned targets on every sweep, so a machine that runs
+    # for a day accumulated them up to the cap, and a scan that never happened
+    # still looked like it had the whole list in front of it.
+    preferred = [p for p in _scan_extra if os.path.isfile(p)]
+    _scan_extra.clear()
     db = Path("/var/lib/clamav")
     # daily updates arrive as a .cld, the big databases as .cvd: checking only
     # one kind reported a month-old database that was in fact current
@@ -697,8 +704,6 @@ def check_clamav() -> list[str]:
 
     files, seen, chosen_bytes = _newest_files(existing, config.SWEEP_CLAMAV_MAX_FILES)
     # the launcher targets first: they are the files nothing accounts for
-    preferred = [p for p in _scan_extra if os.path.isfile(p)]
-    _scan_extra.clear()
     if preferred:
         files = preferred + [f for f in files if f not in preferred]
         files = files[:config.SWEEP_CLAMAV_MAX_FILES]

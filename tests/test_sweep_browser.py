@@ -264,6 +264,19 @@ with temp_ground() as raw:
         sweep._pacman_owners, sweep._last_pacman_change = real_owners, real_last
         sweep._clamav_files = real_scan
 
+print("-- the handover list is emptied however the virus check ends --")
+# Module state that the launcher check fills in and the virus check empties.
+# Seeded here rather than taken from the launchers above, because the paths worth
+# testing are the ones that never reach the scanner, and whether this machine has
+# a clamav database is not something a test gets to choose. The list used to be
+# emptied on the single path that got as far as running the scanner, so a machine
+# with no database kept what it was handed and the next sweep appended another
+# copy: capped at forty, and a process left running sat at the cap.
+sweep._scan_extra.extend(["/tmp/a-handover", "/tmp/b-handover"])
+sweep.check_clamav()
+check("and it is left empty, whichever way the check ended",
+      sweep._scan_extra == [], str(sweep._scan_extra[:2]))
+
 print("-- launchers: field codes, env wrappers, TryExec, user services --")
 with temp_ground() as raw:
     root = Path(raw)

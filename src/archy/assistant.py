@@ -273,13 +273,21 @@ class Assistant:
 
     @staticmethod
     def _approval_question(text: str) -> bool:
-        """Asking what is waiting, in the words someone would actually use."""
+        """Asking what is waiting, in the words someone would actually use.
+
+        Every phrase here has to be about the queue. A bare "permissions" was in
+        this list, and `in said` is a substring test, so "explain linux file
+        permissions" and "how do git permissions work" were answered with the
+        waiting list instead of going to the model: the subject of the sentence
+        never reached anything that could look it up.
+        """
         said = " ".join(re.findall(r"[a-z']+", text.lower()))
         return any(phrase in said for phrase in (
             "what are you waiting for", "what needs my approval",
             "what are you waiting on", "anything waiting for me",
             "what is waiting", "what's waiting", "pending approval",
-            "what do you need approval", "permissions",
+            "what do you need approval", "permission request",
+            "permissions waiting", "permission queue",
         ))
     # A theme command is the name of a theme, optionally followed by the word
     # mode or theme, with nothing around it that turns the sentence into a

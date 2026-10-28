@@ -71,6 +71,22 @@ for text, want in [("hey archy, so please open sober", "open sober"),
     tidied = w.strip_greeting(rest)
     check(f"{text!r}", heard and tidied == want, f"-> {tidied!r}")
 
+print("-- the transcript's own spacing must not move the request --")
+# The phrase is looked for in the words rejoined with single spaces, and the
+# request used to be taken by that character offset out of the original text. The
+# recogniser assembles the transcript from its own segments and an empty one
+# leaves a double space behind, so the two offsets drifted apart: "hey  archy,
+# open sober" came back as "y, open sober", and that is the sentence the model
+# was handed. The spacing is not the request's, so it must not change it.
+for text, want in [("hey  archy, open sober", "open sober"),
+                   ("hey   archy   open sober", "open sober"),
+                   ("hey archy  open sober", "open sober"),
+                   ("uh  hey archy open sober", "open sober"),
+                   ("hey\tarchy,\twhat time is it", "what time is it"),
+                   ("hey  Archy, what is my cpu usage", "what is my cpu usage")]:
+    heard, rest = w.match(text)
+    check(f"{text!r}", heard and rest == want, f"-> {rest!r}")
+
 
 # ---------------------------------------------------------------- behaviour
 class Harness(Assistant):

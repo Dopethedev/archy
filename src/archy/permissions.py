@@ -26,6 +26,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -120,6 +121,26 @@ def policy() -> dict:
     }
 
 
+def _atomic(path: Path, body: str) -> None:
+    """Write a whole file under a name no other writer can be sitting on.
+
+    Every one of these files has two writers on purpose: the gate runs inside pi,
+    in another process, and burns an approval at the same moment the assistant
+    writes the next one. A fixed ".tmp" name let both land on the same scratch
+    file, and a torn approvals file reads as no approvals at all, which denies
+    everything. The pid and the thread id are in the name for the same reason
+    memory_store puts them there.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        temporary.write_text(body)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)   # gone already when the replace worked
+    os.chmod(path, 0o600)
+
+
 def write_policy() -> Path:
     """Write the policy where the gate will look for it.
 
@@ -130,12 +151,7 @@ def write_policy() -> Path:
     if enabled() and not ready():
         raise GateMissing(f"the permission gate is not at {gate_file()}")
     target = Path(config.PERMISSION_POLICY)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    body = json.dumps(policy(), indent=2)
-    temporary = target.with_suffix(target.suffix + ".tmp")
-    temporary.write_text(body)
-    os.replace(temporary, target)
-    os.chmod(target, 0o600)
+    _atomic(target, json.dumps(policy(), indent=2))
     return target
 
 
@@ -151,11 +167,7 @@ def _read(path: Path) -> dict:
 
 
 def _write(path: Path, body: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(body, indent=2))
-    os.replace(temporary, path)
-    os.chmod(path, 0o600)
+    _atomic(path, json.dumps(body, indent=2))
 
 
 def reading() -> dict:
