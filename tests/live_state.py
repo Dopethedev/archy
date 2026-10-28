@@ -16,6 +16,15 @@ which covers every group in its list and any group added later, and fails with
 the names of the files that moved. A rewrite with identical bytes counts: that
 file is the one the next start reads, and the write also changes who wrote it
 last.
+
+One exception, because the suite is run on the machine the assistant is running
+on: `.sessions` belongs to the assistant that is up, and every turn it answers
+appends to the file it is having that conversation in. A fingerprint cannot tell
+that append from one a check made, so a session file that only grew is read as
+the owner talking and the run carries on. A session file that appeared, shrank or
+was rewritten is still named: nothing said to a running assistant reopens the
+conversation from the start, and a check that does has changed the state it was
+reading.
 """
 from __future__ import annotations
 
@@ -31,7 +40,7 @@ LIVE = (ROOT / ".state", ROOT / ".sessions", ROOT / "config.local.json",
 
 
 def snapshot() -> dict:
-    """Every live file, as name -> (digest, mtime). A missing path is not an error."""
+    """Every live file, as name -> digest, mtime and size. A missing path is fine."""
     out = {}
     for entry in LIVE:
         if entry.is_file():
@@ -41,24 +50,46 @@ def snapshot() -> dict:
         else:
             files = []
         for path in files:
+            stat = path.stat()
             out[str(path.relative_to(ROOT))] = (
                 hashlib.sha256(path.read_bytes()).hexdigest()[:16],
-                path.stat().st_mtime_ns)
+                stat.st_mtime_ns, stat.st_size)
     return out
+
+
+def _line(name: str, entry) -> str:
+    digest, mtime, size = entry
+    return f"{name} {digest} {mtime} {size}"
 
 
 def fingerprint() -> str:
     """One line per live file, so two runs can be compared as text."""
-    return "\n".join(f"{name} {digest} {mtime}"
-                     for name, (digest, mtime) in sorted(snapshot().items()))
+    return "\n".join(_line(name, entry) for name, entry in sorted(snapshot().items()))
+
+
+def is_the_owners_conversation(name: str, then: str | None, now: str | None) -> bool:
+    """Whether a live file only grew, and is a conversation only a turn can extend.
+
+    The assistant that is up appends to its own session while the suite runs, and
+    it is the one live file written by something other than the suite. Growth is
+    that assistant answering. Everything else a session file can do is a write
+    from somewhere else.
+    """
+    if then is None or now is None or not name.startswith(".sessions/"):
+        return False
+    try:
+        return int(now.rsplit(" ", 1)[1]) > int(then.rsplit(" ", 1)[1])
+    except (IndexError, ValueError):
+        return False
 
 
 def moved_from(before: str) -> list:
     """The live files that differ from that fingerprint, in the order given."""
     was = {line.split(" ", 1)[0]: line for line in before.splitlines() if line}
-    now = {name: f"{name} {digest} {mtime}"
-           for name, (digest, mtime) in snapshot().items()}
-    return sorted(name for name in set(was) | set(now) if was.get(name) != now.get(name))
+    now = {name: _line(name, entry) for name, entry in snapshot().items()}
+    return sorted(name for name in set(was) | set(now)
+                  if was.get(name) != now.get(name)
+                  and not is_the_owners_conversation(name, was.get(name), now.get(name)))
 
 
 if __name__ == "__main__":
