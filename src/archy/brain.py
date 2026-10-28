@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import queue
 import subprocess
 import tempfile
 from pathlib import Path
@@ -24,6 +25,15 @@ from . import privacy
 from .memory_store import Memory
 
 DIALOG_METHODS = {"select", "confirm", "input", "editor"}
+
+# What abort puts in the queue to wake the turn it is interrupting. A turn parked
+# on the queue sees it and returns, which is the whole point: see PiBrain._wake.
+ABORT = "__archy_abort__"
+
+# How much can be waiting to be written to pi before the child is judged to have
+# stopped reading. A prompt is a few kilobytes and pi reads it at once, so a
+# backlog this deep is not a slow child, it is one that has stopped.
+WRITE_QUEUE = 32
 
 
 def model_chain() -> tuple[str, ...]:
@@ -101,6 +111,10 @@ class PiBrain:
         # turn holding it gives up within a loop iteration instead of waiting.
         self._turn_lock: asyncio.Lock | None = None
         self._aborted = threading.Event()
+        # what the loop hands to pi, and the thread that writes it. See _write_stdin
+        # for why a write is not done from the loop.
+        self._writes: queue.Queue | None = None
+        self._write_error = ""
         # where we are in the model chain. The free relays die without warning
         # (a model that answered at breakfast 404s by lunch), so the assistant
         # moves down the chain and says so rather than failing. The chain itself
@@ -275,8 +289,36 @@ class PiBrain:
             bufsize=1,
             env=environment,
         )
+        self._writes = queue.Queue(maxsize=WRITE_QUEUE)
+        self._write_error = ""
+        threading.Thread(target=self._write_stdin, args=(generation, self._proc),
+                         daemon=True).start()
         threading.Thread(target=self._read_stdout, args=(generation,), daemon=True).start()
         threading.Thread(target=self._read_stderr, args=(generation,), daemon=True).start()
+
+    def _write_stdin(self, generation: int, proc):
+        """Write what the loop hands over, on a thread of its own.
+
+        A write to a pipe blocks when the pipe is full, and pi is a process this
+        one starts and does not control: it can be loading a model, wedged, or
+        simply not reading. That write was made from the event loop, and the loop
+        is what reads the microphone, drains the queues and answers the dashboard,
+        so one child that stopped reading took the whole assistant with it and no
+        deadline anywhere was watching. The queue is bounded, so the same child is
+        reported instead of waited for.
+        """
+        while True:
+            line = self._writes.get()               # this thread exists to wait here
+            if line is None or generation != self._generation:
+                return
+            try:
+                proc.stdin.write(line)
+                proc.stdin.flush()
+            except (OSError, ValueError) as exc:
+                # the pipe is gone, or the process with it; the loop finds out on
+                # its next send, and the reader thread reports the end
+                self._write_error = f"{type(exc).__name__}: {exc}"
+                return
 
     def _read_stdout(self, generation: int):
         assert self._proc and self._proc.stdout
@@ -318,11 +360,20 @@ class PiBrain:
         return prompt
 
     def _send(self, obj: dict):
+        """Hand one rpc message to the writer thread. Never blocks the loop."""
         if not self.alive():
             raise BrainError("pi process is not running")
-        assert self._proc and self._proc.stdin
-        self._proc.stdin.write(json.dumps(obj) + "\n")
-        self._proc.stdin.flush()
+        if self._write_error:
+            raise BrainError(f"pi stopped reading what I sent it: {self._write_error}")
+        writes = self._writes
+        if writes is None:
+            raise BrainError("pi process is not running")
+        try:
+            writes.put_nowait(json.dumps(obj) + "\n")
+        except queue.Full:
+            raise BrainError(
+                f"pi has not read the last {WRITE_QUEUE} messages, so it is not "
+                f"reading its input") from None
 
     def _answer_dialog(self, event: dict):
         """Never let an extension dialog block the assistant forever."""
@@ -395,6 +446,9 @@ class PiBrain:
                     f"pi said nothing for {limit:.0f}s"
                     f"{' while a tool was running' if tool_running else ''}"
                 ) from None
+            if line is ABORT:
+                # the interrupt belongs to this turn, and it has just arrived
+                return
             if line is None:
                 tail = self._stderr_tail()
                 raise BrainError("pi process ended unexpectedly"
@@ -545,14 +599,52 @@ class PiBrain:
         have to share a queue with it. The command tells pi to stop generating.
         """
         self._aborted.set()
+        self._wake()
         try:
             self._send({"type": "abort"})
         except BrainError:
             pass                                # nothing running to interrupt
 
+    def _wake(self):
+        """Wake the turn parked on the queue, so an interrupt is not waited out.
+
+        The turn in flight is inside `await self._queue.get()` and looks at the
+        abort flag only after an event arrives, so setting the flag alone left it
+        there until pi answered or the silence deadline fired, holding the one-turn
+        lock the whole time. The request the user spoke after interrupting was
+        queued behind it in silence, which is the failure an interrupt exists to
+        prevent: measured here, the deadline is twenty five seconds of a turn
+        nobody is waiting for. Silence is not an event, so the abort is put in the
+        queue as one.
+        """
+        waiting = getattr(self, "_queue", None)
+        if waiting is None:
+            return
+        loop = getattr(self, "_loop", None)
+        try:
+            here = asyncio.get_running_loop()
+        except RuntimeError:
+            here = None
+        if here is not None and here is loop:
+            # put it in now rather than on the next pass of the loop: the turn
+            # that just hit its deadline starts its replacement as soon as it
+            # returns, and its first act is to drop what is already queued. A
+            # marker that arrives after that drain would end the new turn
+            # instead of the old one.
+            waiting.put_nowait(ABORT)
+        elif loop is not None:
+            loop.call_soon_threadsafe(waiting.put_nowait, ABORT)
+
     def stop(self):
         if self._proc:
             try:
+                if self._writes is not None:
+                    # let the writer thread leave its loop rather than closing the
+                    # pipe under it
+                    try:
+                        self._writes.put_nowait(None)
+                    except queue.Full:
+                        pass
                 self._proc.stdin and self._proc.stdin.close()
                 self._proc.terminate()
                 self._proc.wait(timeout=5)

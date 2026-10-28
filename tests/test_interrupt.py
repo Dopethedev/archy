@@ -9,6 +9,7 @@ played over the reply they had asked for instead: the glitch.
 Nothing here touches an audio device.
 """
 from pathlib import Path
+import collections
 import queue
 import re
 import sys
@@ -45,6 +46,39 @@ check("a sentence still being synthesised is refused", not late and not p.playin
 gen2 = p.start_reply()
 check("the next reply is accepted", p.write(np.ones(64, np.float32), gen2) and p.playing(),
       f"playing={p.playing()}")
+
+print("-- drained means played, not merely handed over --")
+# The queue emptying is not the sound stopping: the block just handed to the device
+# is in its buffer and plays after the callback returns. Every reader of "the reply
+# is over" treated an empty queue as finished, so the microphone went back to
+# listening over the last word of the answer, and a reminder could start speaking
+# into the tail of one.
+device = Player.__new__(Player)
+device.samplerate = config.HUD_RATE
+device._chunks = collections.deque([np.full(2048, 0.5, dtype=np.float32)])
+device._lock = threading.Lock()
+device._needs_fade = True
+device._channels = 2
+device._generation = 0
+device._speaking = False
+device.level = 0.0
+out = np.zeros((1024, 2), dtype=np.float32)
+
+device._callback(out, 1024, None, None)
+check("half the audio is still queued, so it is playing",
+      device.playing(), "the first block left the queue")
+check("and it said something, so the level moved", device.level > 0.0, f"{device.level:.3f}")
+
+device._callback(out, 1024, None, None)
+check("a block in the device, not yet heard, still counts as playing",
+      device.playing(), "the queue is empty here and the sound is not")
+
+device._callback(out, 1024, None, None)
+check("and a silent callback is the end of it", not device.playing(),
+      "everything queued has been played")
+check("an interrupted reply is over at once",
+      (device.write(np.ones(64, np.float32)), device.flush(), not device.playing())[-1],
+      "a flush drops the queue and the speaker's own idea of playing")
 
 
 # ------------------------------------------------- and through the real speaker

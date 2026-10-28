@@ -9,6 +9,8 @@ import os
 import stat
 import sys
 import tempfile
+import threading
+import time as _time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -237,6 +239,49 @@ async def main():
 
     h = await run_turn("what time is it", "should not run")
     check("an ordinary question runs no sweep", h.brain.seen and "SWEEP" not in h.brain.seen[0][0])
+
+    print("-- a sweep that runs long is given up on, not waited for --")
+    # The wait used to be asyncio.wait_for around a thread, which bounds nothing:
+    # on a timeout it cancels the wait and then waits for the cancellation to take
+    # effect, and a thread cannot be stopped. The turn was told nothing about it
+    # either way, and the sentence already spoken said the check "can take a
+    # minute" while the two deep budgets add up to nine.
+
+    async def run_long_turn(seconds: float):
+        harness = SweepHarness()
+        finished = threading.Event()
+        real = sweep.run
+        real_ordinary = config.SWEEP_TURN_TIMEOUT_S
+        real_deep = config.SWEEP_DEEP_TURN_TIMEOUT_S
+
+        def runs_longer_than_the_deadline(deep=False):
+            _time.sleep(seconds)
+            finished.set()                  # the work itself is not cancelled
+            return "  ok: nothing bad found"
+
+        sweep.run = runs_longer_than_the_deadline
+        config.SWEEP_TURN_TIMEOUT_S = config.SWEEP_DEEP_TURN_TIMEOUT_S = 0.2
+        started = _time.monotonic()
+        try:
+            await Assistant._process(harness, text="run a security sweep")
+        finally:
+            elapsed = _time.monotonic() - started
+            sweep.run = real
+            config.SWEEP_TURN_TIMEOUT_S = real_ordinary
+            config.SWEEP_DEEP_TURN_TIMEOUT_S = real_deep
+        return elapsed, harness, finished
+
+    elapsed, harness, finished = await run_long_turn(1.2)
+    check("a sweep past its deadline does not hold the turn",
+          elapsed < 0.8, f"the turn took {elapsed:.2f}s for a 0.2s deadline")
+    check("and the turn says the sweep went long",
+          any("took too long" in line for line in harness.log_lines),
+          str(harness.log_lines[-2:]))
+    check("and the model is asked without the report it never got",
+          harness.brain.seen and "SECURITY SWEEP RESULTS" not in harness.brain.seen[0][0],
+          str(harness.brain.seen[:1])[:70])
+    check("and the sweep still runs to the end in its own thread",
+          finished.wait(2.0), "a deadline that killed the check would lose the report")
 
 
     # A security check must never read as clean because it did not run. These drive

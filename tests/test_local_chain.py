@@ -256,17 +256,32 @@ class FakeProc:
 class FakeSubprocess:
     argv: list[str] = []
     DEVNULL = -3
+    STDOUT = -2
+    SubprocessError = Exception          # the real module has one, and it is caught
+
+    def run(self, args, **kwargs):
+        # the device list is asked for before the server starts, so the stand-in
+        # answers it the way this machine would
+        if "--list-devices" in args:
+            return type("R", (), {"stdout": "Available devices:\n  Vulkan0: (8192 MiB)\n"})()
+        return type("R", (), {"stdout": "", "stderr": "", "returncode": 0})()
+
     def Popen(self, args, **kwargs):
         FakeSubprocess.argv = args
         return FakeProc()
 
 
 real_subprocess = local_model.subprocess
+real_state = config.STATE_DIR
 local_model.subprocess = FakeSubprocess()
+# the server's output is kept in the state directory now, and the live one is the
+# owner's: a check that writes there is not a check
+config.STATE_DIR = Path(tempfile.mkdtemp(prefix="archy-local-state-"))
 try:
     started = local_model.ensure_running()
 finally:
     local_model.subprocess = real_subprocess
+    config.STATE_DIR = real_state
     local_model.healthy, local_model._wait, local_model._ensure_loaded = (
         saved_healthy, saved_wait, saved_load)
     config.PI_LOCAL_SERVER_URL = saved_url
@@ -346,6 +361,48 @@ check("and auto follows the verdict", calls == ["server", "brain"], str(calls))
 local_model.ensure_running = real_ensure_local
 config.PI_CHAIN_MODE, config.PI_MODELS_OFFLINE = saved
 net.net.note_success()
+
+print("-- the device flag is only asked for when the binary knows it --")
+# PI_LOCAL_DEVICE carries the device name on the machine this was written on, and
+# it was passed to every install. On a box with different devices, or none,
+# llama-server refuses to start, and its output went to /dev/null: offline mode was
+# dead there with the whole story being "the local model did not start".
+LISTED = ("Available devices:\n"
+          "  Vulkan0: NVIDIA GeForce RTX 3050 (8192 MiB, 7129 MiB free)\n"
+          "  Vulkan1: Intel(R) UHD Graphics 730 (11820 MiB, 7616 MiB free)\n")
+picked = getattr(local_model, "device_args", None)
+check("the device flag is decided from what the binary lists", callable(picked),
+      type(picked).__name__)
+if callable(picked):
+    check("a device the binary lists is asked for",
+          picked(LISTED, "Vulkan0") == ["--device", "Vulkan0"],
+          str(picked(LISTED, "Vulkan0")))
+    check("a device this machine does not have is dropped",
+          picked(LISTED, "CUDA0") == [], str(picked(LISTED, "CUDA0")))
+    check("no device configured means no flag",
+          picked(LISTED, "") == [], str(picked(LISTED, "")))
+    check("a binary that will not say keeps the old behaviour",
+          picked("", "Vulkan0") == ["--device", "Vulkan0"],
+          "when the question cannot be answered, nothing changes")
+    check("and the configured device survives a listing with headings in it",
+          picked("Available devices:\n  Metal (1000 MiB)\n", "Metal")
+          == ["--device", "Metal"])
+
+state = Path(tempfile.mkdtemp(prefix="archy-local-"))
+real_state = config.STATE_DIR
+config.STATE_DIR = state
+try:
+    handle = local_model._router_log()
+    handle.write("error: unknown argument: --think\n")
+    handle.close()
+    check("the server's own output is kept where it can be read",
+          local_model._router_log_path().read_text().strip()
+          == "error: unknown argument: --think",
+          str(local_model._router_log_path()))
+    check("and its last words are readable as the reason",
+          "unknown argument" in local_model._last_words(), local_model._last_words())
+finally:
+    config.STATE_DIR = real_state
 
 print(f"\n{'ALL PASS' if not failed else str(failed) + ' FAILED'}  ({passed} checks)")
 sys.exit(1 if failed else 0)

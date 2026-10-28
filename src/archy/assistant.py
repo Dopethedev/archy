@@ -34,7 +34,7 @@ from . import memory_store as memory_store_mod
 from . import reminders as reminders_mod
 from . import mic_state
 from . import sweep as sweep_mod
-from .audio import MicCapture, Player
+from .audio import DeafMic, MicCapture, Player
 from .brain import BrainError, PiBrain
 from . import audio as audio_mod
 from . import desktop as desktop_mod
@@ -96,22 +96,35 @@ async def words_heard(voice, audio: np.ndarray | None, text: str | None,
     return text
 
 
-async def _answered(task) -> str | None:
-    """Wait for one transcription, but never past the deadline.
+async def _within(task, timeout: float) -> bool:
+    """Wait for one task, and say whether it finished before the deadline.
 
     `asyncio.wait_for` is not enough here, which is worth writing down because it
     looks like it should be: on a timeout it cancels the wait and then waits for
     the cancellation to take effect, and a thread in the middle of a pass cannot
-    be stopped, so the deadline arrives and the turn goes on waiting behind it.
-    That is the seventy three seconds in the docstring above, arrived at twice.
+    be stopped, so the deadline arrives and the caller goes on waiting behind it.
+    That is seventy three seconds of silence with the screen on "thinking" and the
+    log empty, arrived at twice: once on the recogniser, and once on the security
+    sweep, which promises "this can take a minute" and then keeps the turn for
+    however long the machine takes, up to nine, because its own two subprocess
+    budgets add up to more than the ceiling placed on the wait.
 
-    `asyncio.wait` returns at the deadline whatever the pass is doing. The pass
-    itself carries on in its thread, which is why the recogniser is asked before
-    the next turn rather than after it, and the abandoned task is given a callback
-    so its result is read and not reported as a task nobody collected.
+    `asyncio.wait` returns at the deadline whatever the task is doing. The work
+    itself carries on in its thread; what the deadline buys is that the turn stops
+    waiting and can say something.
     """
-    done, _ = await asyncio.wait({task}, timeout=config.TRANSCRIBE_TIMEOUT_S)
-    if not done:
+    done, _ = await asyncio.wait({task}, timeout=timeout)
+    return bool(done)
+
+
+async def _answered(task) -> str | None:
+    """Wait for one transcription, but never past the deadline.
+
+    The pass itself carries on in its thread, which is why the recogniser is asked
+    before the next turn rather than after it, and the abandoned task is given a
+    callback so its result is read and not reported as a task nobody collected.
+    """
+    if not await _within(task, config.TRANSCRIBE_TIMEOUT_S):
         _abandon(task)
         raise RecognitionTooSlow(
             f"nothing transcribed in {config.TRANSCRIBE_TIMEOUT_S:.1f}s")
@@ -145,6 +158,25 @@ def recogniser_busy(voice) -> bool:
     return bool(busy()) if callable(busy) else False
 
 
+def make_mic(device=None):
+    """The microphone, or one that says why there is not one.
+
+    The recogniser and the voice each have a stand-in for the same reason, and the
+    microphone was the one that did not: a name that matches no device raised out
+    of the constructor, and the constructor is called by Assistant's, which is
+    called outside every try in main(). One mistyped --input and the assistant did
+    not start at all, which is a steep price for a setting about the microphone.
+
+    A module-level function rather than a method: the harnesses in the tests build
+    an Assistant with __new__ and stub its collaborators, so a helper they do not
+    have is an AttributeError in every group at once.
+    """
+    try:
+        return MicCapture(device=device)
+    except Exception as exc:
+        return DeafMic(exc)
+
+
 class Assistant:
     def __init__(self, hud: Hud | None = None, greet: str = ""):
         self.hud = hud
@@ -153,7 +185,7 @@ class Assistant:
         # means something for a minute after the first.
         self._privacy_confirm = privacy.Confirmation()
         self.state = "booting"
-        self.mic = MicCapture()
+        self.mic = make_mic()
         self.player = Player()
         # The recogniser and the voice load their models here, and a missing file
         # used to raise out of the constructor: the assistant never reached its
@@ -195,8 +227,17 @@ class Assistant:
         # spawned task is pinned here until it finishes
         self._tasks: set[asyncio.Task] = set()
 
-    def _spawn(self, coro) -> asyncio.Task:
-        """create_task with a held reference, so a turn cannot vanish."""
+    def _spawn(self, coro, what: str = "turn") -> asyncio.Task:
+        """create_task with a held reference, so a turn cannot vanish.
+
+        The done callback reads the result as well as dropping the reference.
+        `_tasks.discard` on its own collected whatever the task raised and threw it
+        away: a turn whose failure arrived inside its own error handling, or the
+        reminder loop raising out of its speak path, ended with nothing said,
+        nothing logged and a state that stopped moving. That is the failure a log
+        exists for, so it is named here, and a turn that died says so and gives the
+        state back instead of leaving the screen on "thinking" forever.
+        """
         # tests build this object with __new__ and no __init__, so the set may
         # not exist yet; create it lazily rather than sharing one at class level
         if getattr(self, "_tasks", None) is None:
@@ -204,7 +245,29 @@ class Assistant:
         task = asyncio.get_running_loop().create_task(coro)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        task.add_done_callback(lambda done: self._spawn_failed(done, what))
         return task
+
+    def _spawn_failed(self, task: asyncio.Task, what: str) -> None:
+        """Say what a task died of, rather than collecting it silently."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is None:
+            return
+        print(f"[assistant] the {what} failed: {type(exc).__name__}: {exc}", flush=True)
+        self.log("sys", f"the {what} failed: {type(exc).__name__}: {exc}")
+        if what != "turn" or getattr(self, "_stopping", False):
+            return
+        # The user is waiting for an answer to something they said, and a turn
+        # that dies without a word leaves them waiting. Back to idle first, because
+        # the announcement is only spoken from there, and because a state nobody
+        # owns is what the next request would have queued behind.
+        try:
+            self._back_to_idle()
+            self._spawn(self._announce("Something went wrong there."), "announce")
+        except Exception as exc:
+            print(f"[assistant] could not report the failed turn: {exc}", flush=True)
 
     # --------------------------------------------------------- local intents
 
@@ -400,7 +463,7 @@ class Assistant:
             self._back_to_idle()
             return
         self.set_state("thinking")                      # claim the state before yielding
-        self._spawn(self._process(audio=audio, text=transcript, pending=pending))
+        self._spawn(self._process(audio=audio, text=transcript, pending=pending), "turn")
 
     async def _speculate(self, audio: np.ndarray) -> str | None:
         """Transcribe while the user is still pausing, off the critical path.
@@ -592,11 +655,16 @@ class Assistant:
                 deep = sweep_mod.deep_wanted(text) and bool(sweep_mod.deep_checks())
                 deltas.put("Running the deeper check, this can take a minute." if deep
                            else "Running the sweep now, this takes a few seconds.")
-                try:
-                    sweep_report = await asyncio.wait_for(
-                        asyncio.to_thread(sweep_mod.run, deep),
-                        timeout=300.0 if deep else 180.0)
-                except asyncio.TimeoutError:
+                sweep_task = asyncio.ensure_future(asyncio.to_thread(sweep_mod.run, deep))
+                if await _within(sweep_task, config.SWEEP_DEEP_TURN_TIMEOUT_S if deep
+                                 else config.SWEEP_TURN_TIMEOUT_S):
+                    sweep_report = sweep_task.result()
+                else:
+                    # The sweep keeps running in its thread and still writes the
+                    # report the briefing reads. What it does not do is hold the
+                    # turn open: the sentence above promised a minute, and past
+                    # that the honest answer is the one that says it ran long.
+                    _abandon(sweep_task)
                     sweep_report = None
                     self.log("sys", "the sweep took too long, summarising without it")
             elif wanted(text) and not privacy.shares("screens", self.brain.model_name()):
@@ -851,7 +919,15 @@ class Assistant:
                     # the label was already removed from the store; a reminder
                     # that could not be spoken must come back, not vanish
                     print("[reminders] will retry in 60s")
-                    reminders_mod.add(label, 60.0, repeat=item.get("repeat"))
+                    try:
+                        reminders_mod.add(label, 60.0, repeat=item.get("repeat"))
+                    except Exception as exc:
+                        # A state directory that cannot be written is a reason to
+                        # say so, not a reason for this loop to end: it ended the
+                        # whole loop, so every reminder after it was silently never
+                        # spoken for the life of the process.
+                        print(f"[reminders] could not put it back: {exc}", flush=True)
+                        self.log("sys", f"a reminder could not be put back: {exc}")
                 self._back_to_idle()
 
     async def _restart_brain(self):
@@ -941,7 +1017,7 @@ class Assistant:
                 if self.state in ("thinking", "speaking") and config.BARGE_IN:
                     self._interrupt()
                 self.set_state("thinking")
-                self._spawn(self._process(text=typed))
+                self._spawn(self._process(text=typed), "turn")
 
             # A microphone that has delivered nothing at all for twenty seconds
             # while it is sitting there listening is either switched off or
@@ -957,7 +1033,7 @@ class Assistant:
                 self._deaf_warned = True
                 self.log("sys", "the microphone is delivering silence: no "
                                 "signal at all for twenty seconds")
-                self._spawn(self._announce(audio_mod.silence_warning()))
+                self._spawn(self._announce(audio_mod.silence_warning()), "announce")
 
             try:
                 frame = self.mic.frames.get_nowait()
@@ -1135,7 +1211,7 @@ class Assistant:
                     # idle in speech mode: this utterance may be the wake phrase.
                     # A cough or a click is not worth transcribing.
                     self.set_state("thinking")
-                    self._spawn(self._check_wake(audio, transcript, pending))
+                    self._spawn(self._check_wake(audio, transcript, pending), "wake check")
                 else:
                     self._back_to_idle()
 
@@ -1192,7 +1268,7 @@ class Assistant:
         if self.hud:
             self.hud.on_say = self._typed.put
             self.hud.on_mic = self._request_mic
-        self._spawn(self._reminder_loop())
+        self._spawn(self._reminder_loop(), "reminder loop")
         # before the brain starts, because pi resumes the newest session it
         # finds and a session past the budget would be loaded, then immediately
         # stopped, which is a second of start-up spent on a conversation that
