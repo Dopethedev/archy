@@ -56,6 +56,13 @@ def blip(freq=880.0, ms=70, rate=config.HUD_RATE) -> np.ndarray:
     return tone * ramp * 0.25
 
 
+class RecognitionTooSlow(Exception):
+    """The recogniser did not answer inside its deadline."""
+
+
+NO_TRANSCRIPT = "I could not make that out in time."
+
+
 async def words_heard(voice, audio: np.ndarray | None, text: str | None,
                       pending: asyncio.Task | None = None) -> str | None:
     """What was said: the words given, the ones already on their way, or the audio.
@@ -69,23 +76,73 @@ async def words_heard(voice, audio: np.ndarray | None, text: str | None,
     long measures 0.4s on this machine, and the turn was paying for two of them
     inside a turn of about 1.4s.
 
+    Both waits above are waits on that one serialised recogniser, so both are
+    inside the deadline. A pass that has stopped coming back holds the lock, and
+    an unbounded wait on it is the one failure a user cannot tell from a crash: a
+    real run said nothing at all for seventy three seconds, with the screen on
+    "thinking" and the log empty, because a slow pass owned the recogniser.
+
     This takes the assistant as an argument instead of being one of its methods:
     the harnesses in the tests build one with __new__ and stub its collaborators, so
     a method they do not have is an AttributeError in nine groups at once.
     """
     if text is None and pending is not None:
-        try:
-            text = await pending
-        except asyncio.CancelledError:
-            # a cancelled speculation is not a cancelled turn: only a task that was
-            # itself dropped falls back to transcribing
-            if not pending.cancelled():
-                raise
-        except Exception:
-            text = None
+        # a speculation the turn adopted: the words are already on their way
+        text = await _answered(pending)
     if text is None and audio is not None:
-        text = await asyncio.to_thread(voice.transcriber.transcribe, audio)
+        task = asyncio.ensure_future(
+            asyncio.to_thread(voice.transcriber.transcribe, audio))
+        text = await _answered(task)
     return text
+
+
+async def _answered(task) -> str | None:
+    """Wait for one transcription, but never past the deadline.
+
+    `asyncio.wait_for` is not enough here, which is worth writing down because it
+    looks like it should be: on a timeout it cancels the wait and then waits for
+    the cancellation to take effect, and a thread in the middle of a pass cannot
+    be stopped, so the deadline arrives and the turn goes on waiting behind it.
+    That is the seventy three seconds in the docstring above, arrived at twice.
+
+    `asyncio.wait` returns at the deadline whatever the pass is doing. The pass
+    itself carries on in its thread, which is why the recogniser is asked before
+    the next turn rather than after it, and the abandoned task is given a callback
+    so its result is read and not reported as a task nobody collected.
+    """
+    done, _ = await asyncio.wait({task}, timeout=config.TRANSCRIBE_TIMEOUT_S)
+    if not done:
+        _abandon(task)
+        raise RecognitionTooSlow(
+            f"nothing transcribed in {config.TRANSCRIBE_TIMEOUT_S:.1f}s")
+    try:
+        return task.result()
+    except asyncio.CancelledError:
+        # a cancelled speculation is not a cancelled turn: only a task that was
+        # itself dropped falls back to transcribing
+        if task.cancelled():
+            return None
+        raise
+    except Exception:
+        return None
+
+
+def _abandon(task) -> None:
+    """Let a task nobody is waiting for finish without complaint."""
+    task.cancel()
+    task.add_done_callback(lambda t: t.cancelled() or t.exception())
+
+
+def recogniser_busy(voice) -> bool:
+    """Whether a transcription is running right now.
+
+    Speculation is only worth starting on a free recogniser. A pass already in
+    flight is transcribed in the same order either way, so a second one starts
+    later than the turn needs it and makes the turn wait for both, on audio the
+    first one has already covered.
+    """
+    busy = getattr(getattr(voice, "transcriber", None), "busy", None)
+    return bool(busy()) if callable(busy) else False
 
 
 class Assistant:
@@ -346,9 +403,13 @@ class Assistant:
         self._spawn(self._process(audio=audio, text=transcript, pending=pending))
 
     async def _speculate(self, audio: np.ndarray) -> str | None:
-        """Transcribe while the user is still pausing, off the critical path."""
+        """Transcribe while the user is still pausing, off the critical path.
+
+        Under the same deadline as the turn, so a pass that is not coming back is
+        dropped here rather than waited on, and the turn that follows says so.
+        """
         try:
-            text = await asyncio.to_thread(self.transcriber.transcribe, audio)
+            text = await words_heard(self, audio, None)
         except Exception:
             return None
         # the dashboard shows it straight away: the words are already final, so
@@ -392,7 +453,17 @@ class Assistant:
 
         turn_started = loop.time()
         try:
-            text = await words_heard(self, audio, text, pending)
+            try:
+                text = await words_heard(self, audio, text, pending)
+            except RecognitionTooSlow as exc:
+                # The one failure a user cannot see: a recogniser that stopped
+                # answering leaves the screen on "thinking" and nothing said. Say it,
+                # and end the turn, so the next request is not queued behind it.
+                self.log("sys", f"the recogniser gave up: {exc}")
+                self.log("archy", NO_TRANSCRIPT)
+                await asyncio.to_thread(self.speaker.say, NO_TRANSCRIPT)
+                await asyncio.to_thread(self.player.wait_drained, 30)
+                return
             if cancel.is_set():
                 return
             if not text.strip():
@@ -1017,6 +1088,7 @@ class Assistant:
             # one transcription per cap. The end-of-speech path below handles it
             # like any other utterance.
             if (spec_task is None
+                    and not recogniser_busy(self)
                     and silence_ms >= config.SPECULATE_AT_MS
                     and total_ms < limit_ms - 250):
                 snapshot = np.concatenate(utterance).astype(np.float32) / 32768.0
