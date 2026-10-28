@@ -108,6 +108,26 @@ recognised, not matched, and whisper will not spell an unseen name the same way
 twice. The phrase and its last word are always honoured; the aliases are the
 variants it invents on top. Anything left out falls back to a default.
 
+### Windows and `PI_BIN`
+
+Windows has no `pi.exe`, only the `pi.cmd` and `pi.ps1` shims npm installs. Both
+run through `cmd.exe`, which re-parses the command line before node sees it. The
+system prompt Archy passes carries quotes (the memory instruction reads
+`NAME "VALUE"`), so through those shims the argument comes apart and pi treats it
+as a file path. The request then arrives far over the limit and the relay refuses
+it.
+
+Set `PI_BIN` in `config.local.json` to a program that passes its arguments through
+unparsed. A small shim does it: quote the arg list the way the C runtime does and
+spawn node with the pi CLI bundle, letting rpc mode speak over stdin, stdout and
+stderr unchanged. Point `PI_BIN` at the npm `.cmd` and it fails the way described
+above.
+
+One more trap on the same platform: with stdio inherited and not explicitly
+redirected, a spawned child lands on a hidden console, where its output goes
+nowhere and its stdin never ends. The shim has to create the pipes and relay the
+bytes itself, or pi runs, says nothing, and Archy reports the connection dropped.
+
 ## Commands
 
 ```
