@@ -1,6 +1,6 @@
 [project]
 name = "archy"
-version = "0.3.2"
+version = "0.3.3"
 description = "A local voice assistant: wake phrase, speech in, speech out, and a dashboard"
 readme = "README.md"
 requires-python = ">=3.12"
