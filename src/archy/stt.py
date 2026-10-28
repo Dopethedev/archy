@@ -38,6 +38,15 @@ class Transcriber:
         # of finishing quicker. One at a time.
         self._lock = threading.Lock()
 
+    def busy(self) -> bool:
+        """Whether a pass is running, which is also whether the next one waits.
+
+        Asked by the caller that starts a speculative transcription: starting one
+        behind a pass already in flight waits just as long and holds the turn up
+        for both, on audio the first pass has already covered.
+        """
+        return self._lock.locked()
+
     def transcribe(self, audio: np.ndarray) -> str:
         """16 kHz float32 mono in, text out. Empty string when there is nothing to hear."""
         audio = np.asarray(audio, dtype=np.float32).flatten()

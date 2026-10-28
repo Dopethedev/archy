@@ -277,6 +277,62 @@ async def scenario_one_transcription_per_request(name):
     return ok
 
 
+class BusyTranscriber(FakeTranscriber):
+    """A recogniser that is already in the middle of a pass."""
+    def __init__(self):
+        super().__init__()
+        self.working = True
+    def busy(self):
+        return self.working
+
+
+async def scenario_speculation_needs_a_free_recogniser(name):
+    """No speculative pass is started behind one already running.
+
+    Both would be transcribed in the same order on a serialised recogniser, so
+    the second one only makes the turn wait for two passes over audio the first
+    has already covered. The stop that leaves the recogniser busy is the one that
+    used to hold it for seventy three seconds.
+    """
+    h = Harness()
+    h.transcriber = BusyTranscriber()
+    h.state = "idle"
+    h.wake.fire_at = h.wake.pushes + 1
+
+    async def feed(count, value, pause=0.0):
+        for _ in range(count):
+            h.mic.frames.put(np.full(config.INPUT_BLOCK, value, dtype=np.int16))
+            await asyncio.sleep(pause)
+
+    task = asyncio.create_task(h._pump())
+    await feed(1, 100)                            # the wake word fires
+    await asyncio.sleep(0.1)                      # listening is armed
+    await feed(16, 900)                           # 480ms of speech
+    await feed(int(config.SPECULATE_AT_MS / 30) + 4, 100)
+    await asyncio.sleep(0.1)
+    busy_calls = h.transcriber.calls
+
+    h.transcriber.working = False                 # the pass finishes
+    await feed(int(config.SPECULATE_AT_MS / 30) + 20, 100)
+    await asyncio.sleep(0.2)
+    free_calls = h.transcriber.calls
+
+    state = h.state
+    h._stopping = True
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    ok = busy_calls == 0 and free_calls >= 1
+    print(f"  [{'OK  ' if ok else 'FAIL'}] {name}: started while busy={busy_calls} "
+          f"(must be 0), after it frees={free_calls} (must be at least 1), "
+          f"state={state}")
+    return ok
+
+
 async def scenario_too_short_keeps_listening(name):
     """A blip while listening must not end the turn outright.
 
@@ -675,6 +731,8 @@ async def main():
         "armed while no audio is queued -> deadline still measured from the arm"))
     results.append(await scenario_one_transcription_per_request(
         "speech that stops while the recogniser is still going -> one pass"))
+    results.append(await scenario_speculation_needs_a_free_recogniser(
+        "a pass already running -> no second one started behind it"))
     results.append(await scenario_too_short_keeps_listening(
         "a blip while listening -> keeps waiting instead of giving up"))
     results.append(await scenario_typed_while_replying(

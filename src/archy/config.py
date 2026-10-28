@@ -83,6 +83,15 @@ WHISPER_BEAM = 5             # beam search instead of greedy: slower, clearly be
 # 0.0 disables the temperature fallback entirely. The retry chain is what makes
 # transcribing noise cost several times a successful transcription.
 WHISPER_TEMPERATURE = 0.0
+# How long a turn waits for the recogniser before giving up on it. Measured: a
+# request is transcribed in 0.47s and a wake phrase in about half that, so this is
+# twenty five times a normal pass. One pass at a time is the rule, which means a
+# pass that stops coming back holds the recogniser and every turn behind it: with
+# no deadline the assistant stands there saying nothing, and silence with nothing
+# on the screen is the one failure a user cannot tell from a crash. A thread
+# cannot be interrupted, so the pass carries on; what the deadline buys is that
+# the turn stops waiting and says so.
+TRANSCRIBE_TIMEOUT_S = 12.0
 # Biases the recogniser towards words it would otherwise guess at, which is not
 # a small effect. Whisper reads this as context for what it is about to hear, so
 # its own command words belong here: "brief me", spoken at headset level,
