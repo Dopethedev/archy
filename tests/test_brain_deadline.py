@@ -7,7 +7,7 @@ deadline a long tool run would be killed mid-sentence, so the deadline is on
 silence rather than on the total time.
 """
 from pathlib import Path
-import asyncio, json, os, sys, time
+import asyncio, json, os, queue, sys, threading, time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import os, tempfile as _tf
@@ -15,7 +15,13 @@ os.environ["ARCHY_SESSION_DIR"] = _tf.mkdtemp(prefix="archy-test-session-")
 os.environ.setdefault("ARCHY_MEMORY_FILE", "/tmp/archy-test-memory.json")
 
 from archy import config
+import archy.brain as brain_mod
 from archy.brain import BrainError, PiBrain
+
+# the writer thread and its bound arrived with the fix; read them the tolerant way
+# so a run against the code before it reports what is missing instead of dying at
+# the import line
+WRITE_QUEUE = getattr(brain_mod, "WRITE_QUEUE", 32)
 
 # Starting a brain writes the policy a running gate reads, and that file is the
 # owner's if nothing says otherwise. This check starts one.
@@ -214,6 +220,126 @@ async def main():
     check("a turn whose lookups are slow is steered on time alone",
           outcome == "answered" and "spiked" in text, f"{outcome}: {detail!r}")
     config.BRAIN_MAX_TOOLS = 3
+
+
+async def interrupted():
+    """Interrupt a turn that is parked on the queue, and time how long it takes."""
+    config.PI_BIN = SILENT
+    config.BRAIN_SILENCE_TIMEOUT_S = 6.0      # long, so the deadline cannot be it
+    brain = PiBrain()
+    await brain.start()
+    got = []
+
+    async def consume():
+        async for kind, payload in brain.ask("hello"):
+            got.append((kind, payload))
+
+    turn = asyncio.ensure_future(consume())
+    await asyncio.sleep(0.4)                  # it is inside the queue wait by now
+    before = time.monotonic()
+    brain.abort()
+    try:
+        await asyncio.wait_for(turn, timeout=2.0)
+        ended, waited = True, time.monotonic() - before
+    except asyncio.TimeoutError:
+        ended, waited = False, time.monotonic() - before
+        turn.cancel()
+    free = not (brain._turn_lock is not None and brain._turn_lock.locked())
+    brain.stop()
+    return ended, waited, free, got
+
+
+print("-- an interrupt ends the turn it interrupts, not the deadline --")
+# The turn in flight is parked on the queue and only looked at the abort flag
+# after an event arrived, so an interrupt was delivered at the same moment as the
+# silence deadline: up to twenty five seconds of a turn nobody was waiting for,
+# holding the one-turn lock, with the request the user had just spoken queued
+# behind it and nothing on the screen to say so.
+ended, waited, free, got = asyncio.run(interrupted())
+check("an interrupted turn ends on the interrupt",
+      ended and waited < 1.5, f"ended={ended} after {waited:.2f}s")
+check("and the one-turn lock is free for the next request",
+      free, "the next question would have waited behind it")
+check("and it answered nothing, because it was interrupted",
+      not [item for item in got if item[0] == "done"], str(got))
+config.BRAIN_SILENCE_TIMEOUT_S = 1.5
+
+
+print("-- a child that stops reading its input does not stop the assistant --")
+# The writes went to pi's stdin from the event loop, and a write to a pipe blocks
+# when the pipe is full. pi is a process this one starts and does not control: it
+# can be wedged or simply not reading, and either way the loop that reads the
+# microphone, drains the queues and answers the dashboard stopped with it, with no
+# deadline anywhere watching.
+
+
+class BlockedStdin:
+    """A pipe nobody is reading: every write never comes back."""
+
+    def __init__(self):
+        self.hit = threading.Event()
+
+    def write(self, line):
+        self.hit.set()
+        threading.Event().wait()          # forever, like a full pipe
+
+    def flush(self):
+        pass
+
+    def close(self):
+        pass
+
+
+blocked = PiBrain()
+blocked._generation = 1
+blocked._write_error = ""
+blocked._writes = queue.Queue(maxsize=WRITE_QUEUE)
+blocked._proc = type("P", (), {"stdin": BlockedStdin(), "poll": lambda s: None})()
+writer = getattr(blocked, "_write_stdin", None)
+
+
+if writer is None:
+    check("a write to pi is handed to a thread that can wait", False,
+          "there is no writer thread, so the event loop waits on the pipe")
+else:
+    threading.Thread(target=writer, args=(1, blocked._proc), daemon=True).start()
+
+    one = []
+
+    def send_once():
+        try:
+            blocked._send({"type": "prompt", "message": "hello"})
+            one.append("sent")
+        except Exception as exc:
+            one.append(type(exc).__name__)
+
+    thread = threading.Thread(target=send_once, daemon=True)
+    thread.start()
+    thread.join(1.0)
+    check("a send to a child that is not reading comes straight back",
+          not thread.is_alive(), "the loop would have been blocked inside it")
+    check("and the message did reach the writer",
+          blocked._proc.stdin.hit.wait(1.0),
+          f"the write has to be attempted, not dropped ({one})")
+
+    failure = []
+
+    def flood():
+        for _ in range(WRITE_QUEUE * 3):
+            try:
+                blocked._send({"type": "abort"})
+            except BrainError as exc:
+                failure.append(str(exc))
+                return
+        failure.append("no error")
+
+    flooder = threading.Thread(target=flood, daemon=True)
+    flooder.start()
+    flooder.join(1.0)
+    check("and a child that is not reading is named, not waited for",
+          failure and "not reading its input" in failure[0], str(failure)[:80])
+    check("so the turn that finds it says something actionable",
+          failure and "pi" in failure[0], str(failure)[:60])
 
 
 asyncio.run(main())

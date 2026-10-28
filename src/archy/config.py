@@ -318,6 +318,15 @@ SWEEP_WORDS = ("security sweep", "security scan", "security check", "virus scan"
 # newest files are the ones that matter, a fresh dropper is a recent file, and
 # the report says exactly what was and was not covered.
 SWEEP_CLAMAV_TIMEOUT_S = 45.0
+# How long a turn waits for the sweep before it answers without one. The sweep
+# carries on in its own thread either way and still writes the report the briefing
+# reads. The wait was asyncio.wait_for, which does not bound it: on a timeout it
+# cancels the wait and then waits for the cancellation to take effect, and a thread
+# cannot be cancelled, so a deep sweep held the turn for as long as the machine
+# took. The two deep budgets below add up to more than the ceiling that was meant
+# to apply to them (rkhunter 300, then lynis 240), which is where it showed.
+SWEEP_TURN_TIMEOUT_S = 180.0
+SWEEP_DEEP_TURN_TIMEOUT_S = 300.0
 SWEEP_CLAMAV_MAX_FILES = 400
 SWEEP_CLAMAV_ENUMERATE = 20000      # stop listing after this many, pathological dirs
 
@@ -432,6 +441,53 @@ REMINDER_CHECK_S = 1.0
 # enough that "undo" later is not a surprise.
 REMINDER_UNDO_S = 120.0
 
+def _compositor_lines() -> str:
+    """The window commands for the desktop actually running, or none.
+
+    This named niri to every install, because niri is the desktop it was written
+    on. Every install that is not niri therefore handed the model a program it does
+    not have, inside a paragraph that also told it not to reach for anything else,
+    so a window request outside the three coded ones became a confident sentence
+    about something that never happened. desktop.py already detects niri, Hyprland
+    and sway from the environment; the prompt asks the same question now instead of
+    assuming an answer.
+
+    A desktop this does not recognise gets an honest sentence rather than a guess,
+    which is what desktop.why_not says about the same machine.
+    """
+    try:
+        from . import desktop as desktop_mod             # config is imported by it
+        kind = desktop_mod.compositor()
+    except (ImportError, AttributeError):
+        # importing desktop first comes back here while desktop is still halfway
+        # through its own import, so compositor() is not there yet. The honest
+        # sentence is the right answer to "I cannot tell", and it is already the
+        # one an unrecognised desktop gets.
+        kind = None
+    where = {
+        "niri": ("the compositor here is niri: niri msg windows lists "
+                 "them and niri msg action takes focus-window --id, "
+                 "close-window, and workspace moves."),
+        "hyprland": ("the compositor here is Hyprland: hyprctl -j clients "
+                     "lists them and hyprctl dispatch takes "
+                     "focuswindow address:0x..., killactive, and "
+                     "workspace moves."),
+        "sway": ("the compositor here is sway: swaymsg -t get_tree "
+                 "lists them and swaymsg takes '[con_id=N] focus', kill, "
+                 "and workspace moves."),
+    }.get(kind)
+    if where is None:
+        return ("This desktop is not one the assistant knows how to ask for its "
+                "windows, so do not run compositor commands: asking what is open "
+                "is answered in code, and anything else about windows should be "
+                "said honestly rather than attempted. ")
+    return (f"Window work is done for you in code: saying focus and an application, "
+            f"or asking what is open, is answered without a model. If you need a "
+            f"window action that is not one of those, {where} Do not reach for "
+            f"another compositor's commands: they are not installed and they fail "
+            f"silently. ")
+
+
 def _voice_rules() -> str:
     """The spoken-conversation rules. A function so it is built after the local
     overlay has had its say about the user's name."""
@@ -448,13 +504,8 @@ def _voice_rules() -> str:
         "launch command straight away rather than checking whether it works or "
         "the machine state first: checking costs the user several seconds of "
         "silence, and a failed launch can be corrected afterwards. "
-        "Window work is done for you in code: saying focus and an application, or "
-        "asking what is open, is answered without a model. If you need a window "
-        "action that is not one of those, the compositor here is niri: niri msg "
-        "windows lists them and niri msg action takes focus-window --id, "
-        "close-window, and workspace moves. Do not use the tools for other "
-        "compositors: this machine does not run them and they fail silently. "
-        "You have abilities that run without you: the dashboard has three themes "
+        + _compositor_lines()
+        + "You have abilities that run without you: the dashboard has three themes "
         "the user changes by saying stealth mode, combat mode or standard mode "
         "(if asked to change it, say that saying it is what changes it); "
         "reminders and timers set by saying remind me or set a timer; a morning "
