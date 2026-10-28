@@ -56,7 +56,7 @@ _DAY_WORDS = ("day", "days", "d")
 # A clock time: "at five", "at 5:30", "at 5pm", "at noon", "at half past five".
 def wanted(text: str) -> bool:
     words = text.lower()
-    if any(w in words for w in ("remind me", "reminder", "countdown")):
+    if any(w in words for w in ("remind me", "reminder", "countdown", "alarm")):
         return True
     # "timer" alone appears in ordinary sentences like "open the timer app",
     # so it counts only with an actual timer verb or duration beside it
@@ -161,9 +161,13 @@ _UNSUPPORTED = re.compile(
     rf"\bnext\s+(week|month|year|weekend)\b|\bon\s+the\s+\d"
     r"|\bthe\s+\d+(?:st|nd|rd|th)\s+of\b"
     rf"|\b{_WEEKS}\s*weeks?\b", re.I)
-# "set an alarm for 7am" has no "at" in it, and the am is what makes it a clock time
+# "set an alarm for 7am" has no "at" in it, and the am is what makes it a clock time.
+# The minutes are optional here for the same reason they are in _RE_AT: "set an
+# alarm for 6:30am" is the shape an alarm is usually set in, and without them the
+# sentence was read as no time at all.
 _RE_BARE_AMPM = re.compile(
-    r"\b(?P<hour>\d{1,2}|" + "|".join(_WORD_HOURS) + r")\s*(?P<meridiem>am|pm|a\.m\.|p\.m\.)",
+    r"\b(?P<hour>\d{1,2}|" + "|".join(_WORD_HOURS) + r")\s*"
+    r"(?::(?P<minute>\d{2}))?\s*(?P<meridiem>am|pm|a\.m\.|p\.m\.)",
     re.I)
 
 
@@ -353,14 +357,23 @@ def parse(text: str) -> dict | None:
     """What he asked for: a set, a list, or a cancel. None if it is none of
     those, in which case the sentence goes to the model as usual."""
     words = text.lower().strip()
+    # "alarm" belongs in this list: parse_clock and cannot_do both already read
+    # it, and this line is the only way into them, so without it "set an alarm for
+    # 7am" was claimed by nothing and reached a model with no reminder tool to
+    # call. Two gates out of four knew the word and two did not.
     if not any(w in words for w in ("remind me", "timer", "reminders", "reminder",
-                                    "countdown")):
+                                    "countdown", "alarm")):
         return None
     if re.search(r"\b(cancel|clear|forget|stop)\b", words) and \
             any(w in words for w in ("reminder", "reminders", "timer")):
         return {"action": "cancel"}
+    # "alarms" is in this one and not in the cancel above on purpose: a sentence
+    # with the word alarm in it and the word stop in it is usually about an alarm
+    # clock going off, and clearing everything on that reading is the one mistake
+    # here that takes something away.
     if re.search(r"\b(what|show|list|any|how long)\b", words) and \
-            any(w in words for w in ("reminder", "reminders", "timer", "left")):
+            any(w in words for w in ("reminder", "reminders", "timer", "left",
+                                     "alarm", "alarms")):
         return {"action": "list"}
     at = parse_clock(text)
     if at:

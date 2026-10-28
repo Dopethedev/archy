@@ -616,6 +616,20 @@ said = asyncio.run(speak("what are you waiting for"))
 check("asking what is waiting names the action", "rm -rf /tmp/scratch" in said, said)
 check("and says what to do about it", "approve" in said.lower(), said)
 
+# The waiting list is offered by a phrase, and one of them was the bare word
+# "permissions", matched as a substring. With the gate on, a question that
+# happened to contain it was answered with the waiting list and never reached the
+# model: the subject of the sentence was read as a request about the queue. v3 is
+# still waiting here, so a wrong yes names that action instead of the answer.
+for question in ("explain linux file permissions", "how do git permissions work",
+                 "show me the permissions", "what are the file permissions on /etc/shadow"):
+    said = asyncio.run(speak(question))
+    check(f"a question about permissions is not a question about the queue: {question!r}",
+          said == "the model answered", said)
+said = asyncio.run(speak("what permission requests are waiting"))
+check("while a question about the queue still gets the queue",
+      "rm -rf /tmp/scratch" in said, said)
+
 work_pending.write_text(json.dumps({"pending": []}))
 said = asyncio.run(speak("approve it"))
 check("approving with nothing waiting says so, and grants nothing",

@@ -116,9 +116,16 @@ class SpeechWake:
         head = " ".join(words[:HEAD_WORDS])
         found = re.search(re.escape(self.phrase), head, re.IGNORECASE)
         if found:
+            # Count the words the match covers, then take the request from the
+            # word list. Slicing the original string by the offset does not work:
+            # the transcript is assembled from recogniser segments, and one empty
+            # segment leaves a double space behind, which `head` has already had
+            # collapsed. "hey  archy, open sober" sliced by a nine-character
+            # offset gave back "y, open sober", and that went to the model.
+            spoken = len(head[:found.end()].split())
             # lstrip, not strip: only the separator after the name is ours to
             # remove, the request keeps its own punctuation
-            return True, cleaned[found.end():].lstrip(" ,.!?-")
+            return True, " ".join(words[spoken:]).lstrip(" ,.!?-")
 
         # any spelling the recogniser produced for the distinctive word, but
         # only right at the front: the name is spoken first when you mean it.
