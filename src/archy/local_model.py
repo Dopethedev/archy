@@ -90,6 +90,92 @@ def loaded(timeout: float = 1.5) -> bool | None:
     return state in ("loaded", "sleeping")
 
 
+def device_args(listed: str, configured: str) -> list[str]:
+    """The device flag, and only when the binary knows that device.
+
+    PI_LOCAL_DEVICE carries the device name on the machine this was written on
+    (Vulkan0), and it was passed to every install. On a box with a different
+    device name, or none, llama-server refuses to start and the only thing anyone
+    ever saw was "the local model did not start", because its output went to
+    /dev/null. Offline mode was simply dead there, with no reason next to it.
+
+    The listing is what `llama-server --list-devices` prints:
+
+        Available devices:
+          Vulkan0: NVIDIA GeForce RTX 3050 (8192 MiB, 7129 MiB free)
+
+    An empty listing means the binary was not asked, or would not say. The flag is
+    passed on then, which is the behaviour from before: a question that cannot be
+    answered is not a reason to change what works.
+    """
+    configured = (configured or "").strip()
+    if not configured:
+        return []
+    names = []
+    for line in listed.splitlines():
+        name, colon, _ = line.partition(":")
+        if colon and " " not in name.strip():
+            names.append(name.strip())
+    if not names:
+        return ["--device", configured]
+    if configured in names:
+        return ["--device", configured]
+    print(f"[local] this machine has no device called {configured!r} "
+          f"(it has {', '.join(names)}), so it is not being asked for", flush=True)
+    return []
+
+
+# captured at import, so a stand-in for the subprocess module in a test does not
+# have to reproduce the exception hierarchy
+_SUBPROCESS_ERRORS = (OSError, subprocess.SubprocessError)
+
+
+def _devices() -> str:
+    """What the binary says it can use, or nothing when it will not say."""
+    try:
+        out = subprocess.run([config.PI_LOCAL_SERVER_BIN, "--list-devices"],
+                             capture_output=True, text=True, timeout=10)
+    except _SUBPROCESS_ERRORS as exc:
+        print(f"[local] could not ask for the device list: {exc}", flush=True)
+        return ""
+    return getattr(out, "stdout", "") or ""
+
+
+def _router_log_path():
+    """Where the router's own output goes, so a refusal has a reason."""
+    return config.STATE_DIR / "local-server.log"
+
+
+def _router_log():
+    """An appendable log for the child, or /dev/null when it cannot be opened.
+
+    The router's output went to DEVNULL, so every failure it had was invisible:
+    "did not come up within 40s" was the whole story, with the actual reason (a
+    device that does not exist, a model file it cannot read, a port already
+    taken) written nowhere. Kept small, because this is a diagnostic, not a log
+    to keep.
+    """
+    try:
+        path = _router_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size > 1_000_000:
+            path.unlink()
+        return open(path, "a")
+    except OSError as exc:
+        print(f"[local] no log for the server: {exc}", flush=True)
+        return subprocess.DEVNULL
+
+
+def _last_words(count: int = 3) -> str:
+    """The tail of what the router said, for whoever has to fix it."""
+    try:
+        lines = _router_log_path().read_text(errors="replace").splitlines()
+    except OSError:
+        return ""
+    said = [line.strip() for line in lines if line.strip()][-count:]
+    return " / ".join(said)[:300]
+
+
 def ensure_running(wait: float = 40.0) -> bool:
     """Start the router if it is not up, load the model, and say whether it is usable.
 
@@ -119,15 +205,27 @@ def ensure_running(wait: float = 40.0) -> bool:
             "--port", config.PI_LOCAL_SERVER_URL.rsplit(":", 1)[-1],
             *config.PI_LOCAL_SERVER_ARGS]
     if config.PI_LOCAL_DEVICE:
-        args += ["--device", config.PI_LOCAL_DEVICE]
+        args += device_args(_devices(), config.PI_LOCAL_DEVICE)
     print(f"[local] starting {' '.join(args)}", flush=True)
+    log = _router_log()
     try:
-        _proc = subprocess.Popen(args, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL, text=True)
+        _proc = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, text=True)
     except (OSError, ValueError) as exc:
         print(f"[local] could not start {config.PI_LOCAL_SERVER_BIN}: {exc}", flush=True)
         return False
-    return _wait(wait) and _ensure_loaded(model)
+    finally:
+        # the child holds its own copy of the descriptor, so this one is only ours
+        # to hand over and close; a start is rare but a leaked handle is a leak
+        if hasattr(log, "close"):
+            log.close()
+    if not _wait(wait):
+        # the reason is in the log, and it is worth printing: the alternative is
+        # "it did not start" with nothing next to it
+        said = _last_words()
+        print(f"[local] the server said: {said}" if said else
+              "[local] the server said nothing", flush=True)
+        return False
+    return _ensure_loaded(model)
 
 
 def _ensure_loaded(model: str, wait: float | None = None) -> bool:

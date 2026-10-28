@@ -134,6 +134,45 @@ check("and the shipped aliases carry the spelling the recogniser reached for, "
       "archie" in aliases, aliases)
 check("and reading them is not an error", ran.returncode == 0, ran.stderr[-150:])
 
+print("-- the window commands in the prompt are the ones this desktop answers --")
+# The prompt told every install that the compositor was niri and that no other
+# compositor's commands worked, which was a fact about the machine it was written
+# on and a lie on every other one: the model asked for a window action outside the
+# coded three went to a program that is not installed and then talked about what
+# it had done. The commands come from the desktop actually running now, so the
+# check is the same question asked four ways.
+def prompt_with(**env):
+    """The spoken rules as they are built with this desktop running."""
+    keys = ("NIRI_SOCKET", "HYPRLAND_INSTANCE_SIGNATURE", "SWAYSOCK")
+    saved = {key: os.environ.pop(key, None) for key in keys}
+    os.environ.update(env)
+    try:
+        return config._voice_rules()
+    finally:
+        for key in keys:
+            os.environ.pop(key, None)
+            if saved[key] is not None:
+                os.environ[key] = saved[key]
+
+
+niri = prompt_with(NIRI_SOCKET="1")
+check("niri is given niri's commands",
+      "niri msg" in niri and "hyprctl" not in niri, niri[-80:])
+hypr = prompt_with(HYPRLAND_INSTANCE_SIGNATURE="1")
+check("Hyprland is given hyprctl, not niri",
+      "hyprctl" in hypr and "niri msg" not in hypr, hypr[-80:])
+sway = prompt_with(SWAYSOCK="1")
+check("sway is given swaymsg, not niri",
+      "swaymsg" in sway and "niri msg" not in sway, sway[-80:])
+unknown = prompt_with()
+check("a desktop it cannot identify is told not to try",
+      "not one the assistant knows" in unknown and "niri msg" not in unknown,
+      unknown[:80])
+check("and the prompt the assistant actually sends carries it",
+      "niri msg" in config.VOICE_RULES if "NIRI_SOCKET" in os.environ
+      else "niri msg" not in config.VOICE_RULES,
+      os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "no compositor in the environment"))
+
 print("-- and the file this machine actually has --")
 # the defaults back first, so this reads the file rather than the last experiment
 for name, value in original.items():

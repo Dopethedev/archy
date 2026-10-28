@@ -130,6 +130,54 @@ def open_error(exc: Exception) -> str:
             f"selected: try --input followed by part of its name.")
 
 
+class DeafMic:
+    """Stands in when there is no microphone to be had.
+
+    A device name that matches nothing raised out of MicCapture's constructor,
+    which is called from Assistant's, which is called before the try that exists
+    to survive a part failing. One stale INPUT_DEVICE in config.local.json, or one
+    mistyped --input, ended the run with a traceback: no dashboard, no typed
+    input, nothing, from a setting about the microphone. This has the shape the
+    rest of the code asks for, hears nothing, and carries the reason, which is
+    how the recogniser and the voice already degrade.
+    """
+
+    level = 0.0
+    gain = 1.0
+
+    def __init__(self, error: Exception):
+        self.error = error
+        self.frames: queue.Queue[np.ndarray] = queue.Queue()
+        print(f"[mic] no microphone, so it cannot hear you: {error}", flush=True)
+
+    def set_focus(self, on: bool):
+        pass
+
+    @property
+    def device_name(self) -> str:
+        return "none"
+
+    def start(self):
+        # reported rather than raised at the caller, so the startup path says why
+        # and carries on with everything that does not need a microphone
+        raise RuntimeError(str(self.error))
+
+    def stop(self):
+        pass
+
+    def silent_seconds(self) -> float:
+        # zero, so the twenty second notice does not also claim a switch that is
+        # off: the reason here is the name, and it has already been said
+        return 0.0
+
+    def drain(self):
+        while True:
+            try:
+                self.frames.get_nowait()
+            except queue.Empty:
+                return
+
+
 class MicCapture:
     """16 kHz mono int16 frames, handed over a plain thread-safe queue.
 
@@ -328,6 +376,8 @@ class Player:
     playback has to accept new audio mid-sentence without clicking.
     """
 
+    _speaking = False            # a block just handed to the device, for __new__ builds
+
     def __init__(self, samplerate: int = config.HUD_RATE, channels: int = 2):
         self.samplerate = samplerate
         self.level = 0.0
@@ -361,6 +411,11 @@ class Player:
         else:
             self._needs_fade = True           # next audio will need a ramp again
             self.level = 0.0
+        # A block out of the queue is not a block that has been heard: this one is
+        # in the device's own buffer and plays after this callback returns. Every
+        # reader of "the reply is over" was reading an empty queue as finished, so
+        # the microphone went back to listening over the last word of the answer.
+        self._speaking = bool(filled)
 
         if self._channels == 1:
             outdata[:, 0] = out
@@ -384,6 +439,9 @@ class Player:
             self._stream.stop()
             self._stream.close()
             self._stream = None
+        # no callbacks are coming any more, so the last one's answer would stand
+        # forever and every later wait_drained would sit out its whole timeout
+        self._speaking = False
 
     def write(self, samples: np.ndarray, generation: int | None = None) -> bool:
         """Queue mono float32 audio for playback. False if the reply is over.
@@ -406,17 +464,23 @@ class Player:
             return self._generation
 
     def playing(self) -> bool:
+        """Whether audio is still on its way out: queued, or already at the device."""
         with self._lock:
-            return bool(self._chunks)
+            return bool(self._chunks) or self._speaking
 
     def flush(self):
         """Drop what is queued, and invalidate audio still being synthesised."""
         with self._lock:
             self._chunks.clear()
             self._generation += 1
+            self._speaking = False
 
     def wait_drained(self, timeout: float = 60.0) -> bool:
-        """Block until everything queued has actually left the speaker."""
+        """Block until everything queued has actually left the speaker.
+
+        Includes the block already handed to the device, so this returns within one
+        buffer of the last sound rather than up to a block before it.
+        """
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if not self.playing():
