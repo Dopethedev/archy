@@ -148,7 +148,7 @@ check("and a write into the assistant's own state is allowed",
       allowed(gate.decide("write", {"path": str(state / "x.json"), "content": "{}"})))
 
 print("-- commands that only look --")
-for command in ("ls -la", "df -h", "du -sh /home/dope/archy", "cat notes.txt",
+for command in ("ls -la", "df -h", f"du -sh {root}", "cat notes.txt",
                 "nvidia-smi", "pgrep -c llama-server", "df -h | head -3",
                 "uptime && free -h", "git log --oneline -3", "systemctl status sshd",
                 "journalctl -n 20 --no-pager", "niri msg -j windows", "echo hello"):
@@ -188,8 +188,55 @@ print("-- and the reads that were being refused along with them --")
 for command in ("niri msg windows", "niri msg -j windows", "niri msg focused-window",
                 "busctl list", "busctl tree org.freedesktop.systemd1",
                 "command -v ls", "command -V rg", "env", "env FOO=bar",
-                "sort /etc/hostname", "ls -o", "fd -e py", "journalctl -n 20",
+                f"sort {inside}", "ls -o", "fd -e py", "journalctl -n 20",
                 "date +%s", "git status --short"):
+    check(f"still allowed: {command}", allowed(gate.decide("bash", {"command": command})))
+
+print("-- the shell is held to the same directories as the file tools --")
+# The read-only list was the only thing consulted on the command path, so a path
+# outside the approved directories was judged by the file tools and ignored by the
+# shell: `read /etc/hostname` needed approval and `cat /etc/hostname` did not. The
+# boundary the gate exists to draw was one tool call away from being walked around.
+for command in (f"cat {inside}", f"ls {root}", f"rg -n hello {root}",
+                f"du -sh {root}", f"sort {inside}", f"head -2 {inside}",
+                "/bin/cat notes.txt", f"cat {root}/../approved/notes.txt"):
+    check(f"allowed: {command[:52]}", allowed(gate.decide("bash", {"command": command})))
+
+for command in ("cat /etc/hostname", "rg -n . /etc/hosts", "cat /etc/shadow",
+                "cat ~/.ssh/id_rsa", f"cat {Path.home() / '.ssh' / 'id_rsa'}",
+                f"cat {outside}", "sort /etc/hostname", "du -sh /var",
+                "git -C /etc status", "head -1 /proc/self/environ",
+                f"grep -c x {Path.home() / '.ssh' / 'known_hosts'}",
+                "find /root -name x"):
+    result = gate.decide("bash", {"command": command})
+    check(f"not allowed to look outside them: {command[:46]}", denied(result))
+    check(f"  and it is a question, not a refusal: {command[:32]}",
+          result.get("approval") is True)
+
+print("-- subcommands whose own arguments decide --")
+# `git` is on the read-only list, and only the second word was checked, so what came
+# after it was never looked at. `git config` is the reason the second word is checked
+# at all, and it is not the only one that writes: these drop commits, remove release
+# tags and repoint where the next push goes.
+for command in ("git branch -D feature", "git branch -d feature",
+                "git branch -m old new", "git branch dev",
+                "git tag -d v0.3.3", "git tag -a v0.4.0 -m release",
+                "git tag -f v0.3.3", "git tag v0.4.0",
+                "git remote add evil https://example.invalid/x.git",
+                "git remote set-url origin https://example.invalid/x.git",
+                "git remote remove origin", "git remote prune origin"):
+    result = gate.decide("bash", {"command": command})
+    check(f"not allowed to look: {command[:50]}", denied(result))
+    check(f"  and it is a question: {command[:36]}", result.get("approval") is True)
+
+# The other half of the same rule again: a check that refuses the reading forms is a
+# check that gets switched off, so the listings have to keep working.
+for command in ("git branch", "git branch -a", "git branch -v", "git branch -r",
+                "git branch --contains HEAD", "git branch --list 'feat/*'",
+                "git tag", "git tag -l", "git tag -n5",
+                "git remote", "git remote -v", "git remote show origin",
+                "git status", "git log --oneline -3", "git diff --stat",
+                "git show --stat HEAD"):
     check(f"still allowed: {command}", allowed(gate.decide("bash", {"command": command})))
 
 check("an unknown tool is denied outright, with no approval offered",

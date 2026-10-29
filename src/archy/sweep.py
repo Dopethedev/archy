@@ -315,6 +315,25 @@ def _resolve_exec(cmd: str) -> str | None:
     return shutil.which(first)
 
 
+def _exec_target(value: str, where: str, findings: list[str]) -> str | None:
+    """_resolve_exec, with one malformed line costing only that line.
+
+    shlex raises ValueError on an unbalanced quote, and one desktop file written
+    that way used to take the whole check with it: the exception travelled out of
+    check_launchers, the per-check guard in run() turned it into a single warn
+    line, and every finding the check would have made disappeared with it. This
+    is the check that looks for a payload autostarting from a scratch directory,
+    so losing all of it to one odd line is the wrong trade. The entry is named
+    instead, and the check carries on with the rest.
+    """
+    try:
+        return _resolve_exec(value)
+    except ValueError as exc:
+        findings.append(f"info: {where} has an Exec line this cannot read "
+                        f"({exc}): {value.strip()[:80]}")
+        return None
+
+
 def _dangerous_perms(manifest: dict) -> list[str]:
     reasons = []
     perms = list(manifest.get("permissions") or []) \
@@ -461,7 +480,7 @@ def check_launchers(dirs: tuple = None, unit_dir: Path = None) -> list[str]:
                 key, _, value = line.partition("=")
                 if key not in ("Exec", "TryExec") or not value.strip():
                     continue
-                target = _resolve_exec(value)
+                target = _exec_target(value, f"{entry.name} ({label})", findings)
                 if target:
                     entries.append((label, entry.name, target, is_system))
     # user systemd services belong in the same ledger: same ownership question,
@@ -475,7 +494,8 @@ def check_launchers(dirs: tuple = None, unit_dir: Path = None) -> list[str]:
             for line in body.splitlines():
                 line = line.strip()
                 if line.startswith("Exec") and "=" in line:
-                    target = _resolve_exec(line.split("=", 1)[1])
+                    target = _exec_target(line.split("=", 1)[1],
+                                          f"{unit.name} (user services)", findings)
                     if target:
                         entries.append(("user services", unit.name, target, False))
     for _, _, target, _ in entries:

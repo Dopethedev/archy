@@ -287,6 +287,14 @@ with temp_ground() as raw:
         "[Desktop Entry]\nType=Application\nExec=env FOO=bar /bin/ls %U\n")
     (apps / "commented.desktop").write_text(
         "[Desktop Entry]\nType=Application\n# Exec=/tmp/nope\nExec=/bin/true\n")
+    # One launcher written with an unbalanced quote. shlex raises ValueError on
+    # it and nothing caught it, so the exception travelled out of
+    # check_launchers and the per-check guard in run() turned the whole check
+    # into a single warn line: every finding it would have made about every
+    # other entry went with it. This check is the one that looks for a payload
+    # autostarting from a scratch directory.
+    (apps / "broken.desktop").write_text(
+        "[Desktop Entry]\nType=Application\nExec=/bin/ls \"and then\n")
     (services / "unit.service").write_text(
         "[Service]\nExecStart=/tmp/sneak %f\n")
     real_owners, real_scan = sweep._pacman_owners, sweep._clamav_files
@@ -301,6 +309,12 @@ with temp_ground() as raw:
               not any("/tmp/nope" in f for f in out))
         check("a user service ExecStart from /tmp is an alert",
               any("unit.service" in f and "scratch" in f for f in out))
+        check("a malformed Exec line costs only that line, not the check",
+              any("broken.desktop" in f and "cannot read" in f for f in out),
+              str([f for f in out if "broken" in f][:1]))
+        check("and the entries beside it are still read",
+              any("codes.desktop" in f and "/bin/ls" in f for f in out),
+              "; ".join(out[:2]))
     finally:
         sweep._pacman_owners, sweep._clamav_files = real_owners, real_scan
 

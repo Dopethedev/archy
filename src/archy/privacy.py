@@ -37,7 +37,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import config
+from . import atomic, config
 from .memory_store import Memory
 
 # The switches, their config names, and the behaviour they had before they existed.
@@ -142,10 +142,11 @@ def set_switch(key: str, value: bool) -> Path:
     if not isinstance(body, dict):
         body = {}
     body[name] = bool(value)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(body, indent=2) + "\n")
-    temporary.replace(path)
+    # A fixed ".tmp" name was shared with whatever else was writing this file, and
+    # an install from the middle of the other writer's write leaves a truncated
+    # config behind, which reads as an empty one: every switch back to its default.
+    # The mode is left alone, because this is the owner's own file.
+    atomic.write(path, json.dumps(body, indent=2) + "\n", mode=None)
     setattr(config, name, bool(value))
     return path
 

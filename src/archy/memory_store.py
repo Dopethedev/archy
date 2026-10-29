@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sys
 import threading
 import time
@@ -103,6 +104,9 @@ class Memory:
     def __init__(self, path: Path | None = None):
         self.path = Path(path) if path else config.MEMORY_FILE
         self.facts: dict[str, dict] = {}
+        # Why the file could not be read, when it is there and would not parse.
+        # The first write copies it aside before it replaces it.
+        self._unreadable: str | None = None
         self._load()
 
     # ------------------------------------------------------------------ disk
@@ -112,12 +116,32 @@ class Memory:
                 raw = json.loads(self.path.read_text())
                 if isinstance(raw, dict):
                     self.facts = {str(k): v for k, v in raw.items() if isinstance(v, dict)}
+            self._unreadable = None
         except Exception as exc:
+            # Whatever was already held is kept, and the file that would not parse
+            # is copied aside before anything replaces it. Before this, a read
+            # failure left an empty store in memory and the very next set() wrote
+            # that empty store back: one hand edit with a missing comma, which is
+            # the edit this format invites, and every fact in the file was gone
+            # with no copy anywhere.
             print(f"[memory] could not read {self.path}: {exc}", file=sys.stderr)
-            self.facts = {}
+            self._unreadable = f"{type(exc).__name__}: {exc}"
+
+    def _copy_aside(self):
+        """Keep the unreadable store, the way clearing already does."""
+        backup = Path(f"{self.path}.bak")
+        try:
+            shutil.copy2(self.path, backup)
+            print(f"[memory] the store would not read, so a copy of it is at "
+                  f"{backup} before this write", file=sys.stderr)
+        except OSError as exc:
+            print(f"[memory] could not keep a copy of {self.path}: {exc}",
+                  file=sys.stderr)
 
     def _save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if self._unreadable and self.path.exists():
+            self._copy_aside()
         # a unique temporary name: two writers, which happens whenever the
         # assistant stores something while the shell does, must not share one
         # staging file and hand each other half a document
@@ -125,6 +149,7 @@ class Memory:
         try:
             tmp.write_text(json.dumps(self.facts, indent=2, sort_keys=True))
             _replace(tmp, self.path)        # atomic, so a crash cannot truncate it
+            self._unreadable = None
         finally:
             tmp.unlink(missing_ok=True)
 

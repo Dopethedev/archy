@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 
-from . import config
+from . import atomic, config
 
 
 def path():
@@ -32,11 +32,14 @@ def load() -> bool:
 
 
 def save(enabled: bool) -> None:
-    """Record the switch, atomically, so a crash cannot leave half a file."""
+    """Record the switch, in one step, so a crash cannot leave half a file.
+
+    The staging file is not a fixed "microphone.tmp": two writers share that name,
+    and one of them installing it while the other is halfway through writing it
+    leaves a truncated file, which reads as on. A privacy switch that fails open
+    is worse than one that fails loudly.
+    """
     try:
-        config.STATE_DIR.mkdir(parents=True, exist_ok=True)
-        tmp = path().with_suffix(".tmp")
-        tmp.write_text(json.dumps({"enabled": bool(enabled)}))
-        tmp.replace(path())
+        atomic.write(path(), json.dumps({"enabled": bool(enabled)}))
     except OSError as exc:
         print(f"[mic] could not record the microphone state: {exc}")

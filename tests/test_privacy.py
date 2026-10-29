@@ -188,6 +188,22 @@ check("and a remote model with files allowed may read it",
                   {"privacy_remote": True, "privacy_allow_files": True}).get("allow") is True)
 check("a command that only looks is unaffected, since it sends no file contents",
       gate.decide("bash", {"command": "ls"}, remote_no_files).get("allow") is True)
+
+# The switch covered the three file tools and nothing else, so the shell was the way
+# around it: with files switched off for an online model, `read ~/.ssh/id_rsa` was
+# refused and `cat ~/.ssh/id_rsa` was allowed. A command is refused now when it names
+# a file, and a command that names none is not a file read and still runs.
+for command in ("cat diary.txt", "rg -n . .", "head -1 /etc/hostname",
+                "cat ~/.ssh/id_rsa", "sort diary.txt", "tail diary.txt /etc/hosts"):
+    result = gate.decide("bash", {"command": command}, remote_no_files)
+    check(f"a command that names a file is refused: {command[:34]}",
+          result.get("allow") is False, str(result.get("reason", ""))[:58])
+    check(f"  and it is not a question: {command[:34]}",
+          result.get("approval") is False)
+for command in ("ls -la", "df -h", "git status", "uptime", "free -h", "whoami"):
+    check(f"still runs, since it names no file: {command}",
+          gate.decide("bash", {"command": command},
+                      remote_no_files).get("allow") is True)
 check("the refusals are written down",
       "privacy" in (work / "log.jsonl").read_text().lower(),
       "a blocked file should be visible in the record")

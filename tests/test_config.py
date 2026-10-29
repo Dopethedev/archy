@@ -32,9 +32,9 @@ def check(label, ok, detail=""):
 work = Path(tempfile.mkdtemp(prefix="archy-config-"))
 file = work / "config.local.json"
 original = {name: getattr(config, name) for name in
-            ("PI_MODELS", "WAKE_ALIASES", "PERMISSION_ROOTS", "PRIVACY_SHARE_MEMORY",
-             "TTS_SPEED", "PI_CHAIN_MODE", "MIC_DEAF_S", "CITY", "LATITUDE",
-             "DESKTOP_ALIASES", "TTS_VOICE")}
+            ("PI_MODELS", "WAKE_ALIASES", "PERMISSION_ROOTS", "NET_PROBE_TARGETS",
+             "PRIVACY_SHARE_MEMORY", "TTS_SPEED", "PI_CHAIN_MODE", "MIC_DEAF_S",
+             "CITY", "LATITUDE", "DESKTOP_ALIASES", "TTS_VOICE")}
 
 print("-- a string where a list belongs --")
 file.write_text(json.dumps({"PI_MODELS": "wandb/one/model"}))
@@ -51,6 +51,57 @@ check("commas are how a hand-written list is read",
 file.write_text(json.dumps({"PI_MODELS": ["wandb/a", "wandb/b"]}))
 config.apply_local_overrides(file)
 check("a real list still works", config.PI_MODELS == ("wandb/a", "wandb/b"))
+
+print("-- a list of pairs, which is the shape the network probe is built on --")
+# NET_PROBE_TARGETS is the one tuple of tuples in the file and it is the setting
+# the connectivity verdict rests on. Every item used to go through str(), so the
+# value became the single setting "['1.1.1.1', 443]", the probe raised on the
+# unpack, and Connectivity catches everything: the machine read as offline with
+# working internet and nothing said about why.
+file.write_text(json.dumps({"NET_PROBE_TARGETS": [["1.1.1.1", 443]]}))
+said = config.apply_local_overrides(file)
+check("a list of pairs is read as pairs, not as one string of text",
+      config.NET_PROBE_TARGETS == (("1.1.1.1", 443),), str(config.NET_PROBE_TARGETS))
+check("and the port is still a number",
+      isinstance(config.NET_PROBE_TARGETS[0][1], int))
+check("and nothing was said about it, because it read fine", said == [], str(said))
+
+from archy import net  # noqa: E402
+seen = []
+
+
+class FakeConn:
+    """What a connected socket has to be for the probe: something to close."""
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def fake_connect(address, timeout=None):
+    seen.append(address)
+    return FakeConn()
+
+
+real_connect = net.socket.create_connection
+net.socket.create_connection = fake_connect
+try:
+    connected = net._tcp_probe()
+finally:
+    net.socket.create_connection = real_connect
+check("so the probe is handed an address it can unpack",
+      connected is True and seen == [("1.1.1.1", 443)], str(seen))
+
+config.NET_PROBE_TARGETS = original["NET_PROBE_TARGETS"]
+for value, why in ((["1.1.1.1", 443], "a flat list is not a pair"),
+                   ([["1.1.1.1", 443, "x"]], "a three part row is not a pair"),
+                   ([[443, "1.1.1.1"]], "a number where the host goes")):
+    file.write_text(json.dumps({"NET_PROBE_TARGETS": value}))
+    said = config.apply_local_overrides(file)
+    check(f"{why} is refused, not built: {json.dumps(value)}",
+          config.NET_PROBE_TARGETS == original["NET_PROBE_TARGETS"] and bool(said),
+          str(said)[:80])
 
 print("-- the other settings people write by hand --")
 file.write_text(json.dumps({

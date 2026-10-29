@@ -645,56 +645,61 @@ class Assistant:
             # A request about the screen gets the screen attached; a request
             # for a security sweep gets fresh results to talk about; a request
             # for a briefing gets today's facts. The sweep wins if several
-            # match: nobody screenshots while auditing.
+            # match: nobody screenshots while auditing. None of it runs when the
+            # intent chain above already answered the turn: "remind me to check
+            # my screen at six" is a reminder, and starting a capture for it took
+            # a picture that was then thrown away, saying nothing about the
+            # reminder it had just set.
             images = None
             sweep_report = None
             brief_facts = None
-            if sweep_mod.wanted(text) and not sweep_mod.supported():
-                # Nothing on this machine for the checks to read, so it is
-                # answered here instead of after a long look at nothing.
-                local_reply = ("The sweep reads a Linux machine or a Mac: the "
-                               "processes, the things that start at login, and "
-                               "what is listening. There is nothing on this one "
-                               "for it to read.")
-            elif sweep_mod.wanted(text):
-                # The deeper checks are minutes rather than seconds, so they are
-                # said out loud before they start: a minute of silence with no
-                # explanation is how a request like this stops being made.
-                deep = sweep_mod.deep_wanted(text) and bool(sweep_mod.deep_checks())
-                deltas.put("Running the deeper check, this can take a minute." if deep
-                           else "Running the sweep now, this takes a few seconds.")
-                sweep_task = asyncio.ensure_future(asyncio.to_thread(sweep_mod.run, deep))
-                if await _within(sweep_task, config.SWEEP_DEEP_TURN_TIMEOUT_S if deep
-                                 else config.SWEEP_TURN_TIMEOUT_S):
-                    sweep_report = sweep_task.result()
-                else:
-                    # The sweep keeps running in its thread and still writes the
-                    # report the briefing reads. What it does not do is hold the
-                    # turn open: the sentence above promised a minute, and past
-                    # that the honest answer is the one that says it ran long.
-                    _abandon(sweep_task)
-                    sweep_report = None
-                    self.log("sys", "the sweep took too long, summarising without it")
-            elif wanted(text) and not privacy.shares("screens", self.brain.model_name()):
-                # Not a screenshot withheld at the last moment: not taken at all, so
-                # there is nothing to leak by accident later.
-                local_reply = ("Screenshots are switched off for online models, so I have not "
-                               "taken one. Switch that on, or use the local model, and I will look.")
-            elif wanted(text):
-                try:
-                    jpeg = await asyncio.to_thread(capture)
-                    images = [as_image(jpeg)]
-                    self.log("sys", "looking at your screen")
-                except (ScreenError, OSError) as exc:
-                    self.log("sys", f"could not capture the screen: {exc}")
-            elif briefing.wanted(text):
-                # A clock ask gets the clock and nothing besides. Handed the whole
-                # facts block it read the machine report out after the time, which
-                # is three sentences about uptime nobody asked for.
-                if briefing.wants_light(text):
-                    brief_facts = await asyncio.to_thread(briefing.clock)
-                else:
-                    brief_facts = await asyncio.to_thread(briefing.gather)
+            if local_reply is None:
+                if sweep_mod.wanted(text) and not sweep_mod.supported():
+                    # Nothing on this machine for the checks to read, so it is
+                    # answered here instead of after a long look at nothing.
+                    local_reply = ("The sweep reads a Linux machine or a Mac: the "
+                                   "processes, the things that start at login, and "
+                                   "what is listening. There is nothing on this one "
+                                   "for it to read.")
+                elif sweep_mod.wanted(text):
+                    # The deeper checks are minutes rather than seconds, so they are
+                    # said out loud before they start: a minute of silence with no
+                    # explanation is how a request like this stops being made.
+                    deep = sweep_mod.deep_wanted(text) and bool(sweep_mod.deep_checks())
+                    deltas.put("Running the deeper check, this can take a minute." if deep
+                               else "Running the sweep now, this takes a few seconds.")
+                    sweep_task = asyncio.ensure_future(asyncio.to_thread(sweep_mod.run, deep))
+                    if await _within(sweep_task, config.SWEEP_DEEP_TURN_TIMEOUT_S if deep
+                                     else config.SWEEP_TURN_TIMEOUT_S):
+                        sweep_report = sweep_task.result()
+                    else:
+                        # The sweep keeps running in its thread and still writes the
+                        # report the briefing reads. What it does not do is hold the
+                        # turn open: the sentence above promised a minute, and past
+                        # that the honest answer is the one that says it ran long.
+                        _abandon(sweep_task)
+                        sweep_report = None
+                        self.log("sys", "the sweep took too long, summarising without it")
+                elif wanted(text) and not privacy.shares("screens", self.brain.model_name()):
+                    # Not a screenshot withheld at the last moment: not taken at all, so
+                    # there is nothing to leak by accident later.
+                    local_reply = ("Screenshots are switched off for online models, so I have not "
+                                   "taken one. Switch that on, or use the local model, and I will look.")
+                elif wanted(text):
+                    try:
+                        jpeg = await asyncio.to_thread(capture)
+                        images = [as_image(jpeg)]
+                        self.log("sys", "looking at your screen")
+                    except (ScreenError, OSError) as exc:
+                        self.log("sys", f"could not capture the screen: {exc}")
+                elif briefing.wanted(text):
+                    # A clock ask gets the clock and nothing besides. Handed the whole
+                    # facts block it read the machine report out after the time, which
+                    # is three sentences about uptime nobody asked for.
+                    if briefing.wants_light(text):
+                        brief_facts = await asyncio.to_thread(briefing.clock)
+                    else:
+                        brief_facts = await asyncio.to_thread(briefing.gather)
 
             tts = threading.Thread(target=self.speaker.say_stream,
                                    args=(delta_iter(), on_first_audio, cancel), daemon=True)

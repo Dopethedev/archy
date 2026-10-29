@@ -333,6 +333,64 @@ async def main():
         desktop_mod.windows, desktop_mod.focus, desktop_mod.close_focused = (
             real_windows, real_focus, real_close)
 
+    # A turn the intent chain has already answered is not also a screen turn or a
+    # sweep turn. "remind me to check my screen at six" is a reminder, and the
+    # media chain below the intent chain used to run anyway: it took a screenshot
+    # (or started a sweep) and threw the result away, and with screens switched off
+    # for an online model it replaced the confirmation outright, so the reminder
+    # was set and the person was never told.
+    print("-- a reminder that mentions the screen is only a reminder --")
+    real_sweep_mod = archy_assistant.sweep_mod
+    real_capture, real_wanted = archy_assistant.capture, archy_assistant.wanted
+    real_shares = privacy.shares
+    took, swept = [], []
+
+    class FakeSweep:
+        wanted = staticmethod(lambda text: "malware scan" in text)
+        supported = staticmethod(lambda: True)
+        deep_wanted = staticmethod(lambda text: False)
+        deep_checks = staticmethod(lambda: [])
+        run = staticmethod(lambda deep=False: swept.append(deep) or "SWEEP REPORT")
+
+    def fake_capture():
+        took.append(True)
+        return b"a jpeg"
+
+    archy_assistant.sweep_mod = FakeSweep
+    archy_assistant.capture = fake_capture
+    archy_assistant.wanted = lambda text: "screen" in text
+    try:
+        for shared in (True, False):
+            privacy.shares = lambda kind, model, _shared=shared: _shared
+            took.clear()
+            h = await run_turn("remind me to check my screen at 6pm")
+            which = "screens shared" if shared else "screens switched off"
+            check(f"the reminder is what gets said ({which})",
+                  len(h.spoken) == 1 and "Check my screen" in h.spoken[0], str(h.spoken))
+            check(f"and nothing was captured for it ({which})", took == [], str(took))
+
+        swept.clear()
+        h = await run_turn("remind me to run a malware scan at 5pm")
+        check("and a reminder that mentions the sweep is answered the same way",
+              len(h.spoken) == 1 and "malware scan" in h.spoken[0].lower(), str(h.spoken))
+        check("with no sweep started for it", swept == [], str(swept))
+
+        # The control: the guard must not stop a turn that really is about the
+        # screen or the sweep. A check that cannot fail this way proves nothing.
+        privacy.shares = lambda kind, model: True
+        took.clear()
+        h = await run_turn("what is on my screen")
+        check("a plain screen request still takes the picture", took == [True], str(took))
+        check("and that one does go to the model", h.brain.seen != [], str(len(h.brain.seen)))
+        swept.clear()
+        h = await run_turn("run a malware scan")
+        check("and a sweep asked for plainly still runs", swept == [False], str(swept))
+    finally:
+        archy_assistant.sweep_mod = real_sweep_mod
+        archy_assistant.capture, archy_assistant.wanted = real_capture, real_wanted
+        privacy.shares = real_shares
+        reminders.PATH.unlink(missing_ok=True)
+
     print()
     print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)")
     return 0 if not failed else 1

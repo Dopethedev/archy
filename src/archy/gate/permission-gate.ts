@@ -28,6 +28,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -152,6 +153,44 @@ const SUBCOMMANDS: Record<string, Set<string>> = {
 	pacman: new Set(["--version", "--help", "-Qs", "-Qi", "-Ql", "-Qo", "-Q", "-Ss", "-Si", "-Sl"]),
 };
 
+/**
+ * Subcommands whose own arguments decide whether they write.
+ *
+ * The second word is not enough for these three: `git branch` lists, `git branch
+ * -D feature` drops commits, `git tag -d v0.3.3` removes a release tag, `git tag
+ * v0.4.0` makes one, and `git remote add` repoints the repository at somewhere
+ * else. All of them were allowed as "it only looks", and the remote one is the one
+ * that matters, because the next push goes wherever it points.
+ *
+ * `bare` means any argument that is not a flag is the change. That is true of
+ * branch and tag: the reading forms of both take flags only, and there is no
+ * read-only use of either that names a ref. The flags are listed separately
+ * because a flag is how the writing spellings of them arrive, and `-f` and `-D`
+ * do not look like arguments at all.
+ *
+ * The file's own comment names `git config` as the reason arguments are looked at
+ * in the first place, which is this rule with these holes left in it.
+ */
+const SUBCOMMAND_ARGUMENTS: Record<string, { flags: RegExp[]; bare?: boolean }> = {
+	"git branch": { bare: true, flags: [/^-d$/, /^-D$/, /^-m$/, /^-M$/, /^-c$/, /^-C$/,
+		/^--delete$/, /^--move$/, /^--copy$/, /^--edit-description$/, /^--set-upstream/,
+		/^--unset-upstream$/, /^--track/, /^--force$/, /^--create-reflog$/] },
+	"git tag": { bare: true, flags: [/^-d$/, /^-a$/, /^-s$/, /^-f$/, /^-u$/,
+		/^--delete$/, /^--force$/, /^--annotate$/, /^--sign$/, /^--local-user/] },
+	"git remote": { flags: [/^add$/, /^remove$/, /^rm$/, /^rename$/, /^set-url$/,
+		/^set-head$/, /^set-branches$/, /^prune$/, /^update$/] },
+};
+
+/**
+ * Flags whose next word is the flag's value, not an argument of its own.
+ *
+ * `git branch --contains HEAD` asks which branches have HEAD in them, and HEAD is
+ * not a ref being made: reading it as one would refuse the reading form of the
+ * subcommand, which is the direction that gets a security check switched off.
+ */
+const VALUE_FLAGS = new Set(["--contains", "--merged", "--no-merged", "--points-at",
+	"--list", "-l", "--sort", "--format", "--column"]);
+
 const MAX_COMMAND = 4096;
 const MAX_SUMMARY = 200;
 const MAX_PENDING = 20;
@@ -251,6 +290,44 @@ function insideRoots(target: string, roots: string[]): boolean {
 		if (samePath(real.slice(0, prefix.length), prefix)) return true;
 	}
 	return false;
+}
+
+/**
+ * The files a command names, as paths.
+ *
+ * The shell was judged by a different rulebook from the file tools: `read` on a
+ * path outside the approved directories asked for approval, and `cat` on the same
+ * path was allowed, because the read-only list was the only thing consulted and it
+ * never looks at a path. This is what the command branch asks before it allows
+ * one, so the boundary holds whichever way a file is reached.
+ *
+ * A word is a path when it starts with `/`, `~` or a dot, or when it names
+ * something that exists where the assistant runs. A pattern that merely contains a
+ * slash is not a file: `rg -n "a/b" file` is a search, and `rg -n a/b file` reads
+ * the file called a/b. A glob is not resolved here, which is the limit of this:
+ * `cat *.pem` names no file this can see. The program name is not a file either:
+ * `/bin/cat notes.txt` runs a program and reads a file, and only the file counts.
+ */
+function namedPaths(command: string, cwd: string): string[] {
+	const out: string[] = [];
+	for (const segment of splitSegments(command)) {
+		// The first word of a segment is the program being run, and the read-only list
+		// judges that. Everything after it is an argument, and an argument that names
+		// a file is a file this command will open, which is what the boundary covers.
+		for (const raw of segment.split(/\s+/).slice(1)) {
+			const word = raw.replace(/^['"]|['"]$/g, "").replace(/[;|&]$/, "");
+			if (!word || word.startsWith("-") || word.includes("://")) continue;
+			// `~` is the owner's home, not a directory called tilde. Resolved as a name it
+			// lands inside the working directory, which is approved, so `cat ~/.ssh/x`
+			// read as a file this assistant is allowed to open.
+			const tilde = word.startsWith("~");
+			const target = tilde ? join(homedir(), word.slice(1))
+				: isAbsolute(word) ? word : resolve(cwd, word);
+			if (!tilde && !isAbsolute(word) && !word.startsWith(".") && !existsSync(target)) continue;
+			out.push(realOf(target));
+		}
+	}
+	return out;
 }
 
 function isString(value: unknown): value is string {
@@ -372,6 +449,26 @@ export function readonlyCommand(command: string, extra: string[]): { ok: boolean
 			const second = (parts[1] ?? "").toLowerCase();
 			if (!subcommands.has(second) && !subcommands.has(parts[1] ?? "")) {
 				return { ok: false, why: `${name} ${second} is not one of the read-only ones` };
+			}
+		}
+		const writes = SUBCOMMAND_ARGUMENTS[`${name} ${(parts[1] ?? "").toLowerCase()}`];
+		if (writes) {
+			let value = false;
+			for (const part of parts.slice(2)) {
+				if (value) {
+					value = false;
+					continue;
+				}
+				if (writes.flags.some((pattern) => pattern.test(part))) {
+					return { ok: false, why: `${name} with ${part} changes the repository` };
+				}
+				if (VALUE_FLAGS.has(part)) {
+					value = true;
+					continue;
+				}
+				if (writes.bare && !part.startsWith("-")) {
+					return { ok: false, why: `${name} ${part} changes the repository` };
+				}
 			}
 		}
 		if (name === "niri") {
@@ -571,12 +668,16 @@ export function decide(toolName: string, input: unknown, loaded: Loaded, cwd: st
 	// "do this one thing"; this says "this kind of thing does not go to that model",
 	// and a question about it would be an offer to make a promise the owner already
 	// declined. So it refuses, without offering one, and says which setting it was.
-	if (policy.privacy_remote === true && policy.privacy_allow_files === false
-		&& FILE_TOOLS.has(toolName)) {
-		const reason = "sending file contents to an online model is switched off, so I "
-			+ "will not read or write files while one is answering";
-		logDecision(policy, toolName, "deny", reason, "");
-		return { allow: false, reason: `I will not do that: ${reason}.`, approval: false, enforcing: true };
+	const privacyOff = policy.privacy_remote === true && policy.privacy_allow_files === false;
+	const fileReason = "sending file contents to an online model is switched off, so I "
+		+ "will not read or write files while one is answering";
+	const refuseFileContents = (summary: string): Decision => {
+		logDecision(policy, toolName, "deny", fileReason, summary);
+		return { allow: false, reason: `I will not do that: ${fileReason}.`,
+			approval: false, enforcing: true };
+	};
+	if (privacyOff && FILE_TOOLS.has(toolName)) {
+		return refuseFileContents("");
 	}
 
 	const call = canonicalise(toolName, input, cwd);
@@ -588,8 +689,26 @@ export function decide(toolName: string, input: unknown, loaded: Loaded, cwd: st
 	const digest = createHash("sha256").update(`${toolName}\n${call.action}`).digest("hex");
 
 	if (call.command !== undefined) {
+		// The shell carries file contents out exactly as the read tool does, and the
+		// switch above covered the three file tools only: with files switched off for
+		// an online model, `read ~/.ssh/id_rsa` was refused and `cat ~/.ssh/id_rsa`
+		// was allowed. A command that names no file at all still runs, so `ls`, `df`
+		// and `git status` are unaffected.
+		const named = namedPaths(call.command, cwd);
+		if (privacyOff && named.length) {
+			return refuseFileContents(call.summary);
+		}
 		const verdict = readonlyCommand(call.command, extra);
 		if (verdict.ok) {
+			// The approved directories are asked about here too. The read-only list
+			// was the only thing consulted on this path, so `cat /etc/hostname` was
+			// allowed where `read /etc/hostname` needed approval, and the boundary the
+			// gate exists to draw was one tool call away from being walked around.
+			const outside = named.find((path) => !insideRoots(path, roots));
+			if (outside) {
+				return refuse(policy, toolName, call, digest,
+					`it reads ${outside}, which is outside the directories I am allowed to touch`);
+			}
 			logDecision(policy, toolName, "allow", verdict.why, call.summary);
 			return { allow: true, digest, enforcing: true };
 		}

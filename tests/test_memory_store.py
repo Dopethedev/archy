@@ -47,6 +47,10 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a corrupt file degrades to empty", m3.line_count() == 0)
     m3.set("recovered", "yes")
     check("and can be written again", Memory(path).get("recovered") == "yes")
+    check("and the file that would not parse was kept before that write",
+          Path(f"{path}.bak").exists()
+          and Path(f"{path}.bak").read_text() == "{ this is not json",
+          f"exists={Path(f'{path}.bak').exists()}")
 
     # atomic write leaves no partial file behind
     check("no temporary file left over", not list(Path(tmp).glob("*.tmp")))
@@ -79,6 +83,51 @@ with tempfile.TemporaryDirectory() as tmp:
           f"missing {missing}" if missing else f"kept all six")
     check("concurrent writes never corrupt the file",
           set(json.loads(rush.read_text())) == set(stored))
+
+# ------------------------------------------------------------ the unreadable one
+# The store is JSON on disk because a person is meant to be able to edit it, and
+# the edit people make is a missing comma. That read left an empty store in
+# memory and the very next set() wrote the empty store back, so the facts were
+# gone from the file with no copy anywhere. The file that would not parse is now
+# kept beside it, which is what makes carrying on safe rather than lossy.
+with tempfile.TemporaryDirectory() as tmp:
+    target = Path(tmp) / "memory.json"
+    store = Memory(target)
+    store.set("codeword", "purple lantern")
+    store.set("address_as", "dope")
+    hand_edited = ('{\n'
+                   '  "address_as": {\n    "updated": 1,\n    "value": "dope"\n  }\n'
+                   '  "codeword": {\n    "updated": 1,\n'
+                   '    "value": "purple lantern"\n  }\n'
+                   '}\n')                      # a comma missing between the two
+    target.write_text(hand_edited)
+    try:
+        json.loads(hand_edited)
+        readable = True
+    except ValueError:
+        readable = False
+    check("the hand edit really is unreadable", not readable)
+
+    reloaded = Memory(target)
+    check("it reads as empty rather than throwing", reloaded.line_count() == 0)
+    reloaded.set("coffee", "black")
+    backup = Path(f"{target}.bak")
+    check("the unreadable file is kept before a write replaces it",
+          backup.exists() and backup.read_text() == hand_edited,
+          f"exists={backup.exists()}")
+    check("and the assistant carries on", Memory(target).get("coffee") == "black")
+    copied = backup.read_text() if backup.exists() else ""
+    check("so the facts in it are still recoverable by hand",
+          "purple lantern" in copied and "dope" in copied, copied[:30])
+    check("and the assistant carries on", Memory(target).get("coffee") == "black")
+
+    # the control: a store that reads fine is not copied aside, and keeps its facts
+    fine = Path(tmp) / "fine.json"
+    ok = Memory(fine)
+    ok.set("one", "1")
+    ok.set("two", "2")
+    check("a store that reads is never copied aside", not Path(f"{fine}.bak").exists())
+    check("and nothing was lost from it", Memory(fine).get("two") == "2")
 
 # ------------------------------------------------------------ the Windows lock
 # Windows locks a byte range and refuses to lock a range it cannot see, so a lock

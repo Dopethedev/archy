@@ -88,6 +88,45 @@ check("the provider is marked down", link.provider() is False)
 check("and the mode says degraded, not offline", link.mode() == net.DEGRADED, link.mode())
 check("so the online chain is still the one to use", link.likely_online() is True)
 
+print("-- the panel's word for it, after the network comes back --")
+# A connectivity failure is not the provider refusing anything: nothing reached
+# it. It was recorded as a refusal, and the next successful probe proved the
+# internet was back while leaving that refusal standing, so the panel said
+# "degraded" for the rest of the run. Degraded means the internet is there and
+# the provider answered no, which had not happened.
+link = Connectivity(probe=lambda: True)
+link.note_success()
+link.note_failure("getaddrinfo ENOTFOUND relay.example")
+check("a connectivity failure leaves the provider unknown, not refusing",
+      link.provider() is None, str(link.provider()))
+check("and the mode is offline, not degraded", link.mode() == net.OFFLINE, link.mode())
+old_ttl, old_min = config.NET_CHECK_TTL_S, config.NET_CHECK_MIN_INTERVAL_S
+config.NET_CHECK_TTL_S = config.NET_CHECK_MIN_INTERVAL_S = 0.0
+try:
+    link.refresh(force=True)
+    link.wait(2.0)
+finally:
+    config.NET_CHECK_TTL_S, config.NET_CHECK_MIN_INTERVAL_S = old_ttl, old_min
+check("a probe that succeeds then says online, not degraded",
+      link.internet() is True and link.mode() == net.ONLINE, link.mode())
+check("and the chain was never pointed at the local model",
+      link.likely_online() is True)
+
+# The control, because the two failures are different facts: a relay that
+# answered and refused is still refusing after the probe, and saying online
+# there would hide a bad key.
+refused = Connectivity(probe=lambda: True)
+refused.note_success()
+refused.note_failure("401 Unauthorized: invalid api key")
+config.NET_CHECK_TTL_S = config.NET_CHECK_MIN_INTERVAL_S = 0.0
+try:
+    refused.refresh(force=True)
+    refused.wait(2.0)
+finally:
+    config.NET_CHECK_TTL_S, config.NET_CHECK_MIN_INTERVAL_S = old_ttl, old_min
+check("a refusal outlives a successful probe, and still reads degraded",
+      refused.provider() is False and refused.mode() == net.DEGRADED, refused.mode())
+
 print("-- a missing model must not look like an outage either --")
 link = Connectivity(probe=lambda: True)
 link.note_success()

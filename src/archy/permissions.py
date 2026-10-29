@@ -23,14 +23,12 @@ never be reported as on.
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
-import threading
 import time
 from pathlib import Path
 
-from . import config
+from . import atomic, config
 from . import privacy
 
 
@@ -128,17 +126,9 @@ def _atomic(path: Path, body: str) -> None:
     in another process, and burns an approval at the same moment the assistant
     writes the next one. A fixed ".tmp" name let both land on the same scratch
     file, and a torn approvals file reads as no approvals at all, which denies
-    everything. The pid and the thread id are in the name for the same reason
-    memory_store puts them there.
+    everything.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    try:
-        temporary.write_text(body)
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)   # gone already when the replace worked
-    os.chmod(path, 0o600)
+    atomic.write(path, body)
 
 
 def write_policy() -> Path:
