@@ -12,7 +12,7 @@ import urllib.request
 
 from . import config, sysinfo
 
-_weather_cache: tuple[float, str] = (0.0, "")
+_weather_cache: tuple[float, str, bool] = (0.0, "", False)     # when, line, was it a reading
 
 # open-meteo's WMO weather codes, in speech
 WMO = (
@@ -84,13 +84,24 @@ def wants_light(text: str) -> bool:
 
 
 def _weather() -> str:
-    """One line of sky. Cached for half an hour; the sky does not move faster."""
+    """One line of sky. Cached for half an hour; the sky does not move faster.
+
+    A failure is not the sky, and it is kept for seconds rather than half an
+    hour. It used to be cached like a reading, so one dropped connection at nine
+    meant every weather answer until half past said the weather was unavailable,
+    with the network back the whole time. It is still kept briefly, because the
+    alternative is an eight second wait on every turn of a conversation on a
+    machine with no connection.
+    """
     global _weather_cache
     if config.LATITUDE is None or config.LONGITUDE is None:
         return "unavailable, no location is set"
     now = time.monotonic()
-    if _weather_cache[0] and now - _weather_cache[0] < config.WEATHER_CACHE_S:
-        return _weather_cache[1]
+    if _weather_cache[0]:
+        fresh_for = config.WEATHER_CACHE_S if _weather_cache[2] \
+            else config.WEATHER_FAIL_CACHE_S
+        if now - _weather_cache[0] < fresh_for:
+            return _weather_cache[1]
     url = ("https://api.open-meteo.com/v1/forecast"
            f"?latitude={config.LATITUDE}&longitude={config.LONGITUDE}"
            "&current=temperature_2m,apparent_temperature,weather_code"
@@ -110,7 +121,9 @@ def _weather() -> str:
                 f"{day['precipitation_probability_max'][0]} percent")
     except Exception as exc:
         line = f"unavailable ({exc.__class__.__name__})"
-    _weather_cache = (now, line)
+        _weather_cache = (now, line, False)
+        return line
+    _weather_cache = (now, line, True)
     return line
 
 

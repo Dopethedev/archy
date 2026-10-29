@@ -253,7 +253,13 @@ class Connectivity:
             self.last_error = (message or "")[:400]
             if kind == CONNECTIVITY:
                 self._internet = False
-                self._provider = False
+                # Unknown, not refusing. Nothing reached the provider to refuse
+                # anything, and leaving it at False made the panel say "degraded"
+                # for the rest of the run: the next probe proves the internet is
+                # back and the provider verdict it invalidated was never cleared,
+                # and "degraded" means internet up with the provider answering no,
+                # which has not happened.
+                self._provider = None
                 self._checked = time.monotonic()
             elif kind in (AUTH, MODEL):
                 self._internet = True

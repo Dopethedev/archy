@@ -120,6 +120,29 @@ for text in ("remind me to buy milk", "what reminders do i have", "open the time
     check(f"no refusal where none is needed: {text!r}",
           reminders.cannot_do(text) is None)
 
+print("-- a unit is a whole word, so months are not minutes --")
+# The unit alternation carried no trailing boundary, so the bare "m" took the
+# first letter of "months" and every one of these set a timer for a few minutes
+# instead of being refused: "remind me in 5 months" came back as a 300 second
+# delay and was confirmed out loud as five minutes.
+for text in ("remind me in 5 months", "remind me in 2 months", "remind me in 3 miles",
+             "remind me in 4 milliseconds", "remind me in 11 months"):
+    check(f"a unit this cannot serve is not read as minutes: {text!r}",
+          reminders.parse(text) is None, str(reminders.parse(text)))
+for text in ("remind me in 5 months", "remind me in a month", "remind me in one year"):
+    check(f"and it is refused out loud rather than passed on: {text!r}",
+          "clock time" in (reminders.cannot_do(text) or ""),
+          str(reminders.cannot_do(text)))
+# The control: the boundary must not cost a duration that is real. A fix that
+# refuses everything is not a fix, and this is the check that proves it is not.
+for text, want in (("remind me in 5 minutes", 300.0), ("remind me in 5m", 300.0),
+                   ("remind me in 30 s", 30.0), ("remind me in three hours", 10800.0),
+                   ("remind me in an hour and a half", 5400.0),
+                   ("remind me in 3 days", 259200.0)):
+    a = reminders.parse(text)
+    check(f"a real duration still parses: {text!r}",
+          bool(a) and abs(a["delay"] - want) < 0.01, str(a))
+
 print("-- an alarm is a reminder under another name --")
 # "alarm" was read by parse_clock and by cannot_do but not by the gate standing
 # in front of them, so "set an alarm for 7am" was claimed by nothing, reached a

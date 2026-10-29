@@ -59,17 +59,38 @@ try:
     check("the second call inside the cache window does not refetch",
           (briefing._weather() == line) and True)
     fake["current"]["weather_code"] = 95
-    briefing._weather_cache = (0.0, "")
+    briefing._weather_cache = (0.0, "", False)
     line = briefing._weather()
     check("a thunderstorm is named", "thunderstorm" in line, line)
-    briefing._weather_cache = (0.0, "")
+    briefing._weather_cache = (0.0, "", False)
     def broken(url, timeout): raise TimeoutError("too slow")
     briefing.urllib.request.urlopen = broken
     line = briefing._weather()
     check("a dead network says so instead of lying", "unavailable" in line, line)
+
+    # a failure is not the weather: cached like a reading it was served for half
+    # an hour, so a dropped connection at nine made every answer until half past
+    # say the weather was unavailable with the network back the whole time
+    briefing.urllib.request.urlopen = lambda url, timeout: FakeResp()
+    briefing._weather_cache = (0.0, "", False)
+    fresh = briefing._weather()
+    check("and a reading after the failure is a reading again",
+          "unavailable" not in fresh and "degrees" in fresh, fresh)
+    stale = briefing._weather_cache[0] - config.WEATHER_FAIL_CACHE_S - 1.0
+    briefing._weather_cache = (stale, "unavailable (TimeoutError)", False)
+    briefing.urllib.request.urlopen = broken
+    again = briefing._weather()
+    check("a failure is retried once its short window is past",
+          again.startswith("unavailable") and briefing._weather_cache[0] > stale,
+          str(briefing._weather_cache))
+    briefing._weather_cache = (stale, "24 degrees, clear", True)
+    check("while a reading is still believed after the same wait",
+          briefing._weather() == "24 degrees, clear"
+          and stale < time.monotonic() - config.WEATHER_FAIL_CACHE_S,
+          str(briefing._weather_cache))
 finally:
     briefing.urllib.request.urlopen = real_urlopen
-    briefing._weather_cache = (0.0, "")
+    briefing._weather_cache = (0.0, "", False)
 
 print("-- machine health and the last sweep --")
 # the readings come from sysinfo, which knows a Linux box and a Mac both; a

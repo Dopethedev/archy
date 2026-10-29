@@ -10,13 +10,16 @@ from datetime import datetime, time as dtime, timedelta
 import threading
 import time
 
-from . import config
+from . import atomic, config
 
 PATH = config.STATE_DIR / "reminders.json"
 _lock = threading.Lock()
 
-# relative durations only; an alarm clock it is not
-_UNIT = r"(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)"
+# relative durations only; an alarm clock it is not.
+# The lookahead is the one _WORD already carries, for the same reason: without it
+# the alternation matched a prefix of a longer word, so the "m" took the first
+# letter of "months" and "remind me in five months" set a five minute timer.
+_UNIT = r"(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)(?![a-z])"
 # whisper writes small numbers as words about half the time, and "remind me in
 # twenty minutes" used to fall through to the model, which has no reminder tool
 # and would either ask again or agree to something it cannot do
@@ -156,11 +159,16 @@ _RE_DAILY = re.compile(r"\b(every\s*day|everyday|daily|each\s+day|every\s+mornin
                        r"every\s+night)\b", re.I)
 # Shapes still not served. A model agrees to these out loud and then never fires
 # them, so they get a plain sentence instead of a confident yes.
-_WEEKS = r"(?:\d+|a\s+couple\s+of|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
+# The units a delay cannot be measured in. Weeks were here and months and years
+# were not, so a request in months was read by the delay parser as minutes. "a"
+# and "one" are in the count because "remind me in a month" is the same request
+# as "remind me in two months".
+_UNSERVED = (r"(?:\d+|a\s+couple\s+of|an?|one|two|three|four|five|six|seven|eight|"
+             r"nine|ten|eleven|twelve)")
 _UNSUPPORTED = re.compile(
     rf"\bnext\s+(week|month|year|weekend)\b|\bon\s+the\s+\d"
     r"|\bthe\s+\d+(?:st|nd|rd|th)\s+of\b"
-    rf"|\b{_WEEKS}\s*weeks?\b", re.I)
+    rf"|\b{_UNSERVED}\s*(?:weeks?|months?|years?)\b", re.I)
 # "set an alarm for 7am" has no "at" in it, and the am is what makes it a clock time.
 # The minutes are optional here for the same reason they are in _RE_AT: "set an
 # alarm for 6:30am" is the shape an alarm is usually set in, and without them the
@@ -419,9 +427,10 @@ def load() -> list[dict]:
 
 def save(items: list[dict]):
     config.STATE_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(items))
-    tmp.replace(PATH)
+    # Not a fixed "reminders.tmp": two writers share that name, and a reminder
+    # list installed while the other writer was halfway through writing it reads
+    # as no reminders at all.
+    atomic.write(PATH, json.dumps(items))
 
 
 def add(label: str, delay_s: float, repeat: str | None = None,

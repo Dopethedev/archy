@@ -63,6 +63,24 @@ for text, want in [("uh hey Archy open sober", "open sober"),
     heard, rest = w.match(text)
     check(f"{text!r}", heard and rest == want, f"-> {rest!r}")
 
+print("-- the name is a word, not the start of one --")
+# The phrase was searched for as a substring, so anything that began with it was a
+# call: "hey archyology" and "hey architect" both woke the assistant and handed it
+# whatever came next. A video on the desk saying either one got answered.
+for text in ("hey archyology open files", "hey archyx", "hey architect open files",
+             "hey archyness", "hey archy123", "Archyology is a topic"):
+    heard, rest = w.match(text)
+    check(f"ignored {text!r}", not heard, f"-> {rest!r}")
+# and the word itself, with punctuation or a request after it, is still a call
+for text, want in [("hey archy! open files", "open files"),
+                   ("hey archy, open files", "open files"),
+                   # glued to the next word the request is what follows that word:
+                   # the offset counts words, and "archy-open" is one of them
+                   ("hey archy-open files", "files"),
+                   ("hey Archy's notes", "notes")]:
+    heard, rest = w.match(text)
+    check(f"still a call {text!r}", heard and rest == want, f"-> {rest!r}")
+
 print("-- tidying what follows the phrase --")
 for text, want in [("hey archy, so please open sober", "open sober"),
                    ("hey archy, open brave", "open brave"),

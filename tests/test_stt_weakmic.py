@@ -13,13 +13,21 @@ import numpy as np
 from kokoro_onnx import Kokoro
 from faster_whisper import WhisperModel
 from archy import config
+from archy.wake import SpeechWake
 
 import voice_models                              # noqa: E402
 
 voice_models.require("this group measures whisper against speech at microphone level")
 
 PHRASE = "Archy, open Sober and tell me my cpu usage"
-WANT = {"archy", "open", "sober", "cpu", "usage"}
+# The name is not one of the words compared here. Whisper spells it "Archy" or
+# "Archie", and the second one is an accepted spelling: config.WAKE_ALIASES holds
+# it and the README points owners at that setting, so the assistant answers to it.
+# Counting it as a miss made this suite report a failure for a spelling the product
+# takes, and the count of failing groups is how the suite is read. The name is put
+# to the piece that decides, below, and these are the words nothing else judges.
+WANT = {"open", "sober", "cpu", "usage"}
+wake = SpeechWake(config.WAKE_PHRASE, config.WAKE_ALIASES)
 
 kokoro = Kokoro(str(voice_models.MODEL), str(voice_models.VOICES))
 samples, sr = kokoro.create(PHRASE, voice="bm_george", speed=1.0, lang="en-gb")
@@ -65,6 +73,12 @@ for label, audio in variants.items():
     dt = time.monotonic() - t
     got = set(text.lower().replace(",", " ").replace(".", " ").split())
     miss = WANT - got
+    # The wake word is asked of the wake word's own matcher: it knows the alias
+    # list, this test does not, and a name it accepts is not a transcription
+    # failure. Everything after the name is still compared word for word.
+    heard, _ = wake.match(text)
+    if not heard:
+        miss.add("archy")
     ok = not miss
     if not ok:
         failures += 1

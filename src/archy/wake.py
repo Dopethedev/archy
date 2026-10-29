@@ -114,7 +114,14 @@ class SpeechWake:
         # "uh hey archy" is still a call.
         words = cleaned.split()
         head = " ".join(words[:HEAD_WORDS])
-        found = re.search(re.escape(self.phrase), head, re.IGNORECASE)
+        # The phrase is a whole phrase and not a prefix of a longer word. Without
+        # the boundary, "hey archyology" and "hey architect" both matched "hey
+        # archy" and called the assistant with whatever followed, which is how a
+        # video on the desk gets answered. The lookarounds are on word characters
+        # rather than \b, because the phrase can end in punctuation of the owner's
+        # choosing.
+        found = re.search(rf"(?<![a-z0-9]){re.escape(self.phrase)}(?![a-z0-9])",
+                          head, re.IGNORECASE)
         if found:
             # Count the words the match covers, then take the request from the
             # word list. Slicing the original string by the offset does not work:

@@ -425,6 +425,11 @@ CITY = ""
 LATITUDE = None
 LONGITUDE = None
 WEATHER_CACHE_S = 1800.0
+# A failed fetch is not the weather, so it is not believed for half an hour: one
+# dropped connection was served as "unavailable" until the cache expired, with
+# the network back the whole time. It is kept this long because the alternative
+# is an eight second wait on every weather ask while the machine is offline.
+WEATHER_FAIL_CACHE_S = 30.0
 
 # A microphone delivering exact zeros, every sample, is switched off, has its
 # boom up, or has stalled. This many seconds of it and the assistant says so:
@@ -602,6 +607,29 @@ def _coerce(default, value):
             items = [part.strip() for part in value.split(",")] if "," in value else [value]
             return True, tuple(part for part in items if part)
         if isinstance(value, (list, tuple)):
+            template = default[0] if default else None
+            if isinstance(template, (tuple, list)):
+                # A list of pairs, which is what NET_PROBE_TARGETS is: a host and
+                # a port. Every item used to go through str(), so
+                # [["1.1.1.1", 443]] became the single setting value
+                # "['1.1.1.1', 443]", the probe raised on the unpack, and the
+                # machine read as permanently offline with nothing said about
+                # why. Each part is coerced against the part it replaces instead,
+                # so the port stays a number.
+                built = []
+                for item in value:
+                    if not isinstance(item, (list, tuple)):
+                        return False, "a list of pairs, like [\"1.1.1.1\", 443]"
+                    if len(item) != len(template):
+                        return False, f"a list of pairs of {len(template)} items"
+                    pair = []
+                    for default_part, part in zip(template, item):
+                        ok, fixed = _coerce(default_part, part)
+                        if not ok:
+                            return False, f"a list of pairs where a part is {fixed}"
+                        pair.append(fixed)
+                    built.append(tuple(pair))
+                return True, tuple(built)
             return True, tuple(str(item) for item in value)
         return False, "a list of items, or one item"
     if isinstance(default, dict):
