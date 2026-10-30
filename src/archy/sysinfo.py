@@ -35,7 +35,7 @@ IS_MAC = sys.platform == "darwin"
 
 # ---------------------------------------------------------------------- linux
 def _linux_cpu_ticks() -> tuple[int, int] | None:
-    with open("/proc/stat") as fh:
+    with open("/proc/stat", encoding="utf-8") as fh:
         parts = [int(x) for x in fh.readline().split()[1:]]
     idle = parts[3] + parts[4]                    # idle + iowait
     return idle, sum(parts)
@@ -43,7 +43,7 @@ def _linux_cpu_ticks() -> tuple[int, int] | None:
 
 def _linux_memory() -> tuple[float, float]:
     info: dict[str, float] = {}
-    with open("/proc/meminfo") as fh:
+    with open("/proc/meminfo", encoding="utf-8") as fh:
         for line in fh:
             key, _, rest = line.partition(":")
             info[key] = float(rest.strip().split()[0])
@@ -52,7 +52,7 @@ def _linux_memory() -> tuple[float, float]:
 
 
 def _linux_uptime() -> float | None:
-    with open("/proc/uptime") as fh:
+    with open("/proc/uptime", encoding="utf-8") as fh:
         return float(fh.read().split()[0])
 
 
@@ -65,12 +65,12 @@ def _linux_temperature() -> float | None:
     """
     for hwmon in sorted(Path("/sys/class/hwmon").glob("hwmon*")):
         try:
-            if (hwmon / "name").read_text().strip() not in ("coretemp", "k10temp", "zenpower"):
+            if (hwmon / "name").read_text(encoding="utf-8").strip() not in ("coretemp", "k10temp", "zenpower"):
                 continue
             for label in sorted(hwmon.glob("temp*_label")):
-                if "package" in label.read_text().lower():
+                if "package" in label.read_text(encoding="utf-8").lower():
                     source = hwmon / label.name.replace("_label", "_input")
-                    return int(source.read_text()) / 1000
+                    return int(source.read_text(encoding="utf-8")) / 1000
         except (OSError, ValueError):
             continue
     return None

@@ -160,7 +160,7 @@ def check_uid_zero() -> list[str]:
 
 def check_hosts(path: Path = None) -> list[str]:
     try:
-        lines = (path or HOSTS_PATH).read_text(errors="replace").splitlines()
+        lines = (path or HOSTS_PATH).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError as exc:
         return [f"warn: /etc/hosts unreadable: {exc}"]
     # loopback, link-local, ipv6 multicast and the hostname mapping are all
@@ -221,7 +221,7 @@ def check_ssh() -> list[str]:
     keys = HOME / ".ssh" / "authorized_keys"
     if keys.exists():
         try:
-            entries = [ln for ln in keys.read_text(errors="replace").splitlines()
+            entries = [ln for ln in keys.read_text(encoding="utf-8", errors="replace").splitlines()
                        if ln.strip() and not ln.startswith("#")]
             findings.append(f"info: {len(entries)} authorized ssh key(s); "
                             f"confirm you know each one")
@@ -240,7 +240,7 @@ def check_user_units() -> list[str]:
             continue
         for unit in base.glob("*.service"):
             try:
-                body = unit.read_text(errors="replace")
+                body = unit.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
             for line in body.splitlines():
@@ -357,7 +357,7 @@ def check_browser(base: Path = None) -> list[str]:
     components, seen = [], 0
     for profile in sorted(base.glob("*/Preferences")):
         try:
-            data = json.loads(profile.read_text(errors="replace"))
+            data = json.loads(profile.read_text(encoding="utf-8", errors="replace"))
         except (OSError, ValueError):
             findings.append(f"warn: {profile.parent.name}/Preferences unreadable")
             continue
@@ -377,7 +377,7 @@ def check_browser(base: Path = None) -> list[str]:
                 else profile.parent / "Extensions" / ext_id / raw
             manifest_path = path / "manifest.json"
             try:
-                manifest = json.loads(manifest_path.read_text(errors="replace"))
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8", errors="replace"))
             except (OSError, ValueError):
                 findings.append(f"warn: extension {ext_id[:12]} has no readable "
                                 "manifest where the profile says it lives")
@@ -400,7 +400,7 @@ def check_browser(base: Path = None) -> list[str]:
     # there must belong to a package, because a planted component appears here
     for manifest_path in list(base.glob("[0-9a-f]" * 32 + "/*/manifest.json"))[:60]:
         try:
-            name = str(json.loads(manifest_path.read_text(errors="replace"))
+            name = str(json.loads(manifest_path.read_text(encoding="utf-8", errors="replace"))
                        .get("name", manifest_path.parent.parent.name))[:48]
         except (OSError, ValueError):
             name = manifest_path.parent.parent.name[:12]
@@ -466,7 +466,7 @@ def check_launchers(dirs: tuple = None, unit_dir: Path = None) -> list[str]:
             continue
         for entry in sorted(directory.glob("*.desktop")):
             try:
-                body = entry.read_text(errors="replace")
+                body = entry.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
             in_section = False
@@ -488,7 +488,7 @@ def check_launchers(dirs: tuple = None, unit_dir: Path = None) -> list[str]:
     if unit_dir.exists():
         for unit in sorted(unit_dir.glob("*.service")):
             try:
-                body = unit.read_text(errors="replace")
+                body = unit.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
             for line in body.splitlines():
@@ -1135,7 +1135,7 @@ def _lynis_profile() -> Path | None:
         body = ["# Written by ARCHY. The tests below are left out because they ask for",
                 "# authentication, which puts a password dialog on the desktop."]
         body += [f"skip-test={name}" for name in config.SWEEP_LYNIS_SKIP_TESTS]
-        path.write_text("\n".join(body) + "\n")
+        path.write_text("\n".join(body) + "\n", encoding="utf-8")
         return path
     except OSError as exc:
         print(f"[sweep] no lynis profile: {exc}")
@@ -1269,7 +1269,7 @@ def run(deep: bool = False) -> str:
     # running another one
     try:
         config.STATE_DIR.mkdir(parents=True, exist_ok=True)
-        (config.STATE_DIR / "last-sweep.txt").write_text(report)
+        (config.STATE_DIR / "last-sweep.txt").write_text(report, encoding="utf-8")
     except OSError:
         pass
     return report if len(report) < 3800 else report[:3700] + "\n  (report truncated)"

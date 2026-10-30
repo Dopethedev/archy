@@ -143,7 +143,7 @@ def loads_ok(models: Path, item: Item) -> str:
             ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
         elif item.name.endswith(".json"):
             import json
-            json.loads(path.read_text())
+            json.loads(path.read_text(encoding="utf-8"))
         else:
             return ""
     except Exception as exc:                 # a truncated file, a bad download

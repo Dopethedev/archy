@@ -113,7 +113,7 @@ class Memory:
     def _load(self):
         try:
             if self.path.exists():
-                raw = json.loads(self.path.read_text())
+                raw = json.loads(self.path.read_text(encoding="utf-8"))
                 if isinstance(raw, dict):
                     self.facts = {str(k): v for k, v in raw.items() if isinstance(v, dict)}
             self._unreadable = None
@@ -147,7 +147,8 @@ class Memory:
         # staging file and hand each other half a document
         tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         try:
-            tmp.write_text(json.dumps(self.facts, indent=2, sort_keys=True))
+            tmp.write_text(json.dumps(self.facts, indent=2, sort_keys=True),
+                           encoding="utf-8")
             _replace(tmp, self.path)        # atomic, so a crash cannot truncate it
             self._unreadable = None
         finally:
@@ -313,6 +314,13 @@ def forget_intent(text: str, memory: "Memory") -> str | None:
     keys = list(memory.facts)
     exact = next((key for key in keys if key.lower() == wanted), None)
     if exact is None:
+        # another process may have stored it in the meantime, which is why the
+        # reload is here: it has to be looked at again, because reloading and then
+        # reporting nothing was the same answer as not reloading at all
+        memory._load()
+        keys = list(memory.facts)
+        exact = next((key for key in keys if key.lower() == wanted), None)
+    if exact is None:
         near = [key for key in keys if wanted in key.lower() or key.lower() in wanted]
         if len(near) == 1:
             exact = near[0]
@@ -321,7 +329,6 @@ def forget_intent(text: str, memory: "Memory") -> str | None:
                     + ", ".join(sorted(_readable(key) for key in near)[:4])
                     + ". Which one?")
     if exact is None:
-        memory._load()                        # another process may have just stored it
         return f"I have nothing stored about {what}."
     memory.forget(exact)
     return f"Forgotten: {_readable(exact)}."

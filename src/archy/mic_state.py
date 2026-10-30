@@ -24,7 +24,7 @@ def load() -> bool:
     there deaf without saying so.
     """
     try:
-        data = json.loads(path().read_text())
+        data = json.loads(path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return True
     enabled = data.get("enabled") if isinstance(data, dict) else None

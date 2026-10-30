@@ -35,8 +35,11 @@ _TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
 _WORD = rf"(?:{'|'.join(list(_ONES) + list(_TENS))})(?![a-z])"
 _COMPOUND = rf"(?:{_WORD})(?:[\s-]{_WORD})?"
 _AND_HALF = r"(?:\s+and\s+a\s+(?:half|quarter))"
+# the digits take a point as well as a whole: "remind me in 1.5 hours" is how an
+# hour and a half gets written by anyone reading it off a screen, and a count that
+# cannot match leaves the sentence to a model with no reminder tool to call
 _AMOUNT = (rf"(?:an?|half\s+an?|a\s+quarter(?:\s+of\s+an?)?"
-           rf"|{_COMPOUND}{_AND_HALF}?|\d+)")
+           rf"|{_COMPOUND}{_AND_HALF}?|\d+(?:\.\d+)?)")
 # The hours people say, next to the digits they write.
 _WORD_HOURS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
                "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
@@ -277,8 +280,19 @@ def _clock_target(hour: int, minute: int, meridiem: str | None, day_offset: int,
             target += timedelta(days=7 if same_weekday else 1)
         return target
     prefer_pm = now.hour >= 12
-    first = hour + 12 if prefer_pm else hour
-    second = hour if prefer_pm else hour + 12
+    # Twelve is the one hour where adding twelve makes twenty four, and twenty four
+    # is not a time: `dtime(hour=24)` raised, out of parse_clock, out of parse, and
+    # into the turn's error handler, so "remind me at twelve" said "something went
+    # wrong" and set nothing at any hour from noon on. The pair for twelve is noon
+    # and midnight, and midnight is the fallback the lines below already roll
+    # forward a day, which lands on the next midnight rather than on the next noon.
+    twelve = hour % 12 or 12
+    if prefer_pm:
+        first = twelve if twelve == 12 else twelve + 12
+        second = 0 if twelve == 12 else twelve
+    else:
+        first = twelve
+        second = (twelve + 12) % 24
     if same_weekday:
         # "on Monday at nine" said on a Monday, once nine has gone, means the next
         # Monday at nine rather than nine tonight: the day was named for a reason.
@@ -390,16 +404,33 @@ def parse(text: str) -> dict | None:
     if not m:
         return None
     pair = (m.group(1), m.group(2))
-    _match_end = m.end()
+    # The rest of the sentence is sliced off the string the match was found in.
+    # `words` is stripped and `text` is not, so measuring the match on one and
+    # slicing the other read two characters past it whenever the sentence arrived
+    # with a leading space, and "an hour and a half" quietly became an hour.
+    rest = words[m.end():]
     delay = _seconds(pair[0].strip(), pair[1])
     if delay is None:
         return None
     # the other way round: "an hour and a half" puts the half after the unit, and
     # reading only the hour fires it half an hour early, which is worse than not
     # understanding it at all
-    m_after = re.match(rf"\s*{_AND_HALF}", text[_match_end:])
+    m_after = re.match(rf"\s*{_AND_HALF}", rest)
     if m_after:
         delay += (0.25 if "quarter" in m_after.group(0) else 0.5) * (_seconds("1", pair[1]) or 0.0)
+        rest = rest[m_after.end():]
+    # "in one hour thirty minutes" is one duration in two units. Reading only the
+    # first of them set an hour and said an hour, and both were wrong by half an
+    # hour: the same mistake the half above was written for, in the other shape.
+    for _ in range(3):
+        nxt = re.match(rf"\s*(?:and\s+)?({_AMOUNT})\s*{_UNIT}", rest, re.I)
+        if not nxt:
+            break
+        more = _seconds(nxt.group(1).strip(), nxt.group(2))
+        if not more:
+            break
+        delay += more
+        rest = rest[nxt.end():]
     if not delay or delay <= 0 or delay > 7 * 86400:
         return None
     # A timer nobody named still has to be spoken about, and "Your timer" as a
@@ -418,11 +449,30 @@ def parse(text: str) -> dict | None:
 
 # ------------------------------------------------------------------ the store
 def load() -> list[dict]:
+    """The store, with anything that is not a reminder left out of it.
+
+    The file is meant to be readable and editable by hand, so an entry that is not
+    the shape this writes is a thing that happens: a missing label was a KeyError
+    from `pending`, and a due that is text raised on the comparison in
+    `due_items`. Both were answered with "something went wrong" instead of a
+    list. Dropping the entry here is one place rather than four, and it keeps the
+    rest of the file.
+    """
     try:
-        data = json.loads(PATH.read_text())
-        return data if isinstance(data, list) else []
+        data = json.loads(PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
+    if not isinstance(data, list):
+        return []
+    items = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        due = item.get("due")
+        if isinstance(due, bool) or not isinstance(due, (int, float)):
+            continue
+        items.append(item)
+    return items
 
 
 def save(items: list[dict]):
@@ -461,7 +511,8 @@ def _snapshot(items: list[dict]) -> None:
     """
     try:
         config.STATE_DIR.mkdir(parents=True, exist_ok=True)
-        _undo_path().write_text(json.dumps({"at": time.time(), "items": items}))
+        _undo_path().write_text(json.dumps({"at": time.time(), "items": items}),
+                                encoding="utf-8")
     except OSError:
         pass                    # it was cleared either way; this only adds the way back
 
@@ -504,11 +555,19 @@ def undo_intent(text: str) -> str | None:
         return None
     path = _undo_path()
     try:
-        data = json.loads(path.read_text())
-    except (OSError, ValueError):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        # A file that parses is not the same as a snapshot: a list, a string where
+        # the time should be, an items that is not a list. Each of those raised out
+        # of here, and out of the turn, so "undo" answered a plain request with
+        # "something went wrong". The shape is checked rather than trusted.
+        if not isinstance(data, dict):
+            return None
+        age = time.time() - float(data.get("at") or 0)
+        raw = data.get("items")
+        items = [i for i in raw if isinstance(i, dict) and
+                 isinstance(i.get("due"), (int, float))] if isinstance(raw, list) else []
+    except (OSError, ValueError, TypeError):
         return None
-    age = time.time() - float(data.get("at") or 0)
-    items = data.get("items") or []
     # A window of zero is no window at all, and the comparison is inclusive for a
     # reason: a clock that ticks sixty-four times a second, which is what Windows
     # has, can return the same instant for the snapshot and for the undo, making
@@ -529,7 +588,7 @@ def _spoken_names(labels: list[str]) -> str:
     """The labels as someone would say them out loud."""
     named = []
     for label in labels:
-        label = (label or "").strip()
+        label = str(label or "").strip()
         if not label:
             continue
         named.append("a " + label.lower() if label in GENERIC
@@ -632,12 +691,13 @@ def pending() -> list[str]:
     out = []
     for i in items:
         due = i.get("due", 0)
+        label = str(i.get("label") or "Reminder")
         if i.get("repeat"):
             when = datetime.fromtimestamp(due)
-            out.append(f"{i['label']} every day at {_spoken_hour(when.hour, when.minute)}")
+            out.append(f"{label} every day at {_spoken_hour(when.hour, when.minute)}")
             continue
         left = max(0, due - now)
-        out.append(f"{i['label']} in {_spoken_gap(left)}")
+        out.append(f"{label} in {_spoken_gap(left)}")
     return out
 
 

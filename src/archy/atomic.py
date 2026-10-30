@@ -33,12 +33,18 @@ def write(path: Path | str, body: str, mode: int | None = 0o600) -> Path:
 
     `mode` is applied after the move, and `None` leaves the file's own mode alone:
     a file that already exists keeps the permissions its owner gave it.
+
+    The encoding is written out rather than left to the locale. It is the one place
+    every state file goes through, and the locale is cp1252 on Windows: a reminder
+    label, a fact about its owner or a line of a sweep report with an accent in it
+    raised UnicodeEncodeError, which is a ValueError and so was not caught by the
+    `except OSError` clauses around the callers either.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = staging(path)
     try:
-        temporary.write_text(body)
+        temporary.write_text(body, encoding="utf-8")
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)   # gone already when the replace worked

@@ -817,13 +817,26 @@ class Assistant:
                 moved = None
                 message = "The model refused my key, so I cannot think right now."
             elif not silent or self._hang_count >= config.MODEL_HANG_LIMIT:
-                moved = self.brain.advance_model()
+                was = self.brain.model_name()
+                next_model = self.brain.advance_model()
                 self._hang_count = 0
                 reason = "went quiet twice" if silent else "failed"
-                self.log("sys", f"the model {reason}, switching to "
-                                f"{moved.split('/')[-1]}")
-                message = ("My connection dropped, so I switched to a backup "
-                           "model. Ask me again.")
+                # A chain with one model in it advances to the model it is already
+                # on, and this used to say a backup had taken over when nothing had
+                # changed: the name it logged was the name that had just failed.
+                # Saying there is nothing else to try is the honest version of the
+                # same sentence.
+                moved = next_model if next_model and next_model != was else None
+                if moved:
+                    self.log("sys", f"the model {reason}, switching to "
+                                    f"{moved.split('/')[-1]}")
+                    message = ("My connection dropped, so I switched to a backup "
+                               "model. Ask me again.")
+                else:
+                    self.log("sys", f"the model {reason}, and it is the only one "
+                                    "in the chain")
+                    message = ("My connection dropped, and there is no backup "
+                               "model to move to. Ask me again.")
             else:
                 moved = None
                 self.log("sys", "the model connection dropped, restarting it")
@@ -896,9 +909,13 @@ class Assistant:
         except Exception as exc:
             print(f"[announce] {exc}")
         finally:
-            if self._stopping:
-                return
-            self._back_to_idle()
+            # Not `if self._stopping: return`. A return in a finally eats whatever
+            # is in flight, cancellation included, so a shutdown that landed during
+            # an announcement was swallowed and the task finished looking like it
+            # had asked to. The state still has to be given back, and this is the
+            # same decision written as the branch the loop skips.
+            if not self._stopping:
+                self._back_to_idle()
 
     async def _reminder_loop(self):
         """Due reminders are spoken, out loud, whatever the dashboard shows.

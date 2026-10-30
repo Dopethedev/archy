@@ -293,8 +293,10 @@ class PiBrain:
         self._write_error = ""
         threading.Thread(target=self._write_stdin, args=(generation, self._proc),
                          daemon=True).start()
-        threading.Thread(target=self._read_stdout, args=(generation,), daemon=True).start()
-        threading.Thread(target=self._read_stderr, args=(generation,), daemon=True).start()
+        threading.Thread(target=self._read_stdout, args=(generation, self._proc),
+                         daemon=True).start()
+        threading.Thread(target=self._read_stderr, args=(generation, self._proc),
+                         daemon=True).start()
 
     def _write_stdin(self, generation: int, proc):
         """Write what the loop hands over, on a thread of its own.
@@ -320,18 +322,29 @@ class PiBrain:
                 self._write_error = f"{type(exc).__name__}: {exc}"
                 return
 
-    def _read_stdout(self, generation: int):
-        assert self._proc and self._proc.stdout
-        for line in self._proc.stdout:
+    def _read_stdout(self, generation: int, proc):
+        """Read the process this thread was started for, not whatever is current.
+
+        A restart replaces self._proc, so a reader that looked the process up again
+        could attach to the next one's pipe. The process is an argument for that,
+        and because `assert self._proc.stdout` is no guard at all under `python -O`:
+        the assert is not there and the line under it raises on None.
+        """
+        stream = proc.stdout
+        if stream is None:
+            return
+        for line in stream:
             line = line.rstrip("\r\n")
             if line and generation == self._generation:
                 self._loop.call_soon_threadsafe(self._queue.put_nowait, line)
         if generation == self._generation:
             self._loop.call_soon_threadsafe(self._queue.put_nowait, None)   # process ended
 
-    def _read_stderr(self, generation: int):
-        assert self._proc and self._proc.stderr
-        for line in self._proc.stderr:
+    def _read_stderr(self, generation: int, proc):
+        stream = proc.stderr
+        if stream is None:
+            return
+        for line in stream:
             self._stderr.append(line.rstrip())
             del self._stderr[:-40]              # keep the tail only
 
@@ -572,6 +585,18 @@ class PiBrain:
                   flush=True)
 
     def model_name(self) -> str:
+        """The model answering now. Empty when there is no chain at all.
+
+        `start` refuses to run with nothing to ask and says which setting to fill
+        in, and the assistant carries on without a brain on purpose, so there is a
+        window where the chain really is empty. `self.chain[0 % 0]` raised
+        ZeroDivisionError in that window, from the privacy check in `_process`,
+        before every request about the screen: the honest "no model is configured"
+        was never reached. Every caller reads an empty name as somebody else's
+        machine, which is the safe direction for that question.
+        """
+        if not self.chain:
+            return ""
         return self.chain[self.model_index % len(self.chain)]
 
     def on_local_model(self) -> bool:

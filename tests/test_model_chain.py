@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from archy import status as status_mod
 from archy import config, privacy  # noqa: E402
 from archy.assistant import Assistant  # noqa: E402
-from archy.brain import BrainError  # noqa: E402
+from archy.brain import BrainError, PiBrain  # noqa: E402
 
 passed = failed = 0
 
@@ -173,6 +173,27 @@ async def main():
     print("-- the limit is configurable, not a magic number in a branch --")
     check("the limit lives in config", config.MODEL_HANG_LIMIT >= 2,
           str(config.MODEL_HANG_LIMIT))
+
+    print("-- a chain with one model in it has no backup to move to --")
+    h = Harness([BrainError("the model failed")])
+    h.brain.models = ("only/one",)
+    h._hang_count = 0
+    await turn(h)
+    check("it stays on the only model", h.brain.index == 0, h.brain.model_name())
+    check("and does not claim a switch happened",
+          not any("switching to" in l for l in h.log_lines), h.last())
+    check("the log says it is the only one there is",
+          any("only one" in l for l in h.log_lines), h.last())
+    check("and the spoken line says there is no backup",
+          "no backup" in h.spoken[-1], h.spoken[-1][:60])
+
+    print("-- and a chain with nothing in it at all --")
+    empty = PiBrain()
+    empty.chain = ()
+    check("the model name is empty, not a ZeroDivisionError",
+          empty.model_name() == "", repr(empty.model_name()))
+    check("which every caller reads as somebody else's machine",
+          privacy.model_is_remote(empty.model_name()), "")
 
     print(f"\n{'ALL PASS' if not failed else str(failed) + ' FAILED'}  ({passed} checks)")
     sys.exit(1 if failed else 0)

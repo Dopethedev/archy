@@ -160,7 +160,7 @@ def _router_log():
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists() and path.stat().st_size > 1_000_000:
             path.unlink()
-        return open(path, "a")
+        return open(path, "a", encoding="utf-8")
     except OSError as exc:
         print(f"[local] no log for the server: {exc}", flush=True)
         return subprocess.DEVNULL
@@ -169,7 +169,7 @@ def _router_log():
 def _last_words(count: int = 3) -> str:
     """The tail of what the router said, for whoever has to fix it."""
     try:
-        lines = _router_log_path().read_text(errors="replace").splitlines()
+        lines = _router_log_path().read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return ""
     said = [line.strip() for line in lines if line.strip()][-count:]
