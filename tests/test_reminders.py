@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import archy.reminders as reminders
 from archy import config
-
 passed = failed = 0
 
 
@@ -470,6 +469,99 @@ else:
         else:
             _os.environ["TZ"] = real_tz
         time.tzset()
+
+# ------------------------------------------------------------- regressions
+# Each of these was wrong on 2026-10-30, and each was found by running the parser
+# rather than by reading it. They are here so the answers stay answers.
+print("-- a clock time of twelve, at every hour of the day --")
+for hour in (0, 6, 11, 12, 13, 18, 23):
+    now = datetime(2026, 10, 26, hour, 0)
+    for phrase in ("remind me at twelve to stretch",
+                   "remind me at 12:30 to stretch",
+                   "remind me at half past twelve to stretch"):
+        try:
+            got = reminders.parse_clock(phrase, now=now)
+            ok = got is not None and got["due"] > now.timestamp()
+            detail = got["described"] if got else "None"
+        except Exception as exc:        # twelve used to build hour 24 and raise
+            ok, detail = False, f"{type(exc).__name__}: {exc}"
+        check(f"{phrase!r} said at {hour:02d}:00", ok, detail)
+noon = datetime(2026, 10, 26, 9, 0)
+check("at twelve in the morning is noon today",
+      reminders.parse_clock("remind me at twelve to stretch", now=noon)["described"]
+      == "at noon today",
+      reminders.parse_clock("remind me at twelve to stretch", now=noon)["described"])
+afternoon = datetime(2026, 10, 26, 15, 0)
+check("at twelve in the afternoon is the next midnight",
+      reminders.parse_clock("remind me at twelve to stretch",
+                            now=afternoon)["described"] == "at midnight tomorrow",
+      reminders.parse_clock("remind me at twelve to stretch",
+                            now=afternoon)["described"])
+
+print("-- a delay written with a point in it --")
+for text, want in (("remind me in 1.5 hours to check the oven", 5400),
+                   ("remind me in 2.5 minutes", 150),
+                   ("set a timer for 1.5 hours", 5400),
+                   ("remind me in 0.5 hours", 1800)):
+    a = reminders.parse(text)
+    check(f"{text!r}", a and abs(a["delay"] - want) < 0.01, str(a))
+
+print("-- one delay in two units --")
+for text, want in (("remind me in 1 hour 30 minutes", 5400),
+                   ("remind me in one hour thirty minutes to bake", 5400),
+                   ("remind me in 2 hours 15 minutes", 8100),
+                   ("remind me in 1 hour and 45 minutes", 6300),
+                   ("remind me in 1 hour 30 minutes to bake", 5400)):
+    a = reminders.parse(text)
+    check(f"{text!r}", a and abs(a["delay"] - want) < 0.01, str(a))
+
+print("-- a leading space must not change the answer --")
+for text in ("remind me in an hour and a half to check the oven",
+             " remind me in an hour and a half to check the oven",
+             "\t remind me in an hour and a half to check the oven",
+             "   remind me in 1 hour 30 minutes to bake"):
+    a = reminders.parse(text)
+    check(f"{text[:44]!r}", bool(a) and abs(a["delay"] - 5400) < 0.01, str(a))
+
+print("-- a store edited by hand --")
+_live = reminders.PATH
+reminders.PATH = tmp / "hand-edited.json"
+reminders.PATH.write_text(json.dumps([
+    {"label": "Keep me", "due": time.time() + 600},
+    {"due": time.time() + 900},                  # no label, which is a KeyError
+    "not an object",                              # and this is not an entry
+    {"label": "No time", "due": "soon"},         # and this cannot be compared
+]))
+entries = reminders.load()
+check("an entry that is not an object is dropped",
+      all(isinstance(e, dict) for e in entries), str(entries))
+check("and so is one whose time cannot be compared",
+      len(entries) == 2 and all(isinstance(e["due"], float) for e in entries),
+      str(entries))
+listed = reminders.pending()
+check("the list does not raise on the entry with no name", len(listed) == 2, str(listed))
+check("and gives the nameless one a word to be said with",
+      any(line.startswith("Reminder in") for line in listed), str(listed))
+reminders.PATH.write_text(json.dumps([{"label": None, "due": time.time() + 60}]))
+check("an entry with no name still lists",
+      reminders.pending()[0].startswith("Reminder in"), reminders.pending()[0])
+
+print("-- an undo snapshot that is not the shape this wrote --")
+_undo = reminders._undo_path
+for body in ('["not", "a", "dict"]', '{"at": "yesterday", "items": []}',
+             '{"at": 0, "items": "nope"}', '{"at": 0, "items": ["nope"]}'):
+    path = tmp / "reminders-undo.json"
+    path.write_text(body)
+    reminders._undo_path = lambda p=path: p
+    try:
+        said = reminders.undo_intent("undo that")
+        check(f"undo of {body[:30]!r} answers, it does not raise", said is None, str(said))
+    except Exception as exc:
+        check(f"undo of {body[:30]!r} answers, it does not raise", False,
+              f"{type(exc).__name__}: {exc}")
+    finally:
+        reminders._undo_path = _undo
+reminders.PATH = _live
 
 print()
 print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)")

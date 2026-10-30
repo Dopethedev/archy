@@ -150,7 +150,7 @@ def write_policy() -> Path:
 
 def _read(path: Path) -> dict:
     try:
-        parsed = json.loads(path.read_text())
+        parsed = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
@@ -173,7 +173,7 @@ def reading() -> dict:
     if not path.exists():
         return {"waiting": 0, "pending": []}
     try:
-        entries = json.loads(path.read_text()).get("pending")
+        entries = json.loads(path.read_text(encoding="utf-8")).get("pending")
     except (OSError, ValueError):
         return {"waiting": None, "pending": []}
     if not isinstance(entries, list):
@@ -329,7 +329,7 @@ def recent_log(count: int = 20, path: Path | None = None) -> list[dict]:
     """The last decisions, with anything secret taken back out on the way through."""
     source = Path(path or config.PERMISSION_LOG)
     try:
-        lines = source.read_text().splitlines()
+        lines = source.read_text(encoding="utf-8").splitlines()
     except OSError:
         return []
     entries = []

@@ -668,7 +668,7 @@ def apply_local_overrides(path: Path | None = None) -> list[str]:
     if not path.exists():
         return said
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         said.append(f"[config] ignoring {path.name}: {exc}")
         print(said[-1])

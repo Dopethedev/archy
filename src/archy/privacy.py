@@ -136,7 +136,7 @@ def set_switch(key: str, value: bool) -> Path:
     body = {}
     if path.exists():
         try:
-            body = json.loads(path.read_text())
+            body = json.loads(path.read_text(encoding="utf-8"))
         except ValueError:
             body = {}
     if not isinstance(body, dict):

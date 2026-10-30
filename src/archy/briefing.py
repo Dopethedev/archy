@@ -149,7 +149,7 @@ def _machine() -> str:
 def _last_sweep() -> str:
     path = config.STATE_DIR / "last-sweep.txt"
     try:
-        text = path.read_text(errors="replace")
+        text = path.read_text(encoding="utf-8", errors="replace")
         when = time.strftime("%H:%M", time.localtime(path.stat().st_mtime))
     except OSError:
         return "no sweep has run yet on my watch"
