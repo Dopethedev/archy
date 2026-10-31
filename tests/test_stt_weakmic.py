@@ -19,6 +19,13 @@ import voice_models                              # noqa: E402
 
 voice_models.require("this group measures whisper against speech at microphone level")
 
+# the wake phrase is the owner's business: this machine answers to a name the
+# audio here does not carry. the phrase the audio carries is pinned, the same
+# way the hint below is: a check that reads the owner's settings is a check
+# about one desk, not about the code. pinned before SpeechWake reads it.
+config.WAKE_PHRASE = "hey archy"
+config.WAKE_ALIASES = ("archie",)
+
 PHRASE = "Archy, open Sober and tell me my cpu usage"
 # The name is not one of the words compared here. Whisper spells it "Archy" or
 # "Archie", and the second one is an accepted spelling: config.WAKE_ALIASES holds
