@@ -480,7 +480,15 @@ class Player:
 
         Includes the block already handed to the device, so this returns within one
         buffer of the last sound rather than up to a block before it.
+
+        With no stream at all there is nothing on its way out and never will be:
+        a machine whose speakers would not open still runs, and every reply was
+        queued into a queue nothing consumes, so this waited out its whole
+        timeout (180s on a reply, 30 on an announcement) before the turn could
+        end. Returning at once is the honest answer: the sound is not coming.
         """
+        if self._stream is None:
+            return True
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if not self.playing():

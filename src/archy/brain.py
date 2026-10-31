@@ -237,6 +237,12 @@ class PiBrain:
         session_dir = self.session_dir_for_run()
         self._generation += 1
         generation = self._generation
+        # the tail belongs to the process it came from. A restart keeps the list,
+        # so the next process that died without a word was reported with the
+        # previous process's error as its reason: a key problem fixed an hour ago
+        # kept being diagnosed, and the real reason, if the new one wrote one, sat
+        # under it where nobody read past.
+        self._stderr.clear()
         self._loop = asyncio.get_running_loop()
         self._queue = asyncio.Queue()
 
@@ -554,7 +560,18 @@ class PiBrain:
                 raise BrainError(str(event))
 
     def advance_model(self) -> str | None:
-        """Step to the next model in the chain, wrap around, and name it."""
+        """Step to the next model in the chain, wrap around, and name it.
+
+        An empty chain returns None, the same answer model_name() gives: with
+        online AI switched off and no local model configured, the brain never
+        started and every ask raised "pi process is not running", which lands in
+        this path on the second silent turn. The modulo of an empty tuple is a
+        ZeroDivisionError raised inside the error handler itself, so instead of
+        the honest "no model is configured" every question answered with
+        "Something went wrong there" and the brain was never restarted.
+        """
+        if not self.chain:
+            return None
         self.model_index = (self.model_index + 1) % len(self.chain)
         # Which model is answering is part of what the gate enforces: moving from
         # the model on this disk to a relay is the moment file contents stop being

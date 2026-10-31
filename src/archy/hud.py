@@ -87,7 +87,12 @@ class _Handler(BaseHTTPRequestHandler):
         if not supplied and "?" in self.path:
             from urllib.parse import parse_qs
             supplied = (parse_qs(self.path.split("?", 1)[1]).get("t") or [""])[0]
-        return hmac.compare_digest(supplied, self._hud.token)
+        # compared as bytes: a token header carrying anything outside ascii made
+        # compare_digest raise TypeError, and that is a traceback and a dropped
+        # connection where a 403 was meant to be. Header values are read as
+        # latin-1, so anything at all can be in one.
+        return hmac.compare_digest(supplied.encode("utf-8", "replace"),
+                                   self._hud.token.encode())
 
     # -------------------------------------------------------------------- get
     def do_GET(self):

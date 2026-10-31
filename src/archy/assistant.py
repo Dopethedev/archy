@@ -888,7 +888,14 @@ class Assistant:
             self.log("sys", "microphone on")
             self._back_to_idle()
         else:
-            self.mic.stop()
+            # a device that vanished while the stream was open can raise out of
+            # stop() as well; the switch is still off either way, so the closing
+            # is reported and the state moves on
+            try:
+                self.mic.stop()
+            except Exception as exc:
+                self.log("sys", f"the microphone would not close cleanly: "
+                                f"{type(exc).__name__}: {exc}")
             self.log("sys", "microphone off")
             self.set_state("muted")
 
@@ -1339,11 +1346,27 @@ class Assistant:
             self.shutdown()
 
     def shutdown(self):
+        """Take the run apart, one part at a time, and let a dead part be dead.
+
+        Each stop is guarded, because the order matters more than any one of them:
+        a microphone whose device vanished mid-run raises out of `stop()`, and an
+        unguarded first step meant the brain was never stopped (a pi process left
+        alive holding its pipe), the local server left running, and the dashboard
+        port left bound so the next start reported "port already in use" for a
+        machine that no longer had anything on it.
+        """
         self._stopping = True
-        self.mic.stop()
-        self.player.stop()
-        self.brain.stop()
-        local_model.stop()          # only one we started; someone else's stays up
+        for name, step in (("microphone", self.mic.stop), ("speakers", self.player.stop),
+                           ("the model process", self.brain.stop),
+                           ("the local model server", local_model.stop)):
+            try:
+                step()
+            except Exception as exc:
+                print(f"[shutdown] {name} would not stop cleanly: "
+                      f"{type(exc).__name__}: {exc}", flush=True)
         if self.hud:
-            self.hud.stop()
+            try:
+                self.hud.stop()
+            except Exception as exc:
+                print(f"[shutdown] the dashboard would not stop: {exc}", flush=True)
         print("\noffline.")

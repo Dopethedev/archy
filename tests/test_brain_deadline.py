@@ -170,6 +170,18 @@ async def drive(binary: str, timeout: float = 12.0):
         brain.stop()
 
 
+# a pi that says on stderr why it is broken, and one that says nothing. Used to
+# show that the tail a dying process is reported with belongs to that process.
+NOISY = fake_pi("noisy", '''
+print("warn: the key was bad", file=sys.stderr)
+for line in sys.stdin:
+    pass
+''')
+QUIET = fake_pi("quiet", """
+for line in sys.stdin:
+    pass
+""")
+
 async def main():
     outcome, detail, _ = await drive(SILENT)
     check("a process that stops answering is abandoned",
@@ -342,6 +354,33 @@ else:
           failure and "pi" in failure[0], str(failure)[:60])
 
 
+
+async def stderr_tail():
+    """The error tail a dying process is reported with belongs to that process.
+
+A restart keeps the collected stderr, so the next process that died without a
+word was reported with the previous one's error as its reason.
+"""
+
+    print("-- the error tail belongs to the process it came from --")
+    brain = PiBrain()
+    config.PI_BIN = NOISY
+    await brain.start()
+    await asyncio.sleep(0.6)              # the stderr reader has time to collect
+    had = brain._stderr_tail()
+    brain.stop()
+    check("a process that says why it died is heard",
+          "key was bad" in had, had[:80])
+    config.PI_BIN = QUIET
+    await brain.start()
+    await asyncio.sleep(0.6)
+    now = brain._stderr_tail()
+    brain.stop()
+    check("and the next process is not reported with the last one's words",
+          "key was bad" not in now, now[:80] or "(clean)")
+
+
+asyncio.run(stderr_tail())
 asyncio.run(main())
 print(f"\n{'ALL PASS' if failures == 0 else str(failures) + ' FAILED'}")
 sys.exit(1 if failures else 0)
