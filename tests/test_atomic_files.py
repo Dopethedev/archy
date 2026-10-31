@@ -158,9 +158,15 @@ check("no staging file is left behind",
 print("-- two writers never stage under one name --")
 names = set()
 lock = threading.Lock()
+# a barrier, not just a start loop: a thread identity is only unique among live
+# threads, and one that exits before the next starts can hand its identity down.
+# under a loaded run that collision is real, and it reads as four writers sharing
+# a name when the code in fact gave each live writer its own.
+barrier = threading.Barrier(4)
 
 
 def stage_a_name():
+    barrier.wait()
     with lock:
         names.add(atomic.staging(reminders.PATH))
 
