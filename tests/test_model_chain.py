@@ -195,6 +195,18 @@ async def main():
     check("which every caller reads as somebody else's machine",
           privacy.model_is_remote(empty.model_name()), "")
 
+    print("-- and a chain with nothing in it still steps without a crash --")
+    # a failed turn on a brain that never started reaches advance_model on the
+    # second silent failure; the modulo of an empty chain raised out of the
+    # error handler itself, and the honest sentence was never said
+    try:
+        moved = empty.advance_model()
+        check("an empty chain steps to nothing instead of raising",
+              moved is None, repr(moved))
+    except Exception as exc:
+        check("an empty chain steps to nothing instead of raising", False,
+              f"{type(exc).__name__}: {exc}")
+
     print(f"\n{'ALL PASS' if not failed else str(failed) + ' FAILED'}  ({passed} checks)")
     sys.exit(1 if failed else 0)
 

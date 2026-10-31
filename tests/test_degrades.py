@@ -483,6 +483,59 @@ asyncio.run(turn(h))
 check("a real answer flips it back", net.net.internet() is True, str(net.net.internet()))
 check("and the mode agrees", net.net.mode() == net.ONLINE, net.net.mode())
 
+print("-- shutdown survives a part that will not stop --")
+# a microphone whose device vanished mid-run raises out of stop(); the parts
+# after it in the shutdown order are exactly the ones whose cleanup matters:
+# a pi process left alive, a local server left running, a port left bound.
+class DyingMic:
+    def __init__(self):
+        self.calls = 0
+
+    def stop(self):
+        self.calls += 1
+        raise OSError("device vanished")
+
+
+class Counting:
+    def __init__(self, name):
+        self.name = name
+        self.calls = 0
+
+    def stop(self):
+        self.calls += 1
+
+
+bye = Assistant.__new__(Assistant)
+bye._stopping = False
+bye.mic = DyingMic()
+bye.player = Counting("player")
+bye.brain = Counting("brain")
+bye.hud = Counting("hud")
+real_local_stop = assistant_mod.local_model.stop
+local_calls = []
+assistant_mod.local_model.stop = lambda: local_calls.append(1)
+try:
+    bye.shutdown()
+    died = None
+except Exception as exc:
+    died = exc
+finally:
+    assistant_mod.local_model.stop = real_local_stop
+check("shutdown survives a microphone that raises out of its stop",
+      died is None, f"{type(died).__name__}: {died}" if died else "")
+check("the microphone is asked first, and its answer does not matter",
+      died is None and bye.mic.calls == 1, str(died or f"calls {bye.mic.calls}"))
+check("the speakers are still stopped", died is None and bye.player.calls == 1,
+      str(died or ""))
+check("the model process is still stopped", died is None and bye.brain.calls == 1,
+      str(died or "a pi left alive holds its pipe"))
+check("the local server is still stopped", died is None and bool(local_calls),
+      str(died or ""))
+check("the dashboard is still stopped", died is None and bye.hud.calls == 1,
+      str(died or "a port left bound reads as a second copy running"))
+check("and the run is marked stopped", died is None and bye._stopping is True,
+      str(died or ""))
+
 print()
 print(f"{'ALL PASS' if not failed else f'{failed} FAILED'}  ({passed} checks)")
 sys.exit(0 if not failed else 1)

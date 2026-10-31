@@ -152,5 +152,27 @@ check("no word is lost splitting a long sentence",
       f"{len(words(' '.join(chunks)).split())} words against "
       f"{len(words(long_line).split())}")
 
+print("-- a speaker that never opened owes nobody a wait --")
+# Player.start() failing is survived by design: a machine with no output device
+# still answers on the dashboard. But the queued audio then sat in a queue
+# nothing consumes, and every wait_drained sat out its whole timeout: 180s per
+# reply, 30 per announcement, the turn ending long after anyone stopped waiting.
+quiet = Player.__new__(Player)
+quiet.samplerate = 48000
+quiet._chunks = collections.deque()
+quiet._lock = threading.Lock()
+quiet._needs_fade = True
+quiet._channels = 2
+quiet._generation = 0
+quiet._speaking = False
+quiet.level = 0.0
+quiet._stream = None
+quiet.write(np.zeros(48000, dtype=np.float32))
+began = time.monotonic()
+ok = quiet.wait_drained(2.0)
+took = time.monotonic() - began
+check("no output device means wait_drained does not sit out its timeout",
+      ok is True and took < 1.0, f"returned {ok} after {took:.1f}s")
+
 print(f"\n{'ALL PASS' if failures == 0 else str(failures) + ' FAILED'}")
 sys.exit(1 if failures else 0)

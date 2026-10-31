@@ -144,6 +144,32 @@ resp = raw(f"GET /events?t={hud.token} HTTP/1.1\r\nHost: evil.example:{PORT}\r\n
 check("a rebound hostname is refused",
       resp.startswith("HTTP/1.1 403"), resp.splitlines()[0] if resp else "no response")
 
+# ------------------------------------------------------------ a header is bytes, not ascii
+# Header values are read as latin-1, so a token carrying anything outside ascii
+# used to make the comparison raise TypeError: a traceback and a dropped
+# connection where a 403 was meant to be. Sent as bytes, the way it arrives.
+def raw_bytes(request: bytes, settle: float = 1.0) -> str:
+    out = b""
+    with socket.create_connection((HOST, PORT), timeout=5) as s:
+        s.sendall(request)
+        s.settimeout(settle)
+        try:
+            while True:
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                out += chunk
+        except socket.timeout:
+            pass
+    return out.decode(errors="replace")
+
+
+resp = raw_bytes((f"GET /events HTTP/1.1\r\nHost: {HOST}:{PORT}\r\n"
+                   f"X-Archy-Token: tok\u00e9\r\nConnection: close\r\n\r\n")
+                  .encode("latin-1"))
+check("a token with non-ascii in it is refused, not a fault",
+      resp.startswith("HTTP/1.1 403"), resp.splitlines()[0] if resp else "no response")
+
 # ------------------------------------------------------------ a fresh tab tells the truth
 hud.publish({"type": "state", "value": "listening"})
 for _ in range(60):                                  # a second of real level traffic
