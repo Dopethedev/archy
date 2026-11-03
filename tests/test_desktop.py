@@ -240,9 +240,23 @@ check("closing with nothing in front does not run a command", desktop.close_focu
 print("-- what is asked for, and what is not --")
 for text, wanted in (("focus the browser", "the browser"), ("switch to code", "code"),
                      ("bring up discord", "discord"), ("jump to steam", "steam"),
-                     ("put in front terminal", "terminal")):
+                     ("put in front terminal", "terminal"),
+                     # a phrase that is a prefix of another phrase: iterating in
+                     # config order let "focus" take the name before "focus on"
+                     # was tried, and "on the browser" matches no window
+                     ("focus on the browser", "the browser"),
+                     ("focus on brave", "brave"),
+                     ("focus onedrive", "onedrive")):
     check(f"it takes the name out of {text!r}", desktop.focus_request(text) == wanted,
           str(desktop.focus_request(text)))
+
+# and the name it read has to find the window it means
+records = [desktop._record(1, "a page", "brave-browser", 1, True, 100.0),
+           desktop._record(2, "a file", "code-oss", 1, False, 50.0)]
+found = desktop.match(records, desktop.focus_request("focus on the browser"))
+check("the name a two-word trigger gives matches the window it means",
+      found is not None and found["app_id"] == "brave-browser",
+      str(found and found["app_id"]))
 check("it stays out of what is an application launch",
       desktop.focus_request("open brave") is None)
 check("and out of a screenshot question, which another intent owns",

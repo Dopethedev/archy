@@ -325,7 +325,11 @@ def spoken_close(result: dict) -> str:
 def focus_request(text: str) -> str | None:
     """The name a spoken window request is about, or None if this is not one."""
     words = (text or "").strip(_STRIP).lower()
-    for trigger in config.DESKTOP_FOCUS_PHRASES:
+    # Longest first, because one of these is a prefix of another: iterating in
+    # config order let "focus" take "focus on the browser" before "focus on"
+    # was tried, so the name came out as "on the browser", which matches no
+    # window, and the request fell through to a model that cannot see them.
+    for trigger in sorted(config.DESKTOP_FOCUS_PHRASES, key=len, reverse=True):
         if words == trigger:
             continue
         if words.startswith(trigger + " "):

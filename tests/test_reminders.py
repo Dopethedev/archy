@@ -132,6 +132,51 @@ for text in ("remind me in 5 months", "remind me in a month", "remind me in one 
     check(f"and it is refused out loud rather than passed on: {text!r}",
           "clock time" in (reminders.cannot_do(text) or ""),
           str(reminders.cannot_do(text)))
+
+print("-- a delay past a week is refused, not passed to a model --")
+# The delay parser took a week and no more, and the refusal knew only about
+# weeks and months, so "remind me in 8 days" was claimed by nothing and reached a
+# model with no reminder tool: a confident yes, and a reminder that never fires.
+for text in ("remind me in 8 days to renew the domain", "remind me in 10 days",
+             "remind me in 13 days", "remind me in 300 hours",
+             "set a timer for 10 days"):
+    check(f"a delay past a week is refused: {text!r}",
+          reminders.parse(text) is None and "week" in (reminders.cannot_do(text) or ""),
+          str(reminders.cannot_do(text)))
+# the control: the week itself still works, or this would refuse everything
+for text, want in (("remind me in 7 days", 604800.0), ("remind me in 6 days", 518400.0),
+                   ("remind me in 160 hours", 576000.0)):
+    a = reminders.parse(text)
+    check(f"and a delay inside the week still parses: {text!r}",
+          bool(a) and abs(a["delay"] - want) < 0.01, str(a))
+
+print("-- a day count beside a clock time is read together --")
+# The clock time was read against today and the day half was dropped, so the
+# reminder landed on the wrong day and the confirmation named that day out loud.
+for text, want in (("remind me in two days at noon", "2026-10-28 12:00"),
+                   ("remind me in three days at 9am", "2026-10-29 09:00"),
+                   ("remind me in 1 day at 7pm", "2026-10-27 19:00"),
+                   ("remind me in 24 hours at noon", "2026-10-27 12:00"),
+                   ("remind me at noon in two days", "2026-10-28 12:00")):
+    a = reminders.parse_clock(text, now=CLOCK_NOW)
+    got = datetime.fromtimestamp(a["due"]).strftime("%Y-%m-%d %H:%M") if a else ""
+    check(f"the day is part of the moment: {text!r}", got == want, got or "no action")
+# anything else is two moments in one sentence, and either reading is a guess
+for text in ("remind me in 3 hours at 5pm", "remind me in 30 minutes at 5pm"):
+    check(f"a delay and a clock time that do not fit together are refused: {text!r}",
+          reminders.parse(text, now=CLOCK_NOW) is None
+          and reminders.cannot_do(text, now=CLOCK_NOW) is not None,
+          str(reminders.cannot_do(text, now=CLOCK_NOW)))
+# and the same moment said twice is one request, not a refusal: at eleven, "in six
+# hours at five" is five
+for text, want in (("remind me in 6 hours at 5pm", "2026-10-26 17:00"),
+                   ("remind me in 2 hours at 1pm", "2026-10-26 13:00")):
+    a = reminders.parse(text, now=CLOCK_NOW)
+    got = datetime.fromtimestamp(a["due"]).strftime("%Y-%m-%d %H:%M") if a else ""
+    check(f"a delay that lands on the clock time is kept: {text!r}", got == want,
+          got or "no action")
+    check(f"and it is not refused: {text!r}", reminders.cannot_do(text, now=CLOCK_NOW) is None,
+          str(reminders.cannot_do(text, now=CLOCK_NOW)))
 # The control: the boundary must not cost a duration that is real. A fix that
 # refuses everything is not a fix, and this is the check that proves it is not.
 for text, want in (("remind me in 5 minutes", 300.0), ("remind me in 5m", 300.0),
