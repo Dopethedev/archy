@@ -35,3 +35,4 @@ design.md
 # audit passes name this machine, its paths and its findings, and go with the files
 # above rather than into the repository
 audit-*.md
+memory.json.bak
