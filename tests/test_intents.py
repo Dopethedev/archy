@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -188,6 +189,32 @@ async def main():
           any("brought back" in s.lower() for s in h.spoken) and reminders.pending() != [],
           str(h.spoken[:1]))
     check("and the model was never asked", h.brain.seen == [], str(h.brain.seen[:1]))
+    reminders.PATH.unlink(missing_ok=True)
+
+    # A reminder request this cannot hold has to be answered here, whatever else
+    # happens to it: a model has no reminder tool, so passing it on is a
+    # confident yes and a reminder that never fires.
+    h = await run_turn("remind me in 10 days to renew the domain")
+    check("a delay past a week is answered here, not passed on",
+          h.brain.seen == [] and "week" in " ".join(h.spoken).lower(),
+          f"{h.spoken} {h.brain.seen}")
+    check("and nothing is stored for it", reminders.pending() == [],
+          str(reminders.pending()))
+
+    h = await run_turn("remind me in 3 hours at 5pm")
+    check("a delay and a clock time in one sentence is refused here",
+          h.brain.seen == [] and "one of them" in " ".join(h.spoken), str(h.spoken))
+
+    # A whole number of days beside a clock time is one moment, and the day half
+    # used to be dropped: the reminder landed on today and said so out loud.
+    h = await run_turn("remind me in two days at noon")
+    stored = reminders.load()
+    want = (datetime.now() + timedelta(days=2)).replace(hour=12, minute=0,
+                                                        second=0, microsecond=0)
+    check("a day count beside a clock time is kept as that day",
+          len(stored) == 1 and abs(stored[0]["due"] - want.timestamp()) < 1.0,
+          f"stored {stored} wanted {want}")
+    reminders.PATH.unlink(missing_ok=True)
 
     h = await run_turn("combat mode")
     check("a theme is published to the dashboard",
@@ -311,6 +338,12 @@ async def main():
         check("a window already in front is reported as such",
               h.spoken == ["Brave is already in front."] and moved[-1] == "brave-browser",
               str(h.spoken))
+
+        h = await run_turn("focus on the editor")
+        check("a two-word trigger is not eaten by its own prefix",
+              moved[-1] == "code-oss" and h.brain.seen == [], f"{moved} {h.spoken}")
+        check("and the name it read is the one that came forward",
+              h.spoken == ["Code is in front now."], str(h.spoken))
 
         h = await run_turn("focus spotify")
         answered = any(who == "archy" and text for who, text in h.log_lines)

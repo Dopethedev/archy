@@ -72,21 +72,33 @@ def wanted(text: str) -> bool:
     return False
 
 
-def cannot_do(text: str) -> str | None:
+def cannot_do(text: str, now: datetime | None = None) -> str | None:
     """A reminder request this cannot serve, said plainly instead of passed on.
 
     Only when the request names an absolute time or day. The model has no
     reminder tool, so a request it cannot serve is a request it can only appear
     to accept: "remind me at five" would come back as a confident yes and then
     never fire. Asking for a delay instead is honest, and short.
+
+    Three shapes are refused here, and each was a request the model agreed to and
+    never held: a date, a delay longer than the week that can be held ("remind me
+    in 8 days" parsed to nothing and was passed on, where "remind me in two weeks"
+    was refused), and a delay beside a clock time that is not a whole number of
+    days, which is two different moments in one sentence.
     """
     words = text.lower()
     if not any(w in words for w in ("remind", "reminder", "timer", "alarm")):
         return None
-    if not _UNSUPPORTED.search(words):
+    if _UNSUPPORTED.search(words):
+        return _NOT_A_DATE
+    found = _duration(words)
+    if not found:
         return None
-    return ("I can do a clock time, a delay, or every day at a time, but not a date "
-            "like that. Give me an hour and I will hold it.")
+    if _has_clock_time(words):
+        return _TWO_IN_ONE if _two_in_one(text, words, now) else None
+    if found[0] is not None and found[0] > DELAY_CAP_S:
+        return _TOO_LONG
+    return None
 
 
 def _number(amount: str) -> float | None:
@@ -137,9 +149,97 @@ def _seconds(amount: str, unit: str) -> float | None:
     return n                                    # seconds
 
 
+# The longest delay it will hold. "remind me in 8 days" is past it, and the
+# sentence used to reach a model with no reminder tool: parse() refused it and
+# cannot_do() knew only about weeks and months, so nothing said no.
+DELAY_CAP_S = 7 * 86400.0
+
+
 def _first_match(text: str, pattern: re.Pattern):
     """The match, so the caller can look at what follows the duration too."""
     return pattern.search(text)
+
+
+def _duration(words: str) -> tuple[float, str] | None:
+    """The delay a sentence asks for, and the words after it.
+
+    One function rather than two copies of the same walk: parse() reads a delay
+    from it, and cannot_do() asks the same question to tell a request this can
+    hold from one it cannot.
+
+    The rest of the sentence is sliced off the same string the match was found
+    in. Slicing one string by an offset measured on another read two characters
+    past it whenever the sentence arrived with a leading space, and "an hour and
+    a half" quietly became an hour.
+    """
+    m = _first_match(words, _RE_IN) or _TIMER.search(words)
+    if not m:
+        return None
+    delay = _seconds(m.group(1).strip(), m.group(2))
+    if delay is None:
+        return None
+    rest = words[m.end():]
+    # "an hour and a half" puts the half after the unit, and reading only the
+    # hour fires it half an hour early, which is worse than not understanding it
+    m_after = re.match(rf"\s*{_AND_HALF}", rest)
+    if m_after:
+        delay += (0.25 if "quarter" in m_after.group(0) else 0.5) * (_seconds("1", m.group(2)) or 0.0)
+        rest = rest[m_after.end():]
+    # "in one hour thirty minutes" is one duration in two units. Reading only the
+    # first of them set an hour and said an hour, and both were wrong by half an
+    # hour: the same mistake the half above was written for, in the other shape.
+    for _ in range(3):
+        nxt = re.match(rf"\s*(?:and\s+)?({_AMOUNT})\s*{_UNIT}", rest, re.I)
+        if not nxt:
+            break
+        more = _seconds(nxt.group(1).strip(), nxt.group(2))
+        if not more:
+            break
+        delay += more
+        rest = rest[nxt.end():]
+    return delay, rest
+
+
+def _has_clock_time(words: str) -> bool:
+    return bool(_RE_AT.search(words) or _RE_BARE_AMPM.search(words))
+
+
+def _whole_days(words: str) -> int | None:
+    """A delay of a whole number of days, when the sentence carries one.
+
+    "remind me in two days at noon" is a day and a clock time together, and the
+    day is the part that used to be dropped: the clock time was read against
+    today and the confirmation named the wrong day out loud.
+    """
+    found = _duration(words)
+    if not found or not found[0]:
+        return None
+    days = found[0] / 86400.0
+    whole = round(days)
+    if whole < 1 or abs(days - whole) > 1e-6:
+        return None
+    return whole
+
+
+def _two_in_one(text: str, words: str, now: datetime | None = None) -> bool:
+    """True when a sentence holds a delay and a clock time that disagree.
+
+    Two ways of naming one moment are fine: a whole number of days beside a clock
+    time, or a delay that lands on the clock time to the minute ("in two hours at
+    four"). A delay that lands anywhere else is two moments in one sentence, and
+    reading either one is a guess: "remind me in 3 hours at 5pm" set five o'clock
+    and dropped the three hours without saying so.
+    """
+    found = _duration(words)
+    if not found or not _has_clock_time(words):
+        return False
+    if _whole_days(words):
+        return False
+    at = parse_clock(text, now=now)
+    if not at:
+        return False
+    now = now or datetime.now()
+    return abs(at["due"] - (now + timedelta(seconds=found[0])).timestamp()) >= 60
 
 
 # ------------------------------------------------------------ clock times
@@ -172,6 +272,15 @@ _UNSUPPORTED = re.compile(
     rf"\bnext\s+(week|month|year|weekend)\b|\bon\s+the\s+\d"
     r"|\bthe\s+\d+(?:st|nd|rd|th)\s+of\b"
     rf"|\b{_UNSERVED}\s*(?:weeks?|months?|years?)\b", re.I)
+# The three refusals, one sentence each, because they are spoken and a listener
+# should hear the shape of the request that could not be held. The first two had
+# one sentence between them for as long as there was one shape.
+_NOT_A_DATE = ("I can do a clock time, a delay, or every day at a time, but not a date "
+               "like that. Give me an hour and I will hold it.")
+_TOO_LONG = ("I can hold a delay up to a week. Give me a clock time, or a shorter "
+             "delay, and I will keep it.")
+_TWO_IN_ONE = ("That is a delay and a clock time in one sentence. Give me one of them "
+               "and I will hold it.")
 # "set an alarm for 7am" has no "at" in it, and the am is what makes it a clock time.
 # The minutes are optional here for the same reason they are in _RE_AT: "set an
 # alarm for 6:30am" is the shape an alarm is usually set in, and without them the
@@ -353,6 +462,16 @@ def parse_clock(text: str, now: datetime | None = None) -> dict | None:
         day_offset = 1 if word == "tomorrow" else 0
         if word == "tonight":
             meridiem = meridiem or "pm"
+    else:
+        # A whole number of days sits beside the clock time rather than against
+        # it: "remind me in two days at noon" is noon two days from now. Without
+        # this the clock time was read against today and the day half vanished
+        # into a confirmation that named today, which is the wrong day chosen
+        # silently. Anything that is not whole days is refused instead of guessed
+        # at (see cannot_do).
+        whole = _whole_days(words)
+        if whole:
+            day_offset = whole
 
     target = _clock_target(hour, minute, meridiem, day_offset, now, same_weekday)
     if target is None:
@@ -375,7 +494,7 @@ def parse_clock(text: str, now: datetime | None = None) -> dict | None:
             "described": _describe(target, None if repeat else now)}
 
 
-def parse(text: str) -> dict | None:
+def parse(text: str, now: datetime | None = None) -> dict | None:
     """What he asked for: a set, a list, or a cancel. None if it is none of
     those, in which case the sentence goes to the model as usual."""
     words = text.lower().strip()
@@ -397,41 +516,21 @@ def parse(text: str) -> dict | None:
             any(w in words for w in ("reminder", "reminders", "timer", "left",
                                      "alarm", "alarms")):
         return {"action": "list"}
-    at = parse_clock(text)
+    at = parse_clock(text, now=now)
     if at:
+        # A whole number of days was folded into the clock time above. A delay
+        # that lands on the same moment is the same moment said twice, and it is
+        # kept. Anything else is two moments in one sentence: "remind me in 3
+        # hours at 5pm" set five o'clock and dropped the three hours without
+        # saying so. cannot_do says that out loud.
+        if _two_in_one(text, words, now):
+            return None
         return at
-    m = _first_match(words, _RE_IN) or _TIMER.search(words)
-    if not m:
+    found = _duration(words)
+    if not found:
         return None
-    pair = (m.group(1), m.group(2))
-    # The rest of the sentence is sliced off the string the match was found in.
-    # `words` is stripped and `text` is not, so measuring the match on one and
-    # slicing the other read two characters past it whenever the sentence arrived
-    # with a leading space, and "an hour and a half" quietly became an hour.
-    rest = words[m.end():]
-    delay = _seconds(pair[0].strip(), pair[1])
-    if delay is None:
-        return None
-    # the other way round: "an hour and a half" puts the half after the unit, and
-    # reading only the hour fires it half an hour early, which is worse than not
-    # understanding it at all
-    m_after = re.match(rf"\s*{_AND_HALF}", rest)
-    if m_after:
-        delay += (0.25 if "quarter" in m_after.group(0) else 0.5) * (_seconds("1", pair[1]) or 0.0)
-        rest = rest[m_after.end():]
-    # "in one hour thirty minutes" is one duration in two units. Reading only the
-    # first of them set an hour and said an hour, and both were wrong by half an
-    # hour: the same mistake the half above was written for, in the other shape.
-    for _ in range(3):
-        nxt = re.match(rf"\s*(?:and\s+)?({_AMOUNT})\s*{_UNIT}", rest, re.I)
-        if not nxt:
-            break
-        more = _seconds(nxt.group(1).strip(), nxt.group(2))
-        if not more:
-            break
-        delay += more
-        rest = rest[nxt.end():]
-    if not delay or delay <= 0 or delay > 7 * 86400:
+    delay = found[0]
+    if not delay or delay <= 0 or delay > DELAY_CAP_S:
         return None
     # A timer nobody named still has to be spoken about, and "Your timer" as a
     # label reads like a machine in a list and in a sentence. The general ones
